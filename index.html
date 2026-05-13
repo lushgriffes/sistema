@@ -1810,7 +1810,7 @@ function renderMovDetalhesModal(movId){
         <div style="margin-bottom:14px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px">
             <label style="font-size:13px;font-weight:700;color:var(--dark)">📦 ${isAporteMerc?'Mercadoria deste aporte':'Produtos desta compra'} (sincronizados com Estoque)</label>
-            <span style="font-size:10px;color:var(--gray)">${prodsLinked.length} produto(s) • ${totalQtdProds} unid • Total: <strong>${fmt(totalProds)}</strong>${prodsLinked.length&&Math.abs(diffProds)>0.01?` <span style="color:${diffProds>0?'var(--red)':'var(--orange)'}" title="Diferença entre soma dos produtos e valor da movimentação">⚠ ${diffProds>0?'+':''}${fmt(diffProds)} vs mov.</span>`:''}</span>
+            <span id="movItemsHeaderInfo" style="font-size:10px;color:var(--gray)">${prodsLinked.length} produto(s) • ${totalQtdProds} unid • Total: <strong>${fmt(totalProds)}</strong>${prodsLinked.length&&Math.abs(diffProds)>0.01?` <span style="color:${diffProds>0?'var(--red)':'var(--orange)'}" title="Diferença entre soma dos produtos e valor da movimentação">⚠ ${diffProds>0?'+':''}${fmt(diffProds)} vs mov.</span>`:''}</span>
           </div>
           <div id="movItemsScroll" style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:8px;max-height:320px;overflow-y:auto;overflow-x:auto">
             ${prodsLinked.length===0?
@@ -1835,10 +1835,10 @@ function renderMovDetalhesModal(movId){
                   </div>`;}).join('')}`
             }
           </div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center">
+          <div id="movItemsActionsRow" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center">
             <button class="btn btn-secondary btn-sm" onclick="addProdItemMov(${m.id})">+ Adicionar Produto</button>
             <button class="btn btn-sm" onclick="abrirConciliar(${m.id})" style="background:var(--blue);color:#fff" title="Vincular produtos ja cadastrados no estoque">🔗 Vincular produtos cadastrados</button>
-            ${prodsLinked.length>0&&Math.abs(diffProds)>0.01?`<button class="btn btn-sm" onclick="sincronizarValorMov(${m.id})" style="background:var(--orange);color:#fff" title="Atualizar valor da movimentação para bater com a soma dos produtos">🔄 Sincronizar valor (${fmt(totalProds)})</button>`:''}
+            ${prodsLinked.length>0&&Math.abs(diffProds)>0.01?`<button class="btn btn-sm" data-sync="1" onclick="sincronizarValorMov(${m.id})" style="background:var(--orange);color:#fff" title="Atualizar valor da movimentação para bater com a soma dos produtos">🔄 Sincronizar valor (${fmt(totalProds)})</button>`:''}
           </div>
           <div style="font-size:10px;color:var(--gray);margin-top:6px;line-height:1.4">💡 Editar nome/custo/qtd atualiza direto no estoque. Excluir remove o produto do estoque. <strong>+ Adicionar Produto</strong> cria um novo produto no estoque — não use se o produto já está cadastrado.</div>
         </div>
@@ -1903,13 +1903,54 @@ function addProdItemMov(movId){
   saveData();refreshMovModal(movId);toast('Produto adicionado ao estoque');
 }
 
+// Atualiza apenas totais e botao de sincronizar (sem destruir inputs)
+function _updateMovItemsTotals(movId){
+  const m=D.movimentacoes.find(x=>x.id===movId);if(!m)return;
+  const compraMovId=getCompraMovId(m);if(!compraMovId)return;
+  const isAporteMerc=m.cat==='Capital Inicial'&&m.aportePairId;
+  const prods=D.produtos.filter(p=>p.movId===compraMovId);
+  const total=prods.reduce((a,p)=>a+(+p.custo||0)*(+p.qtd||1),0);
+  const totalQtd=prods.reduce((a,p)=>a+(+p.qtd||1),0);
+  const diff=Math.round((total-(m.valor||0))*100)/100;
+  // Atualizar info do header
+  const infoEl=document.getElementById('movItemsHeaderInfo');
+  if(infoEl){
+    infoEl.innerHTML=`${prods.length} produto(s) • ${totalQtd} unid • Total: <strong>${fmt(total)}</strong>${prods.length&&Math.abs(diff)>0.01?` <span style="color:${diff>0?'var(--red)':'var(--orange)'}" title="Diferença entre soma dos produtos e valor da movimentação">⚠ ${diff>0?'+':''}${fmt(diff)} vs mov.</span>`:''}`;
+  }
+  // Atualizar botao de sincronizar (mostrar/esconder/atualizar texto)
+  const actionsEl=document.getElementById('movItemsActionsRow');
+  if(actionsEl){
+    const existing=actionsEl.querySelector('button[data-sync]');
+    const needsSync=prods.length>0&&Math.abs(diff)>0.01;
+    if(needsSync){
+      const txt=`🔄 Sincronizar valor (${fmt(total)})`;
+      if(existing){
+        existing.textContent=txt;
+        existing.setAttribute('onclick',`sincronizarValorMov(${movId})`);
+      }else{
+        const btn=document.createElement('button');
+        btn.className='btn btn-sm';
+        btn.setAttribute('data-sync','1');
+        btn.setAttribute('onclick',`sincronizarValorMov(${movId})`);
+        btn.style.cssText='background:var(--orange);color:#fff';
+        btn.title='Atualizar valor da movimentação para bater com a soma dos produtos';
+        btn.textContent=txt;
+        actionsEl.appendChild(btn);
+      }
+    }else if(existing){
+      existing.remove();
+    }
+  }
+}
+
 function updateProdItemMov(prodId,movId,field,val){
   if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
   const p=D.produtos.find(x=>x.id===prodId);if(!p)return;
   p[field]=val;
   saveData();
-  // Re-render so totals update; input that triggered onchange already lost focus
-  refreshMovModal(movId);
+  // Partial update apenas dos totais/botoes - NAO mexe nos inputs
+  // Isso evita destruir o input que o usuario acabou de clicar
+  _updateMovItemsTotals(movId);
 }
 
 function removerProdItemMov(prodId,movId){
