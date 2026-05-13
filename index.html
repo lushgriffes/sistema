@@ -1707,7 +1707,7 @@ function renderMovDetalhesModal(movId){
           </div>
           <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:8px;max-height:320px;overflow-y:auto">
             ${prodsLinked.length===0?
-              `<div style="font-size:11px;color:var(--gray);padding:14px;text-align:center">Esta compra ainda não tem produtos vinculados ao estoque.<br>Use <strong>+ Adicionar Produto</strong> para criar um novo, ou <strong>🔗 Vincular órfãos</strong> se o produto já existe no estoque sem dono.</div>`
+              `<div style="font-size:11px;color:var(--gray);padding:14px;text-align:center;line-height:1.5">Esta compra ainda não tem produtos vinculados.<br><span style="font-size:10px">Se foi registrada antes do controle de itens, os produtos estão no Estoque mas não foram amarrados a esta movimentação específica — e não há forma confiável de retroceder isso automaticamente.</span></div>`
               : `<div style="display:grid;grid-template-columns:1.8fr 55px 80px 50px 95px 32px;gap:5px;font-size:9px;font-weight:700;color:var(--gray);padding:0 4px 6px;text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid var(--border);margin-bottom:6px">
                   <span>Nome</span><span>Nº</span><span>Custo</span><span>Qtd</span><span>Status</span><span></span>
                 </div>
@@ -1726,10 +1726,9 @@ function renderMovDetalhesModal(movId){
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center">
             <button class="btn btn-secondary btn-sm" onclick="addProdItemMov(${m.id})">+ Adicionar Produto</button>
-            ${prodsLinked.length===0?`<button class="btn btn-sm" onclick="abrirVincularOrfaos(${m.id})" style="background:#6b7280;color:#fff" title="Vincular produtos antigos do estoque sem dono">🔗 Vincular órfãos</button>`:''}
             ${prodsLinked.length>0&&Math.abs(diffProds)>0.01?`<button class="btn btn-sm" onclick="sincronizarValorMov(${m.id})" style="background:var(--orange);color:#fff" title="Atualizar valor da movimentação para bater com a soma dos produtos">🔄 Sincronizar valor (${fmt(totalProds)})</button>`:''}
           </div>
-          <div style="font-size:10px;color:var(--gray);margin-top:6px;line-height:1.4">💡 Editar nome/custo/qtd atualiza direto no estoque. Excluir remove o produto do estoque.</div>
+          <div style="font-size:10px;color:var(--gray);margin-top:6px;line-height:1.4">💡 Editar nome/custo/qtd atualiza direto no estoque. Excluir remove o produto do estoque. <strong>+ Adicionar Produto</strong> cria um novo produto no estoque — não use se o produto já está cadastrado.</div>
         </div>
         `:`
         <div style="margin-bottom:14px;padding:12px;background:#f1f5f9;border:1px solid var(--border);border-radius:8px;font-size:11px;color:var(--text2)">
@@ -1851,114 +1850,6 @@ function verComprovanteFull(movId){
   document.body.appendChild(ov);
 }
 
-// ═══════ VINCULAR PRODUTOS ÓRFÃOS A UMA COMPRA (restrito) ═══════
-let _voState={movId:0,selected:new Set(),search:''};
-
-function abrirVincularOrfaos(movId){
-  if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
-  _voState={movId:movId,selected:new Set(),search:''};
-  document.querySelectorAll('.vo-orfaos-overlay').forEach(o=>o.remove());
-  const overlay=document.createElement('div');
-  overlay.className='modal-overlay vo-orfaos-overlay';
-  overlay.id='voOrfaosOverlay';
-  overlay.style.zIndex='1050';
-  overlay.onclick=function(e){if(e.target===overlay)overlay.remove()};
-  document.body.appendChild(overlay);
-  renderVincularOrfaos();
-}
-
-function renderVincularOrfaos(){
-  const overlay=document.getElementById('voOrfaosOverlay');if(!overlay)return;
-  const m=D.movimentacoes.find(x=>x.id===_voState.movId);if(!m)return;
-  // Extrair fornecedor
-  const dm=(m.desc||'').match(/^(?:Compra|Pagamento)\s+([A-Za-zÀ-ÿ0-9 ]+?)(?:\s+—|\s+Lote|\s+\d|\s+-)/i);
-  const fornecedor=dm?dm[1].trim():'';
-  // SO produtos orfaos (sem movId) + matching fornecedor
-  let orfaos=D.produtos.filter(p=>!p.movId);
-  if(fornecedor)orfaos=orfaos.filter(p=>(p.obs||'').toLowerCase().includes(fornecedor.toLowerCase()));
-  const search=_voState.search.toLowerCase();
-  if(search)orfaos=orfaos.filter(p=>(p.nome||'').toLowerCase().includes(search)||(p.obs||'').toLowerCase().includes(search));
-  orfaos.sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
-  const totalSel=Array.from(_voState.selected).reduce((a,pid)=>{const p=D.produtos.find(x=>x.id===pid);return a+(p?(+p.custo||0)*(+p.qtd||1):0)},0);
-  overlay.innerHTML=`
-    <div class="modal-card" style="max-width:760px" onclick="event.stopPropagation()">
-      <button class="modal-close" onclick="document.getElementById('voOrfaosOverlay').remove()">✕</button>
-      <div class="modal-body" style="padding-top:32px">
-        <h2 style="font-size:16px;margin-bottom:4px">🔗 Vincular Produtos Órfãos</h2>
-        <div style="font-size:11px;color:var(--gray);margin-bottom:8px">Mov #${m.id} — ${m.desc}<br>${fornecedor?`Filtrando: produtos órfãos do fornecedor <strong style="color:var(--blue)">${fornecedor}</strong>`:'Mostrando: todos os produtos órfãos (sem fornecedor detectado na descrição)'}</div>
-        <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:6px;padding:8px;font-size:10px;color:#92400e;margin-bottom:8px">
-          ⚠ Apenas produtos <strong>órfãos</strong> (sem dono no estoque) são listados. Use isto somente para vincular produtos cadastrados antes desta funcionalidade. Não duplica nada.
-        </div>
-        <div style="margin-bottom:8px">
-          <input value="${(_voState.search||'').replace(/"/g,'&quot;')}" placeholder="🔍 Refinar busca..." oninput="_voState.search=this.value;renderVincularOrfaos()" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
-        </div>
-        <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
-          <button class="btn btn-xs btn-secondary" onclick="voSelecionarTodos(true)">Selecionar todos visíveis</button>
-          <button class="btn btn-xs btn-secondary" onclick="voSelecionarTodos(false)">Limpar</button>
-        </div>
-        <div style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;background:#fff">
-          ${orfaos.length===0?'<div style="padding:20px;text-align:center;color:var(--gray);font-size:12px">Nenhum produto órfão encontrado com este filtro.<br>Todos os produtos com este fornecedor já estão vinculados a alguma compra.</div>':`
-          <table style="width:100%;font-size:11px">
-            <thead style="position:sticky;top:0;background:#f8fafc;z-index:1">
-              <tr><th style="width:32px;padding:6px 8px"></th><th style="padding:6px 8px">Produto</th><th style="padding:6px 8px">Cat</th><th style="padding:6px 8px;text-align:right">Custo</th><th style="padding:6px 8px">Status</th></tr>
-            </thead>
-            <tbody>
-              ${orfaos.map(p=>{
-                const checked=_voState.selected.has(p.id);
-                return `<tr>
-                  <td style="padding:5px 8px"><input type="checkbox" ${checked?'checked':''} onchange="voToggle(${p.id},this.checked)"></td>
-                  <td style="padding:5px 8px">${p.nome||'(sem nome)'}${p.obs?`<div style="font-size:9px;color:var(--gray)">${p.obs}</div>`:''}</td>
-                  <td style="padding:5px 8px">${p.cat||'—'}</td>
-                  <td style="padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums">${fmt(p.custo)}</td>
-                  <td style="padding:5px 8px;font-size:10px">${p.status||''}</td>
-                </tr>`;
-              }).join('')}
-            </tbody>
-          </table>`}
-        </div>
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:8px;flex-wrap:wrap">
-          <span style="font-size:11px;color:var(--gray)"><strong id="voCount">${_voState.selected.size}</strong> selecionado(s) • Total: <strong>${fmt(totalSel)}</strong></span>
-          <div style="display:flex;gap:8px">
-            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('voOrfaosOverlay').remove()">Cancelar</button>
-            <button class="btn btn-primary btn-sm" onclick="confirmarVincularOrfaos()">✓ Vincular</button>
-          </div>
-        </div>
-      </div>
-    </div>`;
-}
-
-function voToggle(pid,checked){
-  if(checked)_voState.selected.add(pid);else _voState.selected.delete(pid);
-  renderVincularOrfaos();
-}
-
-function voSelecionarTodos(sel){
-  const m=D.movimentacoes.find(x=>x.id===_voState.movId);if(!m)return;
-  const dm=(m.desc||'').match(/^(?:Compra|Pagamento)\s+([A-Za-zÀ-ÿ0-9 ]+?)(?:\s+—|\s+Lote|\s+\d|\s+-)/i);
-  const fornecedor=dm?dm[1].trim().toLowerCase():'';
-  const search=_voState.search.toLowerCase();
-  let orfaos=D.produtos.filter(p=>!p.movId);
-  if(fornecedor)orfaos=orfaos.filter(p=>(p.obs||'').toLowerCase().includes(fornecedor));
-  if(search)orfaos=orfaos.filter(p=>(p.nome||'').toLowerCase().includes(search)||(p.obs||'').toLowerCase().includes(search));
-  orfaos.forEach(p=>{if(sel)_voState.selected.add(p.id);else _voState.selected.delete(p.id)});
-  renderVincularOrfaos();
-}
-
-function confirmarVincularOrfaos(){
-  const movId=_voState.movId;
-  const m=D.movimentacoes.find(x=>x.id===movId);if(!m)return;
-  if(_voState.selected.size===0){toast('Nenhum produto selecionado',true);return}
-  let vinculados=0;
-  _voState.selected.forEach(pid=>{
-    const p=D.produtos.find(x=>x.id===pid);
-    if(p&&!p.movId){p.movId=movId;vinculados++}
-  });
-  _voState={movId:0,selected:new Set(),search:''};
-  saveData();
-  const o=document.getElementById('voOrfaosOverlay');if(o)o.remove();
-  refreshMovModal(movId);
-  toast(`${vinculados} produto(s) vinculado(s)`);
-}
 
 
 // ═══════ DESPESAS ═══════
