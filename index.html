@@ -272,7 +272,7 @@ async function loadDataFromSupabase(){
     if(!d.categorias)d.categorias=DEFAULT_DATA.categorias;
     d.produtos.forEach(p=>{if(p.num===undefined)p.num='';if(p.img===undefined)p.img='';if(!p.imgs){p.imgs=p.img?[p.img]:[]}if(p.precoVenda===undefined)p.precoVenda=0});
     d.despesas.forEach(x=>{if(!x.plano)x.plano=''});
-    d.movimentacoes.forEach(m=>{if(!m.plano)m.plano='';if(!m.itens)m.itens=[];if(m.comprovante===undefined)m.comprovante=''});
+    d.movimentacoes.forEach(m=>{if(!m.plano)m.plano='';if(!m.itens)m.itens=[];if(m.comprovante===undefined)m.comprovante='';if(m.itens&&m.itens.length){m.itens.forEach(it=>{if(it.produtoId){const _p=d.produtos.find(x=>x.id===it.produtoId);if(_p&&!_p.movId)_p.movId=m.id}})}});
     d.vendas.forEach(v=>{if(v.produtoId===undefined)v.produtoId=0;if(v.saldoReceber===undefined)v.saldoReceber=(v.valorVenda||0)-(v.recebido||0)});
     D=d;
   } else {
@@ -398,7 +398,7 @@ function loadData(){
       if(!d.historicoSelic)d.historicoSelic=[{data:"2025-05-07",taxa:14.75}];
       d.produtos.forEach(p=>{if(p.num===undefined)p.num='';if(p.img===undefined)p.img='';if(!p.imgs){p.imgs=p.img?[p.img]:[]}if(p.precoVenda===undefined)p.precoVenda=0});
       d.despesas.forEach(x=>{if(!x.plano)x.plano=''});
-      d.movimentacoes.forEach(m=>{if(!m.plano)m.plano='';if(!m.itens)m.itens=[];if(m.comprovante===undefined)m.comprovante=''});
+      d.movimentacoes.forEach(m=>{if(!m.plano)m.plano='';if(!m.itens)m.itens=[];if(m.comprovante===undefined)m.comprovante='';if(m.itens&&m.itens.length){m.itens.forEach(it=>{if(it.produtoId){const _p=d.produtos.find(x=>x.id===it.produtoId);if(_p&&!_p.movId)_p.movId=m.id}})}});
       d.vendas.forEach(v=>{if(v.produtoId===undefined)v.produtoId=0;if(v.saldoReceber===undefined)v.saldoReceber=(v.valorVenda||0)-(v.recebido||0)});
       // Auto-generate contasReceber from vendas with saldo > 0 if empty
       if(d.contasReceber.length===0){
@@ -1679,12 +1679,13 @@ function refreshMovModal(movId){
 function renderMovDetalhesModal(movId){
   const m=D.movimentacoes.find(x=>x.id===movId);if(!m)return'';
   const isSaida=m.tipo==='Saída';
-  const itens=m.itens||[];
-  const totalItens=itens.reduce((a,it)=>a+(+it.custo||0)*(+it.qtd||1),0);
-  const totalQtd=itens.reduce((a,it)=>a+(+it.qtd||1),0);
-  const diff=Math.round((totalItens-(m.valor||0))*100)/100;
+  const isCompraType=m.cat==='Pagamento Fornecedor'||/^Compra\b/i.test(m.desc||'');
+  const prodsLinked=isCompraType?D.produtos.filter(p=>p.movId===m.id):[];
+  const totalProds=prodsLinked.reduce((a,p)=>a+(+p.custo||0)*(+p.qtd||1),0);
+  const totalQtdProds=prodsLinked.reduce((a,p)=>a+(+p.qtd||1),0);
+  const diffProds=Math.round((totalProds-(m.valor||0))*100)/100;
   return `
-    <div class="modal-card" style="max-width:680px" onclick="event.stopPropagation()">
+    <div class="modal-card" style="max-width:720px" onclick="event.stopPropagation()">
       <button class="modal-close" onclick="fecharMovDetalhes()">✕</button>
       <div class="modal-body" style="padding-top:32px">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;gap:8px">
@@ -1698,32 +1699,43 @@ function renderMovDetalhesModal(movId){
           <input value="${(m.desc||'').replace(/"/g,'&quot;')}" onchange="var x=D.movimentacoes.find(y=>y.id===${m.id});if(x){x.desc=this.value;syncMovToDesp(${m.id},'desc',this.value);saveData()}" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px">
         </div>
 
+        ${isCompraType?`
         <div style="margin-bottom:14px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px">
-            <label style="font-size:13px;font-weight:700;color:var(--dark)">📦 Itens / Detalhamento</label>
-            <span style="font-size:10px;color:var(--gray)">${itens.length} item(s) • ${totalQtd} unid • Total: ${fmt(totalItens)}${itens.length&&Math.abs(diff)>0.01?` <span style="color:${diff>0?'var(--red)':'var(--orange)'}">(${diff>0?'+':''}${fmt(diff)} vs valor mov.)</span>`:''}</span>
+            <label style="font-size:13px;font-weight:700;color:var(--dark)">📦 Produtos desta compra (sincronizados com Estoque)</label>
+            <span style="font-size:10px;color:var(--gray)">${prodsLinked.length} produto(s) • ${totalQtdProds} unid • Total: <strong>${fmt(totalProds)}</strong>${prodsLinked.length&&Math.abs(diffProds)>0.01?` <span style="color:${diffProds>0?'var(--red)':'var(--orange)'}" title="Diferença entre soma dos produtos e valor da movimentação">⚠ ${diffProds>0?'+':''}${fmt(diffProds)} vs mov.</span>`:''}</span>
           </div>
-          <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:8px;max-height:280px;overflow-y:auto">
-            ${itens.length===0?
-              `<div style="font-size:11px;color:var(--gray);padding:12px;text-align:center">Nenhum item detalhado ainda.<br>Clique em <strong>+ Adicionar Item</strong> abaixo para registrar o que foi comprado.</div>`
-              : `<div style="display:grid;grid-template-columns:2fr 60px 80px 60px 32px;gap:6px;font-size:9px;font-weight:700;color:var(--gray);padding:0 4px 6px;text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid var(--border);margin-bottom:6px">
-                  <span>Nome</span><span>Nº</span><span>Custo (R$)</span><span>Qtd</span><span></span>
+          <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:8px;max-height:320px;overflow-y:auto">
+            ${prodsLinked.length===0?
+              `<div style="font-size:11px;color:var(--gray);padding:14px;text-align:center">Esta compra ainda não tem produtos vinculados ao estoque.<br>Use <strong>+ Adicionar Produto</strong> para criar um novo, ou <strong>🔗 Vincular órfãos</strong> se o produto já existe no estoque sem dono.</div>`
+              : `<div style="display:grid;grid-template-columns:1.8fr 55px 80px 50px 95px 32px;gap:5px;font-size:9px;font-weight:700;color:var(--gray);padding:0 4px 6px;text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid var(--border);margin-bottom:6px">
+                  <span>Nome</span><span>Nº</span><span>Custo</span><span>Qtd</span><span>Status</span><span></span>
                 </div>
-                ${itens.map((it,i)=>`
-                  <div style="display:grid;grid-template-columns:2fr 60px 80px 60px 32px;gap:6px;margin-bottom:5px;align-items:center">
-                    <input value="${(it.nome||'').replace(/"/g,'&quot;')}" onchange="updateItemMov(${m.id},${i},'nome',this.value)" placeholder="Nome do item" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px">
-                    <input value="${(it.num||'').replace(/"/g,'&quot;')}" onchange="updateItemMov(${m.id},${i},'num',this.value)" placeholder="—" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px">
-                    <input type="number" step="0.01" value="${it.custo||''}" onchange="updateItemMov(${m.id},${i},'custo',+this.value)" placeholder="0" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px;text-align:right">
-                    <input type="number" min="1" value="${it.qtd||1}" onchange="updateItemMov(${m.id},${i},'qtd',+this.value)" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px;text-align:right">
-                    <button onclick="removerItemMov(${m.id},${i})" style="background:var(--red);color:#fff;border:none;width:26px;height:26px;border-radius:5px;font-size:12px;cursor:pointer" title="Remover item">✕</button>
-                  </div>`).join('')}`
+                ${prodsLinked.map(p=>{
+                  const stBg=p.status==='Em Estoque'?'#d1fae5':p.status==='Vendido'?'#dbeafe':p.status&&p.status.includes('Reservado')?'#ede9fe':'#fef3c7';
+                  const stFg=p.status==='Em Estoque'?'#065f46':p.status==='Vendido'?'#1e40af':p.status&&p.status.includes('Reservado')?'#5b21b6':'#92400e';
+                  return `<div style="display:grid;grid-template-columns:1.8fr 55px 80px 50px 95px 32px;gap:5px;margin-bottom:5px;align-items:center">
+                    <input value="${(p.nome||'').replace(/"/g,'&quot;')}" onchange="updateProdItemMov(${p.id},${m.id},'nome',this.value)" placeholder="Nome do produto" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px">
+                    <input value="${(p.num||'').replace(/"/g,'&quot;')}" onchange="updateProdItemMov(${p.id},${m.id},'num',this.value)" placeholder="—" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px">
+                    <input type="number" step="0.01" value="${p.custo||''}" onchange="updateProdItemMov(${p.id},${m.id},'custo',+this.value)" placeholder="0" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px;text-align:right">
+                    <input type="number" min="1" value="${p.qtd||1}" onchange="updateProdItemMov(${p.id},${m.id},'qtd',+this.value)" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px;text-align:right">
+                    <span style="font-size:9px;padding:3px 5px;background:${stBg};color:${stFg};border-radius:6px;text-align:center;font-weight:600">${p.status||'—'}</span>
+                    <button onclick="removerProdItemMov(${p.id},${m.id})" style="background:var(--red);color:#fff;border:none;width:26px;height:26px;border-radius:5px;font-size:12px;cursor:pointer" title="Remover do estoque (CUIDADO)">✕</button>
+                  </div>`;}).join('')}`
             }
           </div>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
-            <button class="btn btn-secondary btn-sm" onclick="addItemMov(${m.id})">+ Adicionar Item</button>
-            <button class="btn btn-sm" onclick="abrirImportarProdutos(${m.id})" style="background:var(--blue);color:#fff">📥 Importar do Estoque</button>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center">
+            <button class="btn btn-secondary btn-sm" onclick="addProdItemMov(${m.id})">+ Adicionar Produto</button>
+            ${prodsLinked.length===0?`<button class="btn btn-sm" onclick="abrirVincularOrfaos(${m.id})" style="background:#6b7280;color:#fff" title="Vincular produtos antigos do estoque sem dono">🔗 Vincular órfãos</button>`:''}
+            ${prodsLinked.length>0&&Math.abs(diffProds)>0.01?`<button class="btn btn-sm" onclick="sincronizarValorMov(${m.id})" style="background:var(--orange);color:#fff" title="Atualizar valor da movimentação para bater com a soma dos produtos">🔄 Sincronizar valor (${fmt(totalProds)})</button>`:''}
           </div>
+          <div style="font-size:10px;color:var(--gray);margin-top:6px;line-height:1.4">💡 Editar nome/custo/qtd atualiza direto no estoque. Excluir remove o produto do estoque.</div>
         </div>
+        `:`
+        <div style="margin-bottom:14px;padding:12px;background:#f1f5f9;border:1px solid var(--border);border-radius:8px;font-size:11px;color:var(--text2)">
+          <strong>Tipo:</strong> ${m.cat||m.tipo} • Esta movimentação não é uma compra de produtos, então não tem itens de estoque vinculados.
+        </div>
+        `}
 
         ${isSaida?`
         <div style="margin-bottom:14px;padding:12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px">
@@ -1740,14 +1752,14 @@ function renderMovDetalhesModal(movId){
                 </div>
               </div>
             </div>
-          ` : `
+          `:`
             <div style="text-align:center;padding:14px;border:2px dashed #fcd34d;border-radius:6px;cursor:pointer;background:#fff" onclick="uploadComprovanteMov(${m.id})">
               <div style="font-size:13px;color:#92400e;font-weight:600">📷 Clique aqui para anexar foto do comprovante</div>
               <div style="font-size:10px;color:#92400e;opacity:.7;margin-top:4px">Recibo, nota fiscal, transferência, etc.</div>
             </div>
           `}
         </div>
-        ` : ''}
+        `:''}
 
         <div class="actions" style="margin-top:14px">
           <button class="btn btn-primary" onclick="fecharMovDetalhes()">✓ Concluir</button>
@@ -1756,26 +1768,46 @@ function renderMovDetalhesModal(movId){
     </div>`;
 }
 
-function addItemMov(movId){
-  if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
+// === HANDLERS DE ITENS DE COMPRA (operam em D.produtos como fonte da verdade) ===
+function addProdItemMov(movId){
+  if(!PERMS.insert){toast('Sem permissão para inserir',true);return}
   const m=D.movimentacoes.find(x=>x.id===movId);if(!m)return;
-  if(!m.itens)m.itens=[];
-  m.itens.push({nome:'',num:'',custo:0,qtd:1,cat:''});
-  saveData();refreshMovModal(movId);
+  // Extrair fornecedor da descricao
+  const dm=(m.desc||'').match(/^(?:Compra|Pagamento)\s+([A-Za-zÀ-ÿ0-9 ]+?)(?:\s+—|\s+Lote|\s+\d|\s+-)/i);
+  const forn=dm?dm[1].trim():'';
+  const novo={id:D.nextProdId++,nome:'',marca:'',cat:'Outro',custo:0,qtd:1,status:'Em Estoque',num:'',img:'',imgs:[],precoVenda:0,obs:forn?`Fornecedor: ${forn}`:`Mov #${movId}`,movId:movId};
+  D.produtos.push(novo);
+  saveData();refreshMovModal(movId);toast('Produto adicionado ao estoque');
 }
 
-function removerItemMov(movId,idx){
+function updateProdItemMov(prodId,movId,field,val){
   if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
-  const m=D.movimentacoes.find(x=>x.id===movId);if(!m||!m.itens)return;
-  const it=m.itens[idx];
-  if(!confirm(`Remover item "${it.nome||'sem nome'}" da lista?`))return;
-  m.itens.splice(idx,1);saveData();refreshMovModal(movId);
+  const p=D.produtos.find(x=>x.id===prodId);if(!p)return;
+  p[field]=val;
+  saveData();
+  // Re-render so totals update; input that triggered onchange already lost focus
+  refreshMovModal(movId);
 }
 
-function updateItemMov(movId,idx,field,val){
-  if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
-  const m=D.movimentacoes.find(x=>x.id===movId);if(!m||!m.itens||!m.itens[idx])return;
-  m.itens[idx][field]=val;saveData();refreshMovModal(movId);
+function removerProdItemMov(prodId,movId){
+  if(!PERMS.delete){toast('Sem permissão para excluir',true);return}
+  const p=D.produtos.find(x=>x.id===prodId);if(!p)return;
+  let msg=`Remover "${p.nome||'(sem nome)'}" desta compra E do estoque?`;
+  if(p.status&&p.status!=='Em Estoque'){
+    msg=`⚠ ATENÇÃO: este produto está com status "${p.status}".\nRemovê-lo pode afetar vendas ou encomendas vinculadas.\n\nConfirma a remoção do estoque?`;
+  }
+  if(!confirm(msg))return;
+  D.produtos=D.produtos.filter(x=>x.id!==prodId);
+  saveData();refreshMovModal(movId);toast('Produto removido do estoque');
+}
+
+function sincronizarValorMov(movId){
+  if(!PERMS.edit){toast('Sem permissão',true);return}
+  const m=D.movimentacoes.find(x=>x.id===movId);if(!m)return;
+  const prods=D.produtos.filter(p=>p.movId===movId);
+  const total=prods.reduce((a,p)=>a+(+p.custo||0)*(+p.qtd||1),0);
+  if(!confirm(`Atualizar valor da movimentação de ${fmt(m.valor)} para ${fmt(total)}?`))return;
+  m.valor=total;recalcSaldos();saveData();refreshMovModal(movId);toast('Valor sincronizado');
 }
 
 function uploadComprovanteMov(movId){
@@ -1819,78 +1851,63 @@ function verComprovanteFull(movId){
   document.body.appendChild(ov);
 }
 
-// ═══════ IMPORTAR PRODUTOS PARA ITENS DA MOVIMENTAÇÃO ═══════
-let _importer={movId:0,selected:new Set(),search:''};
+// ═══════ VINCULAR PRODUTOS ÓRFÃOS A UMA COMPRA (restrito) ═══════
+let _voState={movId:0,selected:new Set(),search:''};
 
-function abrirImportarProdutos(movId){
+function abrirVincularOrfaos(movId){
   if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
-  _importer={movId:movId,selected:new Set(),search:''};
-  document.querySelectorAll('.imp-prods-overlay').forEach(o=>o.remove());
+  _voState={movId:movId,selected:new Set(),search:''};
+  document.querySelectorAll('.vo-orfaos-overlay').forEach(o=>o.remove());
   const overlay=document.createElement('div');
-  overlay.className='modal-overlay imp-prods-overlay';
-  overlay.id='impProdsOverlay';
+  overlay.className='modal-overlay vo-orfaos-overlay';
+  overlay.id='voOrfaosOverlay';
   overlay.style.zIndex='1050';
   overlay.onclick=function(e){if(e.target===overlay)overlay.remove()};
   document.body.appendChild(overlay);
-  renderImportarProdutos();
+  renderVincularOrfaos();
 }
 
-function renderImportarProdutos(){
-  const overlay=document.getElementById('impProdsOverlay');
-  if(!overlay)return;
-  const m=D.movimentacoes.find(x=>x.id===_importer.movId);if(!m)return;
-  // Extract fornecedor from description: "Compra X — ..." or "Pagamento X ..."
-  const descMatch=(m.desc||'').match(/^(?:Compra|Pagamento)\s+([A-Za-zÀ-ÿ0-9 ]+?)(?:\s+—|\s+Lote|\s+\d|\s+-)/i);
-  const fornecedor=descMatch?descMatch[1].trim():'';
-  const itensAtuais=new Set((m.itens||[]).map(it=>(it.produtoId||0)));
-  const matchFornecedor=p=>{
-    if(!fornecedor)return false;
-    const obs=(p.obs||'').toLowerCase();
-    return obs.includes(fornecedor.toLowerCase());
-  };
-  const search=_importer.search.toLowerCase();
-  let allProds=D.produtos.slice();
-  if(search)allProds=allProds.filter(p=>(p.nome||'').toLowerCase().includes(search)||(p.obs||'').toLowerCase().includes(search)||(p.cat||'').toLowerCase().includes(search));
-  allProds.sort((a,b)=>{
-    const aS=matchFornecedor(a)?0:1, bS=matchFornecedor(b)?0:1;
-    if(aS!==bS)return aS-bS;
-    return (a.nome||'').localeCompare(b.nome||'');
-  });
-  const totSugeridos=allProds.filter(matchFornecedor).length;
+function renderVincularOrfaos(){
+  const overlay=document.getElementById('voOrfaosOverlay');if(!overlay)return;
+  const m=D.movimentacoes.find(x=>x.id===_voState.movId);if(!m)return;
+  // Extrair fornecedor
+  const dm=(m.desc||'').match(/^(?:Compra|Pagamento)\s+([A-Za-zÀ-ÿ0-9 ]+?)(?:\s+—|\s+Lote|\s+\d|\s+-)/i);
+  const fornecedor=dm?dm[1].trim():'';
+  // SO produtos orfaos (sem movId) + matching fornecedor
+  let orfaos=D.produtos.filter(p=>!p.movId);
+  if(fornecedor)orfaos=orfaos.filter(p=>(p.obs||'').toLowerCase().includes(fornecedor.toLowerCase()));
+  const search=_voState.search.toLowerCase();
+  if(search)orfaos=orfaos.filter(p=>(p.nome||'').toLowerCase().includes(search)||(p.obs||'').toLowerCase().includes(search));
+  orfaos.sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+  const totalSel=Array.from(_voState.selected).reduce((a,pid)=>{const p=D.produtos.find(x=>x.id===pid);return a+(p?(+p.custo||0)*(+p.qtd||1):0)},0);
   overlay.innerHTML=`
     <div class="modal-card" style="max-width:760px" onclick="event.stopPropagation()">
-      <button class="modal-close" onclick="document.getElementById('impProdsOverlay').remove()">✕</button>
+      <button class="modal-close" onclick="document.getElementById('voOrfaosOverlay').remove()">✕</button>
       <div class="modal-body" style="padding-top:32px">
-        <h2 style="font-size:16px;margin-bottom:4px">📥 Importar Produtos do Estoque</h2>
-        <div style="font-size:11px;color:var(--gray);margin-bottom:10px">Mov #${m.id} — ${m.desc}${fornecedor?` • Fornecedor detectado: <strong style="color:var(--blue)">${fornecedor}</strong>${totSugeridos?` (${totSugeridos} sugestões)`:''}`:''}</div>
+        <h2 style="font-size:16px;margin-bottom:4px">🔗 Vincular Produtos Órfãos</h2>
+        <div style="font-size:11px;color:var(--gray);margin-bottom:8px">Mov #${m.id} — ${m.desc}<br>${fornecedor?`Filtrando: produtos órfãos do fornecedor <strong style="color:var(--blue)">${fornecedor}</strong>`:'Mostrando: todos os produtos órfãos (sem fornecedor detectado na descrição)'}</div>
+        <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:6px;padding:8px;font-size:10px;color:#92400e;margin-bottom:8px">
+          ⚠ Apenas produtos <strong>órfãos</strong> (sem dono no estoque) são listados. Use isto somente para vincular produtos cadastrados antes desta funcionalidade. Não duplica nada.
+        </div>
         <div style="margin-bottom:8px">
-          <input value="${(_importer.search||'').replace(/"/g,'&quot;')}" placeholder="🔍 Buscar por nome, obs ou categoria..." oninput="_importer.search=this.value;renderImportarProdutos()" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+          <input value="${(_voState.search||'').replace(/"/g,'&quot;')}" placeholder="🔍 Refinar busca..." oninput="_voState.search=this.value;renderVincularOrfaos()" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
         </div>
         <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
-          <button class="btn btn-xs btn-secondary" onclick="impSelecionarTodos(true)">Selecionar visíveis</button>
-          <button class="btn btn-xs btn-secondary" onclick="impSelecionarTodos(false)">Limpar seleção</button>
-          ${totSugeridos>0?`<button class="btn btn-xs" onclick="impSelecionarSugeridos()" style="background:var(--blue);color:#fff">✓ Selecionar ${totSugeridos} sugeridos</button>`:''}
+          <button class="btn btn-xs btn-secondary" onclick="voSelecionarTodos(true)">Selecionar todos visíveis</button>
+          <button class="btn btn-xs btn-secondary" onclick="voSelecionarTodos(false)">Limpar</button>
         </div>
-        <div style="max-height:380px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;background:#fff">
-          ${allProds.length===0?'<div style="padding:20px;text-align:center;color:var(--gray);font-size:12px">Nenhum produto encontrado.</div>':`
+        <div style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;background:#fff">
+          ${orfaos.length===0?'<div style="padding:20px;text-align:center;color:var(--gray);font-size:12px">Nenhum produto órfão encontrado com este filtro.<br>Todos os produtos com este fornecedor já estão vinculados a alguma compra.</div>':`
           <table style="width:100%;font-size:11px">
             <thead style="position:sticky;top:0;background:#f8fafc;z-index:1">
-              <tr>
-                <th style="width:32px;padding:6px 8px"></th>
-                <th style="padding:6px 8px">Produto</th>
-                <th style="padding:6px 8px">Categoria</th>
-                <th style="padding:6px 8px;text-align:right">Custo</th>
-                <th style="padding:6px 8px">Status</th>
-              </tr>
+              <tr><th style="width:32px;padding:6px 8px"></th><th style="padding:6px 8px">Produto</th><th style="padding:6px 8px">Cat</th><th style="padding:6px 8px;text-align:right">Custo</th><th style="padding:6px 8px">Status</th></tr>
             </thead>
             <tbody>
-              ${allProds.map(p=>{
-                const suggested=matchFornecedor(p);
-                const already=itensAtuais.has(p.id);
-                const checked=_importer.selected.has(p.id);
-                return `<tr style="${suggested?'background:#eff6ff;':''}${already?'opacity:.45;':''}">
-                  <td style="padding:5px 8px"><input type="checkbox" ${already?'disabled':''} ${checked?'checked':''} onchange="impToggle(${p.id},this.checked)"></td>
-                  <td style="padding:5px 8px">${p.nome||'(sem nome)'}${suggested?' <span style="font-size:8px;background:#dbeafe;color:#1e40af;padding:1px 4px;border-radius:6px;font-weight:600">✓ MATCH</span>':''}${already?' <span style="font-size:9px;color:var(--gray)">(já incluído)</span>':''}${p.obs?`<div style="font-size:9px;color:var(--gray)">${p.obs}</div>`:''}</td>
+              ${orfaos.map(p=>{
+                const checked=_voState.selected.has(p.id);
+                return `<tr>
+                  <td style="padding:5px 8px"><input type="checkbox" ${checked?'checked':''} onchange="voToggle(${p.id},this.checked)"></td>
+                  <td style="padding:5px 8px">${p.nome||'(sem nome)'}${p.obs?`<div style="font-size:9px;color:var(--gray)">${p.obs}</div>`:''}</td>
                   <td style="padding:5px 8px">${p.cat||'—'}</td>
                   <td style="padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums">${fmt(p.custo)}</td>
                   <td style="padding:5px 8px;font-size:10px">${p.status||''}</td>
@@ -1900,64 +1917,47 @@ function renderImportarProdutos(){
           </table>`}
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:8px;flex-wrap:wrap">
-          <span style="font-size:11px;color:var(--gray)"><strong id="impCount">${_importer.selected.size}</strong> produto(s) selecionado(s)</span>
+          <span style="font-size:11px;color:var(--gray)"><strong id="voCount">${_voState.selected.size}</strong> selecionado(s) • Total: <strong>${fmt(totalSel)}</strong></span>
           <div style="display:flex;gap:8px">
-            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('impProdsOverlay').remove()">Cancelar</button>
-            <button class="btn btn-primary btn-sm" onclick="confirmarImportarProdutos()">✓ Importar Selecionados</button>
+            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('voOrfaosOverlay').remove()">Cancelar</button>
+            <button class="btn btn-primary btn-sm" onclick="confirmarVincularOrfaos()">✓ Vincular</button>
           </div>
         </div>
       </div>
     </div>`;
 }
 
-function impToggle(pid,checked){
-  if(checked)_importer.selected.add(pid);else _importer.selected.delete(pid);
-  const c=document.getElementById('impCount');if(c)c.textContent=_importer.selected.size;
+function voToggle(pid,checked){
+  if(checked)_voState.selected.add(pid);else _voState.selected.delete(pid);
+  renderVincularOrfaos();
 }
 
-function impSelecionarTodos(sel){
-  const m=D.movimentacoes.find(x=>x.id===_importer.movId);if(!m)return;
-  const itensAtuais=new Set((m.itens||[]).map(it=>(it.produtoId||0)));
-  const search=_importer.search.toLowerCase();
-  let visiveis=D.produtos.slice();
-  if(search)visiveis=visiveis.filter(p=>(p.nome||'').toLowerCase().includes(search)||(p.obs||'').toLowerCase().includes(search)||(p.cat||'').toLowerCase().includes(search));
-  visiveis.forEach(p=>{
-    if(itensAtuais.has(p.id))return;
-    if(sel)_importer.selected.add(p.id);else _importer.selected.delete(p.id);
-  });
-  renderImportarProdutos();
+function voSelecionarTodos(sel){
+  const m=D.movimentacoes.find(x=>x.id===_voState.movId);if(!m)return;
+  const dm=(m.desc||'').match(/^(?:Compra|Pagamento)\s+([A-Za-zÀ-ÿ0-9 ]+?)(?:\s+—|\s+Lote|\s+\d|\s+-)/i);
+  const fornecedor=dm?dm[1].trim().toLowerCase():'';
+  const search=_voState.search.toLowerCase();
+  let orfaos=D.produtos.filter(p=>!p.movId);
+  if(fornecedor)orfaos=orfaos.filter(p=>(p.obs||'').toLowerCase().includes(fornecedor));
+  if(search)orfaos=orfaos.filter(p=>(p.nome||'').toLowerCase().includes(search)||(p.obs||'').toLowerCase().includes(search));
+  orfaos.forEach(p=>{if(sel)_voState.selected.add(p.id);else _voState.selected.delete(p.id)});
+  renderVincularOrfaos();
 }
 
-function impSelecionarSugeridos(){
-  const m=D.movimentacoes.find(x=>x.id===_importer.movId);if(!m)return;
-  const descMatch=(m.desc||'').match(/^(?:Compra|Pagamento)\s+([A-Za-zÀ-ÿ0-9 ]+?)(?:\s+—|\s+Lote|\s+\d|\s+-)/i);
-  const fornecedor=descMatch?descMatch[1].trim().toLowerCase():'';
-  if(!fornecedor){toast('Não foi possível detectar o fornecedor',true);return}
-  const itensAtuais=new Set((m.itens||[]).map(it=>(it.produtoId||0)));
-  D.produtos.forEach(p=>{
-    if(itensAtuais.has(p.id))return;
-    if((p.obs||'').toLowerCase().includes(fornecedor))_importer.selected.add(p.id);
-  });
-  renderImportarProdutos();
-}
-
-function confirmarImportarProdutos(){
-  const m=D.movimentacoes.find(x=>x.id===_importer.movId);if(!m)return;
-  if(!m.itens)m.itens=[];
-  if(_importer.selected.size===0){toast('Nenhum produto selecionado',true);return}
-  let added=0;
-  _importer.selected.forEach(pid=>{
+function confirmarVincularOrfaos(){
+  const movId=_voState.movId;
+  const m=D.movimentacoes.find(x=>x.id===movId);if(!m)return;
+  if(_voState.selected.size===0){toast('Nenhum produto selecionado',true);return}
+  let vinculados=0;
+  _voState.selected.forEach(pid=>{
     const p=D.produtos.find(x=>x.id===pid);
-    if(p){
-      m.itens.push({nome:p.nome,cat:p.cat||'',custo:+p.custo||0,qtd:+p.qtd||1,num:p.num||'',produtoId:p.id});
-      added++;
-    }
+    if(p&&!p.movId){p.movId=movId;vinculados++}
   });
-  _importer={movId:0,selected:new Set(),search:''};
+  _voState={movId:0,selected:new Set(),search:''};
   saveData();
-  const o=document.getElementById('impProdsOverlay');if(o)o.remove();
-  refreshMovModal(m.id);
-  toast(`${added} produto(s) importado(s)!`);
+  const o=document.getElementById('voOrfaosOverlay');if(o)o.remove();
+  refreshMovModal(movId);
+  toast(`${vinculados} produto(s) vinculado(s)`);
 }
 
 
@@ -2293,7 +2293,10 @@ function salvarCompra(){
     }
     total+=it.custo*qtd;
   });
-  D.movimentacoes.push({id:nextId(D.movimentacoes),data,desc:`Compra ${forn||'—'} — ${valid.length} tipo(s)`,tipo:'Saída',cat:'Pagamento Fornecedor',plano:'Mercadoria',valor:total,saldo:0,itens:valid.map(it=>({nome:it.nome,cat:it.cat||'',custo:+it.custo||0,qtd:+it.qtd||1,num:it.num||''})),comprovante:''});
+  const _newMovId=nextId(D.movimentacoes);
+  D.movimentacoes.push({id:_newMovId,data,desc:`Compra ${forn||'—'} — ${valid.length} tipo(s)`,tipo:'Saída',cat:'Pagamento Fornecedor',plano:'Mercadoria',valor:total,saldo:0,itens:valid.map(it=>({nome:it.nome,cat:it.cat||'',custo:+it.custo||0,qtd:+it.qtd||1,num:it.num||''})),comprovante:''});
+  // Vincular produtos recem-criados a esta movimentacao
+  D.produtos.filter(p=>!p.movId&&(p.obs||'').includes(`Fornecedor: ${forn||'—'}`)).slice(-valid.reduce((a,it)=>a+(it.qtd||1),0)).forEach(p=>p.movId=_newMovId);
   recalcSaldos();saveData();compraItems=[{nome:'',cat:'Tênis',custo:0,qtd:1,num:'',imgs:[]}];
   toast(`Compra registrada! ${valid.reduce((a,i)=>a+(i.qtd||1),0)} produtos — Total: ${fmt(total)}`);showTab(2);
 }
