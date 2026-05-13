@@ -510,6 +510,10 @@ function showTab(i){activeTab=i;buildNav();renderPage()}
 let _editing=false;
 function renderPage(){
   if(_editing)return;
+  // Preservar scroll antes de re-renderizar (window + containers internos)
+  const _winY=window.scrollY||window.pageYOffset||0;
+  const _scrollSaves={};
+  document.querySelectorAll('[id$="TableScroll"],[id$="ListScroll"]').forEach(el=>{_scrollSaves[el.id]=el.scrollTop});
   const m=calcMetrics();
   const fns=[renderDash,renderDashPeriodo,renderBalanco,renderEstoque,renderEncomendas,renderVendas,renderMov,renderDesp,renderContasPagar,renderContasReceber,renderNovaCompra,renderNovoAporte,renderCorrecao,renderConfig];
   if(userProfile&&userProfile.role==='admin')fns.push(renderUsuarios);
@@ -519,6 +523,9 @@ function renderPage(){
   if(tabIdx===0)initCharts(m);
   if(tabIdx===1)initPeriodoCharts();
   if(tabIdx===12)initSelicChart();
+  // Restaurar scroll apos render (window + containers internos)
+  window.scrollTo(0,_winY);
+  Object.keys(_scrollSaves).forEach(id=>{const el=document.getElementById(id);if(el)el.scrollTop=_scrollSaves[id]});
 }
 
 // ═══════ APORTES POR SÓCIO ═══════
@@ -764,7 +771,7 @@ function renderEstoque(m){
   </div>
   <div style="text-align:right;margin-bottom:10px"><button class="btn btn-sm" onclick="gerarPDFEstoque()" style="background:var(--dark);color:#fff">📄 Baixar PDF Estoque</button></div>
   <div class="box"><h3>Produtos (${fil.length} itens)</h3>
-  <div style="max-height:600px;overflow-y:auto">
+  <div id="estTableScroll" style="max-height:600px;overflow-y:auto">
   <table><thead><tr><th style="width:50px">Foto</th><th>ID</th><th>Descrição</th><th>Nº</th><th>Cat.</th><th style="text-align:right">Custo</th><th style="text-align:right">Pç. Venda</th><th>Status</th><th>Ação</th></tr></thead><tbody>
   ${fil.map(p=>{
     const allImgs=p.imgs&&p.imgs.length?p.imgs:(p.img?[p.img]:[]);
@@ -1655,7 +1662,7 @@ function renderMov(){
     <span class="f-clear" onclick="movSearch='';movTipo='Todos';movCat='Todos';movPlano='Todos';renderPage()">Limpar filtros</span>
   </div>
   <div style="text-align:right;margin-bottom:10px"><button class="btn btn-sm" onclick="gerarPDFMov()" style="background:var(--dark);color:#fff">📄 Baixar PDF Movimentações</button></div>
-  <div class="box"><h3>Extrato (${sorted.length} registros)</h3><div style="max-height:600px;overflow-y:auto">
+  <div class="box"><h3>Extrato (${sorted.length} registros)</h3><div id="movTableScroll" style="max-height:600px;overflow-y:auto">
   <table><thead><tr><th>ID</th><th>Data</th><th>Descrição</th><th>Tipo</th><th>Categoria</th><th>Plano de Contas</th><th class="r">Valor</th><th class="r">Saldo</th><th>Ação</th></tr></thead><tbody>
   ${sorted.map(m=>`<tr>
     <td>${m.id}</td><td>${fmtD(m.data)}</td>
@@ -2216,7 +2223,7 @@ function renderDesp(){
     <span class="f-clear" onclick="despSearch='';despCatFilter='Todos';despPlanoFilter='Todos';renderPage()">Limpar filtros</span>
   </div>
   <div style="text-align:right;margin-bottom:10px"><button class="btn btn-sm" onclick="gerarPDFDesp()" style="background:var(--red);color:#fff">📄 Baixar PDF Despesas</button></div>
-  <div class="box"><h3>Despesas (${fil.length})</h3><div style="max-height:500px;overflow-y:auto">
+  <div class="box"><h3>Despesas (${fil.length})</h3><div id="despTableScroll" style="max-height:500px;overflow-y:auto">
   <table><thead><tr><th>Data</th><th>Despesa</th><th>Categoria</th><th>Plano de Contas</th><th class="r">Valor</th><th>Pago?</th></tr></thead><tbody>
   ${fil.map(d=>`<tr>
     <td>${fmtD(d.data)}</td>
@@ -2299,7 +2306,7 @@ function renderContasPagar(){
     <span class="f-clear" onclick="cpSearch='';cpStatusFilter='Todos';renderPage()">Limpar</span>
   </div>
   <div style="text-align:right;margin-bottom:10px"><button class="btn btn-sm" onclick="gerarPDFContasPagar()" style="background:var(--red);color:#fff">📄 Baixar PDF A Pagar</button></div>
-  <div class="box"><h3>Contas a Pagar (${fil.length})</h3><div style="max-height:500px;overflow-y:auto">
+  <div class="box"><h3>Contas a Pagar (${fil.length})</h3><div id="cpTableScroll" style="max-height:500px;overflow-y:auto">
   <table><thead><tr><th>Vencimento</th><th>Descrição</th><th>Categoria</th><th>Plano</th><th class="r">Valor</th><th>Status</th><th>Ação</th></tr></thead><tbody>
   ${fil.map(c=>{
     const vencida=c.status!=='Pago'&&c.vencimento<hoje();
@@ -2376,7 +2383,7 @@ function renderContasReceber(){
     <span class="f-clear" onclick="crSearch='';crStatusFilter='Todos';renderPage()">Limpar</span>
   </div>
   <div style="text-align:right;margin-bottom:10px"><button class="btn btn-sm" onclick="gerarPDFContasReceber()" style="background:var(--orange);color:#fff">📄 Baixar PDF A Receber</button></div>
-  <div class="box"><h3>Contas a Receber (${fil.length})</h3><div style="max-height:500px;overflow-y:auto">
+  <div class="box"><h3>Contas a Receber (${fil.length})</h3><div id="crTableScroll" style="max-height:500px;overflow-y:auto">
   <table><thead><tr><th>Vencimento</th><th>Descrição</th><th>Cliente</th><th class="r">Valor</th><th>Status</th><th>Ação</th></tr></thead><tbody>
   ${fil.map(c=>{
     const badgeCl=c.status==='Recebido'?'b-recebido':'b-pendente';
