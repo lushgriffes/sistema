@@ -2031,24 +2031,62 @@ function abrirConciliar(movId){
   renderConciliar();
 }
 
+function _buildConciliarTableHTML(){
+  const m=D.movimentacoes.find(x=>x.id===_conState.movId);if(!m)return '';
+  const cands=_getConciliarCandidatos();
+  const movMap={};D.movimentacoes.forEach(x=>{movMap[x.id]=x});
+  if(cands.length===0){
+    return `<div style="padding:20px;text-align:center;color:var(--gray);font-size:12px">Nenhum produto encontrado.<br>${!_conState.incluirVinculados?`<a onclick="_conState.incluirVinculados=true;_conState.mostrarTodos=true;updateConciliarTable()" style="color:var(--blue);cursor:pointer;text-decoration:underline">Incluir produtos já vinculados a outras movimentações</a>`:'Tente desmarcar filtros ou limpar busca.'}</div>`;
+  }
+  return `<table style="width:100%;font-size:11px">
+    <thead style="position:sticky;top:0;background:#f8fafc;z-index:1"><tr><th style="width:32px;padding:6px 8px"></th><th style="padding:6px 8px">Produto</th><th style="padding:6px 8px">Cat</th><th style="padding:6px 8px;text-align:right">Custo</th><th style="padding:6px 8px">Status</th><th style="padding:6px 8px">Dono atual</th></tr></thead>
+    <tbody>
+      ${cands.map(p=>{
+        const checked=_conState.selected.has(p.id);
+        const donoMov=p.movId?movMap[p.movId]:null;
+        const rowBg=p.movId?'background:#fffbeb':'';
+        return `<tr style="${rowBg}">
+          <td style="padding:5px 8px"><input type="checkbox" ${checked?'checked':''} onchange="conToggle(${p.id},this.checked)"></td>
+          <td style="padding:5px 8px">${p.nome||'(sem nome)'}${p.obs?`<div style="font-size:9px;color:var(--gray)">${p.obs}</div>`:''}</td>
+          <td style="padding:5px 8px">${p.cat||'—'}</td>
+          <td style="padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums">${fmt(p.custo)}</td>
+          <td style="padding:5px 8px;font-size:10px">${p.status||''}</td>
+          <td style="padding:5px 8px;font-size:10px">${donoMov?`<span style="color:#92400e;font-weight:600" title="${(donoMov.desc||'').replace(/"/g,'&quot;')}">⚠ Mov #${donoMov.id}</span>`:'<span style="color:#065f46;font-weight:600">— Sem dono</span>'}</td>
+        </tr>`;
+      }).join('')}
+    </tbody>
+  </table>`;
+}
+
+function updateConciliarTable(){
+  const el=document.getElementById('conListScroll');if(!el)return;
+  const scroll=el.scrollTop;
+  el.innerHTML=_buildConciliarTableHTML();
+  el.scrollTop=scroll;
+  updateConciliarFooter();
+}
+
+function updateConciliarFooter(){
+  const m=D.movimentacoes.find(x=>x.id===_conState.movId);if(!m)return;
+  const compraMovId=getCompraMovId(m);
+  const cEl=document.getElementById('conSelCount');
+  if(cEl)cEl.textContent=_conState.selected.size;
+  const total=Array.from(_conState.selected).reduce((a,pid)=>{const p=D.produtos.find(x=>x.id===pid);return a+(p?(+p.custo||0)*(+p.qtd||1):0)},0);
+  const tEl=document.getElementById('conSelTotal');
+  if(tEl)tEl.textContent=fmt(total);
+  const haReVincular=Array.from(_conState.selected).some(pid=>{const p=D.produtos.find(x=>x.id===pid);return p&&p.movId&&p.movId!==compraMovId});
+  const wEl=document.getElementById('conWarnMove');
+  if(wEl)wEl.style.display=haReVincular?'block':'none';
+}
+
 function renderConciliar(){
   const overlay=document.getElementById('conOverlay');if(!overlay)return;
-  // Preservar scroll do conListScroll antes de re-renderizar
-  const _oldScroll=document.getElementById('conListScroll');
-  const _savedScrollTop=_oldScroll?_oldScroll.scrollTop:0;
-  // Preservar foco + cursor do input atualmente ativo (busca)
-  const _focusEl=document.activeElement;
-  const _focusId=(_focusEl&&_focusEl.id&&_focusEl.id.startsWith('con'))?_focusEl.id:null;
-  const _selStart=_focusId&&typeof _focusEl.selectionStart==='number'?_focusEl.selectionStart:null;
-  const _selEnd=_focusId&&typeof _focusEl.selectionEnd==='number'?_focusEl.selectionEnd:null;
   const m=D.movimentacoes.find(x=>x.id===_conState.movId);if(!m)return;
   const compraMovId=getCompraMovId(m);
   const {pista,tipoLabel}=_getConciliarPista(m);
-  const cands=_getConciliarCandidatos();
   const totProds=D.produtos.length;
   const totSemDono=D.produtos.filter(p=>!p.movId).length;
   const totComDono=totProds-totSemDono;
-  const movMap={};D.movimentacoes.forEach(x=>{movMap[x.id]=x});
   const totalSel=Array.from(_conState.selected).reduce((a,pid)=>{const p=D.produtos.find(x=>x.id===pid);return a+(p?(+p.custo||0)*(+p.qtd||1):0)},0);
   const haReVincular=Array.from(_conState.selected).some(pid=>{const p=D.produtos.find(x=>x.id===pid);return p&&p.movId&&p.movId!==compraMovId});
   overlay.innerHTML=`
@@ -2066,35 +2104,15 @@ function renderConciliar(){
           ℹ Por padrão lista só produtos <strong>sem dono</strong>. Para mover produtos vinculados a outra compra/aporte, marque <strong>"Incluir já vinculados"</strong>. Cada produto só pode ter um dono.
         </div>
         <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;align-items:center">
-          <input id="conSearchInput" value="${(_conState.search||'').replace(/"/g,'&quot;')}" placeholder="🔍 Buscar nome/obs/categoria..." oninput="_conState.search=this.value;renderConciliar()" style="flex:1;min-width:180px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
-          ${pista?`<label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap"><input type="checkbox" ${_conState.mostrarTodos?'checked':''} onchange="_conState.mostrarTodos=this.checked;renderConciliar()"> Mostrar todos sem dono</label>`:''}
-          <label style="font-size:11px;color:#92400e;display:flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap;background:#fef3c7;padding:3px 8px;border-radius:6px;border:1px solid #fde68a"><input type="checkbox" ${_conState.incluirVinculados?'checked':''} onchange="_conState.incluirVinculados=this.checked;if(this.checked){_conState.mostrarTodos=true};renderConciliar()"> ⚠ Incluir já vinculados</label>
+          <input id="conSearchInput" value="${(_conState.search||'').replace(/"/g,'&quot;')}" placeholder="🔍 Buscar nome/obs/categoria..." oninput="_conState.search=this.value;updateConciliarTable()" style="flex:1;min-width:180px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+          ${pista?`<label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap"><input type="checkbox" ${_conState.mostrarTodos?'checked':''} onchange="_conState.mostrarTodos=this.checked;updateConciliarTable()"> Mostrar todos sem dono</label>`:''}
+          <label style="font-size:11px;color:#92400e;display:flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap;background:#fef3c7;padding:3px 8px;border-radius:6px;border:1px solid #fde68a"><input type="checkbox" ${_conState.incluirVinculados?'checked':''} onchange="_conState.incluirVinculados=this.checked;if(this.checked){_conState.mostrarTodos=true};updateConciliarTable()"> ⚠ Incluir já vinculados</label>
         </div>
         <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
           <button class="btn btn-xs btn-secondary" onclick="conSelecionarTodos(true)">Selecionar visíveis</button>
           <button class="btn btn-xs btn-secondary" onclick="conSelecionarTodos(false)">Limpar</button>
         </div>
-        <div id="conListScroll" style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;background:#fff">
-          ${cands.length===0?`<div style="padding:20px;text-align:center;color:var(--gray);font-size:12px">Nenhum produto encontrado.<br>${!_conState.incluirVinculados?`<a onclick="_conState.incluirVinculados=true;_conState.mostrarTodos=true;renderConciliar()" style="color:var(--blue);cursor:pointer;text-decoration:underline">Incluir produtos já vinculados a outras movimentações</a>`:'Tente desmarcar filtros ou limpar busca.'}</div>`:`
-          <table style="width:100%;font-size:11px">
-            <thead style="position:sticky;top:0;background:#f8fafc;z-index:1"><tr><th style="width:32px;padding:6px 8px"></th><th style="padding:6px 8px">Produto</th><th style="padding:6px 8px">Cat</th><th style="padding:6px 8px;text-align:right">Custo</th><th style="padding:6px 8px">Status</th><th style="padding:6px 8px">Dono atual</th></tr></thead>
-            <tbody>
-              ${cands.map(p=>{
-                const checked=_conState.selected.has(p.id);
-                const donoMov=p.movId?movMap[p.movId]:null;
-                const rowBg=p.movId?'background:#fffbeb':'';
-                return `<tr style="${rowBg}">
-                  <td style="padding:5px 8px"><input type="checkbox" ${checked?'checked':''} onchange="conToggle(${p.id},this.checked)"></td>
-                  <td style="padding:5px 8px">${p.nome||'(sem nome)'}${p.obs?`<div style="font-size:9px;color:var(--gray)">${p.obs}</div>`:''}</td>
-                  <td style="padding:5px 8px">${p.cat||'—'}</td>
-                  <td style="padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums">${fmt(p.custo)}</td>
-                  <td style="padding:5px 8px;font-size:10px">${p.status||''}</td>
-                  <td style="padding:5px 8px;font-size:10px">${donoMov?`<span style="color:#92400e;font-weight:600" title="${(donoMov.desc||'').replace(/"/g,'&quot;')}">⚠ Mov #${donoMov.id}</span>`:'<span style="color:#065f46;font-weight:600">— Sem dono</span>'}</td>
-                </tr>`;
-              }).join('')}
-            </tbody>
-          </table>`}
-        </div>
+        <div id="conListScroll" style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;background:#fff">${_buildConciliarTableHTML()}</div>
         <div id="conWarnMove" style="display:${haReVincular?'block':'none'};margin-top:8px;padding:8px 12px;background:#fffbeb;border:1px solid #fde68a;border-radius:6px;font-size:11px;color:#92400e">⚠ Sua seleção inclui produtos já vinculados a outras movimentações. Ao confirmar, eles serão <strong>movidos</strong> daquelas movs para esta.</div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:8px;flex-wrap:wrap">
           <span style="font-size:11px;color:var(--gray)"><strong id="conSelCount">${_conState.selected.size}</strong> selecionado(s) • Total: <strong id="conSelTotal">${fmt(totalSel)}</strong></span>
@@ -2105,19 +2123,8 @@ function renderConciliar(){
         </div>
       </div>
     </div>`;
-  // Restaurar scroll apos innerHTML
-  const _ns=document.getElementById('conListScroll');
-  if(_ns)_ns.scrollTop=_savedScrollTop;
-  // Restaurar foco e cursor do input ativo (se havia)
-  if(_focusId){
-    const _nf=document.getElementById(_focusId);
-    if(_nf){
-      _nf.focus();
-      if(_selStart!==null&&typeof _nf.setSelectionRange==='function'){
-        try{_nf.setSelectionRange(_selStart,_selEnd)}catch(e){}
-      }
-    }
-  }
+  // Focar busca apos abertura (so na primeira renderizacao)
+  setTimeout(()=>{const s=document.getElementById('conSearchInput');if(s&&document.activeElement!==s&&!_conState.search)s.focus()},10);
 }
 
 function conToggle(pid,checked){
@@ -2139,7 +2146,7 @@ function conToggle(pid,checked){
 function conSelecionarTodos(sel){
   const cands=_getConciliarCandidatos();
   cands.forEach(p=>{if(sel)_conState.selected.add(p.id);else _conState.selected.delete(p.id)});
-  renderConciliar();
+  updateConciliarTable();
 }
 
 function confirmarConciliar(){
