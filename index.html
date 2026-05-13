@@ -272,7 +272,7 @@ async function loadDataFromSupabase(){
     if(!d.categorias)d.categorias=DEFAULT_DATA.categorias;
     d.produtos.forEach(p=>{if(p.num===undefined)p.num='';if(p.img===undefined)p.img='';if(!p.imgs){p.imgs=p.img?[p.img]:[]}if(p.precoVenda===undefined)p.precoVenda=0});
     d.despesas.forEach(x=>{if(!x.plano)x.plano=''});
-    d.movimentacoes.forEach(m=>{if(!m.plano)m.plano=''});
+    d.movimentacoes.forEach(m=>{if(!m.plano)m.plano='';if(!m.itens)m.itens=[];if(m.comprovante===undefined)m.comprovante=''});
     d.vendas.forEach(v=>{if(v.produtoId===undefined)v.produtoId=0;if(v.saldoReceber===undefined)v.saldoReceber=(v.valorVenda||0)-(v.recebido||0)});
     D=d;
   } else {
@@ -398,7 +398,7 @@ function loadData(){
       if(!d.historicoSelic)d.historicoSelic=[{data:"2025-05-07",taxa:14.75}];
       d.produtos.forEach(p=>{if(p.num===undefined)p.num='';if(p.img===undefined)p.img='';if(!p.imgs){p.imgs=p.img?[p.img]:[]}if(p.precoVenda===undefined)p.precoVenda=0});
       d.despesas.forEach(x=>{if(!x.plano)x.plano=''});
-      d.movimentacoes.forEach(m=>{if(!m.plano)m.plano=''});
+      d.movimentacoes.forEach(m=>{if(!m.plano)m.plano='';if(!m.itens)m.itens=[];if(m.comprovante===undefined)m.comprovante=''});
       d.vendas.forEach(v=>{if(v.produtoId===undefined)v.produtoId=0;if(v.saldoReceber===undefined)v.saldoReceber=(v.valorVenda||0)-(v.recebido||0)});
       // Auto-generate contasReceber from vendas with saldo > 0 if empty
       if(d.contasReceber.length===0){
@@ -1598,7 +1598,7 @@ function renderMov(){
   <table><thead><tr><th>ID</th><th>Data</th><th>Descrição</th><th>Tipo</th><th>Categoria</th><th>Plano de Contas</th><th class="r">Valor</th><th class="r">Saldo</th><th>Ação</th></tr></thead><tbody>
   ${sorted.map(m=>`<tr>
     <td>${m.id}</td><td>${fmtD(m.data)}</td>
-    <td><span class="editable" onclick="editMovText(${m.id},'desc',this)">${m.desc}</span></td>
+    <td><span class="editable" onclick="abrirMovDetalhes(${m.id})" title="Clique para ver/editar detalhes, itens e comprovante">${m.desc}${(m.itens&&m.itens.length)?` <span style="font-size:9px;background:#dbeafe;color:#1e40af;padding:1px 5px;border-radius:8px;margin-left:2px;font-weight:600" title="${m.itens.length} item(s) detalhado(s)">📦 ${m.itens.length}</span>`:''}${m.comprovante?` <span style="font-size:9px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:8px;margin-left:2px;font-weight:600" title="Comprovante anexado">📎</span>`:''}</span></td>
     <td><span class="badge ${m.tipo==='Entrada'?'b-entrada':'b-saida'}">${m.tipo}</span></td>
     <td><span class="editable" onclick="editMovSelect(${m.id},'cat',this,['Capital Inicial','Pagamento Fornecedor','Recebimento Venda','Sinal Encomenda','Despesa Operacional','Custo Produto (Frete/Taxa)','Aporte Sócio','Outros'])">${m.cat||''}</span></td>
     <td><span class="editable" onclick="editMovSelect(${m.id},'plano',this,D.planoContas.concat(['Mercadoria']))">${m.plano||'—'}</span></td>
@@ -1650,6 +1650,170 @@ function editMovSelect(movId,field,el,options){
   function commit(){if(done)return;done=true;_editing=false;m[field]=sel.value;syncMovToDesp(movId,field,sel.value);saveData();renderPage()}
   sel.addEventListener('change',commit);sel.addEventListener('blur',()=>setTimeout(commit,250));
   setTimeout(()=>sel.focus(),30);
+}
+
+// ═══════ MODAL DETALHES MOVIMENTAÇÃO (Itens + Comprovante) ═══════
+function abrirMovDetalhes(movId){
+  const m=D.movimentacoes.find(x=>x.id===movId);if(!m)return;
+  if(!m.itens)m.itens=[];
+  if(m.comprovante===undefined)m.comprovante='';
+  document.querySelectorAll('.mov-detalhes-overlay').forEach(o=>o.remove());
+  const overlay=document.createElement('div');
+  overlay.className='modal-overlay mov-detalhes-overlay';
+  overlay.id='movDetalhesOverlay';
+  overlay.onclick=function(e){if(e.target===overlay)fecharMovDetalhes()};
+  overlay.innerHTML=renderMovDetalhesModal(movId);
+  document.body.appendChild(overlay);
+}
+
+function fecharMovDetalhes(){
+  document.querySelectorAll('.mov-detalhes-overlay').forEach(o=>o.remove());
+  saveData();renderPage();
+}
+
+function refreshMovModal(movId){
+  const overlay=document.getElementById('movDetalhesOverlay');
+  if(overlay)overlay.innerHTML=renderMovDetalhesModal(movId);
+}
+
+function renderMovDetalhesModal(movId){
+  const m=D.movimentacoes.find(x=>x.id===movId);if(!m)return'';
+  const isSaida=m.tipo==='Saída';
+  const itens=m.itens||[];
+  const totalItens=itens.reduce((a,it)=>a+(+it.custo||0)*(+it.qtd||1),0);
+  const totalQtd=itens.reduce((a,it)=>a+(+it.qtd||1),0);
+  const diff=Math.round((totalItens-(m.valor||0))*100)/100;
+  return `
+    <div class="modal-card" style="max-width:680px" onclick="event.stopPropagation()">
+      <button class="modal-close" onclick="fecharMovDetalhes()">✕</button>
+      <div class="modal-body" style="padding-top:32px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:4px;gap:8px">
+          <h2 style="font-size:16px;margin:0">Detalhes da Movimentação #${m.id}</h2>
+          <span class="badge ${isSaida?'b-saida':'b-entrada'}" style="flex-shrink:0">${m.tipo}</span>
+        </div>
+        <div style="font-size:11px;color:var(--gray);margin-bottom:14px">${fmtD(m.data)} • ${m.cat||'—'} • <strong style="color:${isSaida?'var(--red)':'var(--green)'}">${fmt(m.valor)}</strong></div>
+
+        <div style="margin-bottom:14px">
+          <label style="font-size:11px;font-weight:600;color:var(--text2);display:block;margin-bottom:4px">Descrição</label>
+          <input value="${(m.desc||'').replace(/"/g,'&quot;')}" onchange="var x=D.movimentacoes.find(y=>y.id===${m.id});if(x){x.desc=this.value;syncMovToDesp(${m.id},'desc',this.value);saveData()}" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px">
+        </div>
+
+        <div style="margin-bottom:14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px">
+            <label style="font-size:13px;font-weight:700;color:var(--dark)">📦 Itens / Detalhamento</label>
+            <span style="font-size:10px;color:var(--gray)">${itens.length} item(s) • ${totalQtd} unid • Total: ${fmt(totalItens)}${itens.length&&Math.abs(diff)>0.01?` <span style="color:${diff>0?'var(--red)':'var(--orange)'}">(${diff>0?'+':''}${fmt(diff)} vs valor mov.)</span>`:''}</span>
+          </div>
+          <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:8px;max-height:280px;overflow-y:auto">
+            ${itens.length===0?
+              `<div style="font-size:11px;color:var(--gray);padding:12px;text-align:center">Nenhum item detalhado ainda.<br>Clique em <strong>+ Adicionar Item</strong> abaixo para registrar o que foi comprado.</div>`
+              : `<div style="display:grid;grid-template-columns:2fr 60px 80px 60px 32px;gap:6px;font-size:9px;font-weight:700;color:var(--gray);padding:0 4px 6px;text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid var(--border);margin-bottom:6px">
+                  <span>Nome</span><span>Nº</span><span>Custo (R$)</span><span>Qtd</span><span></span>
+                </div>
+                ${itens.map((it,i)=>`
+                  <div style="display:grid;grid-template-columns:2fr 60px 80px 60px 32px;gap:6px;margin-bottom:5px;align-items:center">
+                    <input value="${(it.nome||'').replace(/"/g,'&quot;')}" onchange="updateItemMov(${m.id},${i},'nome',this.value)" placeholder="Nome do item" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px">
+                    <input value="${(it.num||'').replace(/"/g,'&quot;')}" onchange="updateItemMov(${m.id},${i},'num',this.value)" placeholder="—" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px">
+                    <input type="number" step="0.01" value="${it.custo||''}" onchange="updateItemMov(${m.id},${i},'custo',+this.value)" placeholder="0" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px;text-align:right">
+                    <input type="number" min="1" value="${it.qtd||1}" onchange="updateItemMov(${m.id},${i},'qtd',+this.value)" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px;text-align:right">
+                    <button onclick="removerItemMov(${m.id},${i})" style="background:var(--red);color:#fff;border:none;width:26px;height:26px;border-radius:5px;font-size:12px;cursor:pointer" title="Remover item">✕</button>
+                  </div>`).join('')}`
+            }
+          </div>
+          <button class="btn btn-secondary btn-sm" onclick="addItemMov(${m.id})" style="margin-top:8px">+ Adicionar Item</button>
+        </div>
+
+        ${isSaida?`
+        <div style="margin-bottom:14px;padding:12px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px">
+          <label style="font-size:13px;font-weight:700;color:#92400e;display:block;margin-bottom:8px">📎 Comprovante da Saída</label>
+          ${m.comprovante?`
+            <div style="display:flex;align-items:center;gap:10px">
+              <img src="${m.comprovante}" style="width:64px;height:64px;border-radius:6px;object-fit:cover;border:1px solid var(--border);cursor:pointer;background:#fff" onclick="verComprovanteFull(${m.id})" title="Clique para ampliar">
+              <div style="flex:1">
+                <div style="font-size:11px;color:#065f46;font-weight:600;margin-bottom:6px">✅ Comprovante anexado</div>
+                <div style="display:flex;gap:6px;flex-wrap:wrap">
+                  <button class="btn btn-xs" onclick="verComprovanteFull(${m.id})" style="background:var(--blue);color:#fff">👁 Ver</button>
+                  <button class="btn btn-xs" onclick="uploadComprovanteMov(${m.id})" style="background:var(--orange);color:#fff">🔄 Trocar</button>
+                  <button class="btn btn-xs" onclick="removerComprovante(${m.id})" style="background:var(--red);color:#fff">🗑️ Remover</button>
+                </div>
+              </div>
+            </div>
+          ` : `
+            <div style="text-align:center;padding:14px;border:2px dashed #fcd34d;border-radius:6px;cursor:pointer;background:#fff" onclick="uploadComprovanteMov(${m.id})">
+              <div style="font-size:13px;color:#92400e;font-weight:600">📷 Clique aqui para anexar foto do comprovante</div>
+              <div style="font-size:10px;color:#92400e;opacity:.7;margin-top:4px">Recibo, nota fiscal, transferência, etc.</div>
+            </div>
+          `}
+        </div>
+        ` : ''}
+
+        <div class="actions" style="margin-top:14px">
+          <button class="btn btn-primary" onclick="fecharMovDetalhes()">✓ Concluir</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function addItemMov(movId){
+  if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
+  const m=D.movimentacoes.find(x=>x.id===movId);if(!m)return;
+  if(!m.itens)m.itens=[];
+  m.itens.push({nome:'',num:'',custo:0,qtd:1,cat:''});
+  saveData();refreshMovModal(movId);
+}
+
+function removerItemMov(movId,idx){
+  if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
+  const m=D.movimentacoes.find(x=>x.id===movId);if(!m||!m.itens)return;
+  const it=m.itens[idx];
+  if(!confirm(`Remover item "${it.nome||'sem nome'}" da lista?`))return;
+  m.itens.splice(idx,1);saveData();refreshMovModal(movId);
+}
+
+function updateItemMov(movId,idx,field,val){
+  if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
+  const m=D.movimentacoes.find(x=>x.id===movId);if(!m||!m.itens||!m.itens[idx])return;
+  m.itens[idx][field]=val;saveData();refreshMovModal(movId);
+}
+
+function uploadComprovanteMov(movId){
+  if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
+  const inp=document.getElementById('imgUpload');
+  inp.onchange=function(e){
+    const file=e.target.files[0];if(!file)return;
+    const reader=new FileReader();
+    reader.onload=function(ev){
+      const img=new Image();
+      img.onload=function(){
+        const canvas=document.createElement('canvas');
+        const MAX=900;let w=img.width,h=img.height;
+        if(w>h){if(w>MAX){h=h*(MAX/w);w=MAX}}else{if(h>MAX){w=w*(MAX/h);h=MAX}}
+        canvas.width=w;canvas.height=h;canvas.getContext('2d').drawImage(img,0,0,w,h);
+        const m=D.movimentacoes.find(x=>x.id===movId);
+        if(m){m.comprovante=canvas.toDataURL('image/jpeg',0.78);saveData();toast('Comprovante anexado!');refreshMovModal(movId)}
+      };img.onerror=function(){toast('Erro ao processar imagem',true)};img.src=ev.target.result;
+    };reader.readAsDataURL(file);inp.value='';
+  };inp.click();
+}
+
+function removerComprovante(movId){
+  if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
+  if(!confirm('Remover o comprovante anexado?'))return;
+  const m=D.movimentacoes.find(x=>x.id===movId);if(!m)return;
+  m.comprovante='';saveData();toast('Comprovante removido');refreshMovModal(movId);
+}
+
+function verComprovanteFull(movId){
+  const m=D.movimentacoes.find(x=>x.id===movId);if(!m||!m.comprovante)return;
+  const ov=document.createElement('div');
+  ov.className='modal-overlay';
+  ov.style.zIndex='1100';
+  ov.onclick=function(e){if(e.target===ov)ov.remove()};
+  ov.innerHTML=`
+    <div style="position:relative;max-width:95vw;max-height:95vh;display:flex;align-items:center;justify-content:center">
+      <button class="modal-close" onclick="this.closest('.modal-overlay').remove()" style="position:absolute;top:-12px;right:-12px;z-index:2">✕</button>
+      <img src="${m.comprovante}" style="max-width:95vw;max-height:95vh;border-radius:12px;background:#fff;box-shadow:0 20px 60px rgba(0,0,0,.5)">
+    </div>`;
+  document.body.appendChild(ov);
 }
 
 // ═══════ DESPESAS ═══════
@@ -1984,7 +2148,7 @@ function salvarCompra(){
     }
     total+=it.custo*qtd;
   });
-  D.movimentacoes.push({id:nextId(D.movimentacoes),data,desc:`Compra ${forn||'—'} — ${valid.length} tipo(s)`,tipo:'Saída',cat:'Pagamento Fornecedor',plano:'Mercadoria',valor:total,saldo:0});
+  D.movimentacoes.push({id:nextId(D.movimentacoes),data,desc:`Compra ${forn||'—'} — ${valid.length} tipo(s)`,tipo:'Saída',cat:'Pagamento Fornecedor',plano:'Mercadoria',valor:total,saldo:0,itens:valid.map(it=>({nome:it.nome,cat:it.cat||'',custo:+it.custo||0,qtd:+it.qtd||1,num:it.num||''})),comprovante:''});
   recalcSaldos();saveData();compraItems=[{nome:'',cat:'Tênis',custo:0,qtd:1,num:'',imgs:[]}];
   toast(`Compra registrada! ${valid.reduce((a,i)=>a+(i.qtd||1),0)} produtos — Total: ${fmt(total)}`);showTab(2);
 }
