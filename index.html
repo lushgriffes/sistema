@@ -472,7 +472,7 @@ function calcMetrics(){
   const totalMerc=mercT+mercE+mercR;
   const totalAtivos=caixa+totalMerc+contasR;
   const patrimonio=totalAtivos;
-  const lucroAcum=patrimonio-D.capital;
+  const lucroAcum=patrimonio-getCapitalTotal();
   const pctCaixa=patrimonio>0?Math.round(caixa/patrimonio*100):0;
   return{caixa,mercT,mercE,mercR,contasR,itT,itE,itR,totalU,catTot,despTotal,lucroVendas,faturamento,totalMerc,totalAtivos,patrimonio,lucroAcum,pctCaixa};
 }
@@ -604,6 +604,14 @@ function getAportes(){
   return lista;
 }
 
+// Capital total = soma de todos os aportes (Entradas com cat Capital Inicial ou Aporte Socio)
+// Sempre derivado dos dados atuais para evitar divergencia com 'Total de Aportes'.
+function getCapitalTotal(){
+  return D.movimentacoes
+    .filter(m=>m.tipo==='Entrada'&&(m.cat==='Capital Inicial'||m.cat==='Aporte Sócio'))
+    .reduce((a,m)=>a+(m.valor||0),0);
+}
+
 // ═══════ DASHBOARD ═══════
 function renderDash(m){
   const aportes=getAportes();
@@ -611,7 +619,7 @@ function renderDash(m){
   let aporteRows=aportes.map(a=>`<tr><td>${fmtD(a.data)}</td><td>${a.desc}</td><td style="font-size:11px">${a.tipo}</td><td class="r" style="font-weight:700">${fmt(a.valor)}</td></tr>`).join('');
   const cpPendente=D.contasPagar.filter(c=>c.status!=='Pago').reduce((a,c)=>a+(c.valor||0),0);
   return `
-  <div class="hero"><div><div class="hero-lbl">PATRIMÔNIO LÍQUIDO</div><div class="hero-val">${fmt(m.patrimonio)}</div><div class="hero-sub">Capital: ${fmt(D.capital)} | Lucro: ${fmt(m.lucroAcum)}</div></div><div><div class="hero-pct">${m.pctCaixa}%</div><div class="hero-pct-lbl">em caixa</div></div></div>
+  <div class="hero"><div><div class="hero-lbl">PATRIMÔNIO LÍQUIDO</div><div class="hero-val">${fmt(m.patrimonio)}</div><div class="hero-sub">Capital: ${fmt(getCapitalTotal())} | Lucro: ${fmt(m.lucroAcum)}</div></div><div><div class="hero-pct">${m.pctCaixa}%</div><div class="hero-pct-lbl">em caixa</div></div></div>
   <div class="cards">
     <div class="card green"><div class="card-lbl">Caixa</div><div class="card-val">${fmt(m.caixa)}</div></div>
     <div class="card orange"><div class="card-lbl">Em Trânsito</div><div class="card-val">${fmt(m.mercT)}</div><div class="card-sub">${m.itT} itens</div></div>
@@ -624,7 +632,7 @@ function renderDash(m){
     <div class="card teal"><div class="card-lbl">A Receber</div><div class="card-val">${fmt(m.contasR)}</div></div>
     <div class="card red"><div class="card-lbl">Despesas</div><div class="card-val">${fmt(m.despTotal)}</div></div>
     <div class="card pink"><div class="card-lbl">A Pagar</div><div class="card-val">${fmt(cpPendente)}</div></div>
-    <div class="card indigo"><div class="card-lbl">Capital Investido</div><div class="card-val">${fmt(D.capital)}</div></div>
+    <div class="card indigo"><div class="card-lbl">Capital Investido</div><div class="card-val">${fmt(getCapitalTotal())}</div></div>
   </div>
   <div class="box" style="cursor:pointer" onclick="const det=this.querySelector('.aporte-details');det.style.display=det.style.display==='none'?'block':'none';this.querySelector('.aporte-toggle').textContent=det.style.display==='none'?'▶ Ver detalhes':'▼ Ocultar detalhes'">
     <div style="display:flex;justify-content:space-between;align-items:center">
