@@ -518,6 +518,11 @@ function renderPage(){
   const _winY=window.scrollY||window.pageYOffset||0;
   const _scrollSaves={};
   document.querySelectorAll('[id$="TableScroll"],[id$="ListScroll"]').forEach(el=>{_scrollSaves[el.id]=el.scrollTop});
+  // Preservar foco + cursor do input ativo (so se id comecar com pg)
+  const _focusEl=document.activeElement;
+  const _focusPgId=(_focusEl&&_focusEl.id&&_focusEl.id.startsWith('pg'))?_focusEl.id:null;
+  const _selStartPg=_focusPgId&&typeof _focusEl.selectionStart==='number'?_focusEl.selectionStart:null;
+  const _selEndPg=_focusPgId&&typeof _focusEl.selectionEnd==='number'?_focusEl.selectionEnd:null;
   const m=calcMetrics();
   const fns=[renderDash,renderDashPeriodo,renderBalanco,renderEstoque,renderEncomendas,renderVendas,renderMov,renderDesp,renderContasPagar,renderContasReceber,renderNovaCompra,renderNovoAporte,renderCorrecao,renderConfig];
   if(userProfile&&userProfile.role==='admin')fns.push(renderUsuarios);
@@ -530,6 +535,16 @@ function renderPage(){
   // Restaurar scroll apos render (window + containers internos)
   window.scrollTo(0,_winY);
   Object.keys(_scrollSaves).forEach(id=>{const el=document.getElementById(id);if(el)el.scrollTop=_scrollSaves[id]});
+  // Restaurar foco + cursor do input ativo
+  if(_focusPgId){
+    const _nf=document.getElementById(_focusPgId);
+    if(_nf){
+      _nf.focus();
+      if(_selStartPg!==null&&typeof _nf.setSelectionRange==='function'){
+        try{_nf.setSelectionRange(_selStartPg,_selEndPg)}catch(e){}
+      }
+    }
+  }
 }
 
 // ═══════ APORTES POR SÓCIO ═══════
@@ -768,7 +783,7 @@ function renderEstoque(m){
     <div class="card purple"><div class="card-lbl">Reservado</div><div class="card-val">${statCount['Reservado (Encomenda)']||0}</div></div>
   </div>
   <div class="filter-bar">
-    <div class="f-group"><label>Buscar:</label><input placeholder="Descrição, marca..." value="${estSearch}" oninput="estSearch=this.value;renderPage()"></div>
+    <div class="f-group"><label>Buscar:</label><input placeholder="Descrição, marca..." id="pgSearchEst" value="${estSearch}" oninput="estSearch=this.value;renderPage()"></div>
     <div class="f-group"><label>Categoria:</label><select onchange="estFilter=this.value;renderPage()">${cats.map(c=>`<option${c===estFilter?' selected':''}>${c}</option>`).join('')}</select></div>
     <div class="f-group"><label>Status:</label><select onchange="estStatus=this.value;renderPage()">${statuses.map(s=>`<option${s===estStatus?' selected':''}>${s}</option>`).join('')}</select></div>
     <span class="f-clear" onclick="estFilter='Todos';estStatus='Todos';estSearch='';renderPage()">Limpar filtros</span>
@@ -1066,7 +1081,7 @@ function renderVendas(m){
 
   <div class="box"><h3>Histórico de Vendas</h3>
   <div class="filter-bar" style="margin-bottom:10px">
-    <div class="f-group"><label>🔍</label><input placeholder="Produto ou cliente..." value="${vendaSearch}" oninput="vendaSearch=this.value;renderPage()"></div>
+    <div class="f-group"><label>🔍</label><input placeholder="Produto ou cliente..." id="pgSearchVenda" value="${vendaSearch}" oninput="vendaSearch=this.value;renderPage()"></div>
     <div class="f-group"><label>Categoria:</label><select onchange="vendaCatFilter=this.value;renderPage()">${allCats.map(c=>`<option${c===vendaCatFilter?' selected':''}>${c}</option>`).join('')}</select></div>
     <div class="f-group"><label>Status:</label><select onchange="vendaStatusFilter=this.value;renderPage()">${allStatus.map(c=>`<option${c===vendaStatusFilter?' selected':''}>${c}</option>`).join('')}</select></div>
     <span class="f-clear" onclick="vendaSearch='';vendaCatFilter='Todos';vendaStatusFilter='Todos';renderPage()">Limpar filtros</span>
@@ -1660,7 +1675,7 @@ function renderMov(){
     <div class="card indigo"><div class="card-lbl">Movimentações</div><div class="card-val">${D.movimentacoes.length}</div></div>
   </div>
   <div class="filter-bar">
-    <div class="f-group"><label>Buscar:</label><input placeholder="Descrição..." value="${movSearch}" oninput="movSearch=this.value;renderPage()"></div>
+    <div class="f-group"><label>Buscar:</label><input placeholder="Descrição..." id="pgSearchMov" value="${movSearch}" oninput="movSearch=this.value;renderPage()"></div>
     <div class="f-group"><label>Tipo:</label><select onchange="movTipo=this.value;renderPage()"><option${movTipo==='Todos'?' selected':''}>Todos</option><option${movTipo==='Entrada'?' selected':''}>Entrada</option><option${movTipo==='Saída'?' selected':''}>Saída</option></select></div>
     <div class="f-group"><label>Categoria:</label><select onchange="movCat=this.value;renderPage()">${allCats.map(c=>`<option${c===movCat?' selected':''}>${c}</option>`).join('')}</select></div>
     <div class="f-group"><label>Plano:</label><select onchange="movPlano=this.value;renderPage()">${allPlanos.map(c=>`<option${c===movPlano?' selected':''}>${c}</option>`).join('')}</select></div>
@@ -2306,7 +2321,7 @@ function renderDesp(){
     <div class="if-group" style="justify-content:end"><button class="btn btn-primary btn-sm" onclick="salvarDespesa()">💾 Lançar</button></div>
   </div></div>
   <div class="filter-bar">
-    <div class="f-group"><label>Buscar:</label><input placeholder="Descrição..." value="${despSearch}" oninput="despSearch=this.value;renderPage()"></div>
+    <div class="f-group"><label>Buscar:</label><input placeholder="Descrição..." id="pgSearchDesp" value="${despSearch}" oninput="despSearch=this.value;renderPage()"></div>
     <div class="f-group"><label>Categoria:</label><select onchange="despCatFilter=this.value;renderPage()">${allCatsDesp.map(c=>`<option${c===despCatFilter?' selected':''}>${c}</option>`).join('')}</select></div>
     <div class="f-group"><label>Plano:</label><select onchange="despPlanoFilter=this.value;renderPage()">${allPlanos.map(c=>`<option${c===despPlanoFilter?' selected':''}>${c}</option>`).join('')}</select></div>
     <span class="f-clear" onclick="despSearch='';despCatFilter='Todos';despPlanoFilter='Todos';renderPage()">Limpar filtros</span>
@@ -2390,7 +2405,7 @@ function renderContasPagar(){
     <div class="if-group" style="justify-content:end"><button class="btn btn-primary btn-sm" onclick="salvarContaPagar()">💾 Lançar</button></div>
   </div></div>
   <div class="filter-bar">
-    <div class="f-group"><label>🔍</label><input placeholder="Buscar..." value="${cpSearch}" oninput="cpSearch=this.value;renderPage()"></div>
+    <div class="f-group"><label>🔍</label><input placeholder="Buscar..." id="pgSearchCP" value="${cpSearch}" oninput="cpSearch=this.value;renderPage()"></div>
     <div class="f-group"><label>Status:</label><select onchange="cpStatusFilter=this.value;renderPage()"><option${cpStatusFilter==='Todos'?' selected':''}>Todos</option><option${cpStatusFilter==='Pendente'?' selected':''}>Pendente</option><option${cpStatusFilter==='Vencido'?' selected':''}>Vencido</option><option${cpStatusFilter==='Pago'?' selected':''}>Pago</option></select></div>
     <span class="f-clear" onclick="cpSearch='';cpStatusFilter='Todos';renderPage()">Limpar</span>
   </div>
@@ -2467,7 +2482,7 @@ function renderContasReceber(){
     <div class="if-group" style="justify-content:end"><button class="btn btn-primary btn-sm" onclick="salvarContaReceber()">💾 Lançar</button></div>
   </div></div>
   <div class="filter-bar">
-    <div class="f-group"><label>🔍</label><input placeholder="Buscar..." value="${crSearch}" oninput="crSearch=this.value;renderPage()"></div>
+    <div class="f-group"><label>🔍</label><input placeholder="Buscar..." id="pgSearchCR" value="${crSearch}" oninput="crSearch=this.value;renderPage()"></div>
     <div class="f-group"><label>Status:</label><select onchange="crStatusFilter=this.value;renderPage()"><option${crStatusFilter==='Todos'?' selected':''}>Todos</option><option${crStatusFilter==='Pendente'?' selected':''}>Pendente</option><option${crStatusFilter==='Recebido'?' selected':''}>Recebido</option></select></div>
     <span class="f-clear" onclick="crSearch='';crStatusFilter='Todos';renderPage()">Limpar</span>
   </div>
