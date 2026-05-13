@@ -1815,16 +1815,17 @@ function renderMovDetalhesModal(movId){
           <div id="movItemsScroll" style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:8px;max-height:320px;overflow-y:auto">
             ${prodsLinked.length===0?
               `<div style="font-size:11px;color:var(--gray);padding:14px;text-align:center;line-height:1.5">${isAporteMerc?'Este aporte de mercadoria':'Esta compra'} ainda não tem produtos vinculados.<br><span style="font-size:10px">Se foi registrada antes do controle de itens, use <strong>🔗 Vincular produtos cadastrados</strong> abaixo para amarrar produtos do estoque que ainda não têm dono.</span></div>`
-              : `<div style="display:grid;grid-template-columns:1.7fr 50px 75px 45px 85px 60px;gap:4px;font-size:9px;font-weight:700;color:var(--gray);padding:0 4px 6px;text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid var(--border);margin-bottom:6px">
-                  <span>Nome</span><span>Nº</span><span>Custo</span><span>Qtd</span><span>Status</span><span style="text-align:center">Ações</span>
+              : `<div style="display:grid;grid-template-columns:1.5fr 45px 70px 75px 40px 70px 60px;gap:4px;font-size:9px;font-weight:700;color:var(--gray);padding:0 4px 6px;text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid var(--border);margin-bottom:6px">
+                  <span>Nome</span><span>Nº</span><span>Custo</span><span>Categoria</span><span>Qtd</span><span>Status</span><span style="text-align:center">Ações</span>
                 </div>
                 ${prodsLinked.map(p=>{
                   const stBg=p.status==='Em Estoque'?'#d1fae5':p.status==='Vendido'?'#dbeafe':p.status&&p.status.includes('Reservado')?'#ede9fe':'#fef3c7';
                   const stFg=p.status==='Em Estoque'?'#065f46':p.status==='Vendido'?'#1e40af':p.status&&p.status.includes('Reservado')?'#5b21b6':'#92400e';
-                  return `<div style="display:grid;grid-template-columns:1.7fr 50px 75px 45px 85px 60px;gap:4px;margin-bottom:5px;align-items:center">
+                  return `<div style="display:grid;grid-template-columns:1.5fr 45px 70px 75px 40px 70px 60px;gap:4px;margin-bottom:5px;align-items:center">
                     <input id="movItemNome_${p.id}" value="${(p.nome||'').replace(/"/g,'&quot;')}" onchange="updateProdItemMov(${p.id},${m.id},'nome',this.value)" placeholder="Nome do produto" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px">
                     <input id="movItemNum_${p.id}" value="${(p.num||'').replace(/"/g,'&quot;')}" onchange="updateProdItemMov(${p.id},${m.id},'num',this.value)" placeholder="—" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px">
                     <input id="movItemCusto_${p.id}" type="number" step="0.01" value="${p.custo||''}" onchange="updateProdItemMov(${p.id},${m.id},'custo',+this.value)" placeholder="0" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px;text-align:right">
+                    <select id="movItemCat_${p.id}" onchange="updateProdItemMov(${p.id},${m.id},'cat',this.value)" style="padding:5px 4px;border:1px solid var(--border);border-radius:5px;font-size:11px;background:#fff">${D.categorias.map(c=>`<option${c===(p.cat||'')?' selected':''}>${c}</option>`).join('')}</select>
                     <input id="movItemQtd_${p.id}" type="number" min="1" value="${p.qtd||1}" onchange="updateProdItemMov(${p.id},${m.id},'qtd',+this.value)" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px;text-align:right">
                     <span style="font-size:9px;padding:3px 5px;background:${stBg};color:${stFg};border-radius:6px;text-align:center;font-weight:600">${p.status||'—'}</span>
                     <div style="display:flex;gap:3px;justify-content:center">
