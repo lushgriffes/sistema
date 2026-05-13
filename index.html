@@ -273,6 +273,15 @@ async function loadDataFromSupabase(){
     d.produtos.forEach(p=>{if(p.num===undefined)p.num='';if(p.img===undefined)p.img='';if(!p.imgs){p.imgs=p.img?[p.img]:[]}if(p.precoVenda===undefined)p.precoVenda=0});
     d.despesas.forEach(x=>{if(!x.plano)x.plano=''});
     d.movimentacoes.forEach(m=>{if(!m.plano)m.plano='';if(!m.itens)m.itens=[];if(m.comprovante===undefined)m.comprovante='';if(m.itens&&m.itens.length){m.itens.forEach(it=>{if(it.produtoId){const _p=d.produtos.find(x=>x.id===it.produtoId);if(_p&&!_p.movId)_p.movId=m.id}})}});
+    // Migracao: parear aporte de mercadoria (Entrada Capital Inicial + Saida Pagamento Fornecedor com mesma data/valor)
+    const _sorted=[...d.movimentacoes].sort((a,b)=>(a.data||'').localeCompare(b.data||'')||a.id-b.id);
+    for(let _i=0;_i<_sorted.length-1;_i++){
+      const _a=_sorted[_i], _b=_sorted[_i+1];
+      if(_a.aportePairId||_b.aportePairId)continue;
+      if(_a.cat==='Capital Inicial'&&_a.tipo==='Entrada'&&_b.cat==='Pagamento Fornecedor'&&_b.tipo==='Saída'&&_a.data===_b.data&&Math.abs((_a.valor||0)-(_b.valor||0))<0.01){
+        _a.aportePairId=_b.id;_b.aportePairId=_a.id;
+      }
+    }
     d.vendas.forEach(v=>{if(v.produtoId===undefined)v.produtoId=0;if(v.saldoReceber===undefined)v.saldoReceber=(v.valorVenda||0)-(v.recebido||0)});
     D=d;
   } else {
@@ -399,6 +408,15 @@ function loadData(){
       d.produtos.forEach(p=>{if(p.num===undefined)p.num='';if(p.img===undefined)p.img='';if(!p.imgs){p.imgs=p.img?[p.img]:[]}if(p.precoVenda===undefined)p.precoVenda=0});
       d.despesas.forEach(x=>{if(!x.plano)x.plano=''});
       d.movimentacoes.forEach(m=>{if(!m.plano)m.plano='';if(!m.itens)m.itens=[];if(m.comprovante===undefined)m.comprovante='';if(m.itens&&m.itens.length){m.itens.forEach(it=>{if(it.produtoId){const _p=d.produtos.find(x=>x.id===it.produtoId);if(_p&&!_p.movId)_p.movId=m.id}})}});
+      // Migracao: parear aporte de mercadoria (Entrada Capital Inicial + Saida Pagamento Fornecedor com mesma data/valor)
+      const _sorted=[...d.movimentacoes].sort((a,b)=>(a.data||'').localeCompare(b.data||'')||a.id-b.id);
+      for(let _i=0;_i<_sorted.length-1;_i++){
+        const _a=_sorted[_i], _b=_sorted[_i+1];
+        if(_a.aportePairId||_b.aportePairId)continue;
+        if(_a.cat==='Capital Inicial'&&_a.tipo==='Entrada'&&_b.cat==='Pagamento Fornecedor'&&_b.tipo==='Saída'&&_a.data===_b.data&&Math.abs((_a.valor||0)-(_b.valor||0))<0.01){
+          _a.aportePairId=_b.id;_b.aportePairId=_a.id;
+        }
+      }
       d.vendas.forEach(v=>{if(v.produtoId===undefined)v.produtoId=0;if(v.saldoReceber===undefined)v.saldoReceber=(v.valorVenda||0)-(v.recebido||0)});
       // Auto-generate contasReceber from vendas with saldo > 0 if empty
       if(d.contasReceber.length===0){
@@ -1598,7 +1616,7 @@ function renderMov(){
   <table><thead><tr><th>ID</th><th>Data</th><th>Descrição</th><th>Tipo</th><th>Categoria</th><th>Plano de Contas</th><th class="r">Valor</th><th class="r">Saldo</th><th>Ação</th></tr></thead><tbody>
   ${sorted.map(m=>`<tr>
     <td>${m.id}</td><td>${fmtD(m.data)}</td>
-    <td><span class="editable" onclick="abrirMovDetalhes(${m.id})" title="Clique para ver/editar detalhes, itens e comprovante">${m.desc}${(m.itens&&m.itens.length)?` <span style="font-size:9px;background:#dbeafe;color:#1e40af;padding:1px 5px;border-radius:8px;margin-left:2px;font-weight:600" title="${m.itens.length} item(s) detalhado(s)">📦 ${m.itens.length}</span>`:''}${m.comprovante?` <span style="font-size:9px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:8px;margin-left:2px;font-weight:600" title="Comprovante anexado">📎</span>`:''}</span></td>
+    <td><span class="editable" onclick="abrirMovDetalhes(${m.id})" title="Clique para ver/editar detalhes, itens e comprovante">${m.desc}${(()=>{const _cm=getCompraMovId(m);if(!_cm)return'';const _n=D.produtos.filter(p=>p.movId===_cm).length;return _n>0?` <span style="font-size:9px;background:#dbeafe;color:#1e40af;padding:1px 5px;border-radius:8px;margin-left:2px;font-weight:600" title="${_n} produto(s) vinculado(s)">📦 ${_n}</span>`:''})()}${m.comprovante?` <span style="font-size:9px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:8px;margin-left:2px;font-weight:600" title="Comprovante anexado">📎</span>`:''}</span></td>
     <td><span class="badge ${m.tipo==='Entrada'?'b-entrada':'b-saida'}">${m.tipo}</span></td>
     <td><span class="editable" onclick="editMovSelect(${m.id},'cat',this,['Capital Inicial','Pagamento Fornecedor','Recebimento Venda','Sinal Encomenda','Despesa Operacional','Custo Produto (Frete/Taxa)','Aporte Sócio','Outros'])">${m.cat||''}</span></td>
     <td><span class="editable" onclick="editMovSelect(${m.id},'plano',this,D.planoContas.concat(['Mercadoria']))">${m.plano||'—'}</span></td>
@@ -1653,6 +1671,20 @@ function editMovSelect(movId,field,el,options){
 }
 
 // ═══════ MODAL DETALHES MOVIMENTAÇÃO (Itens + Comprovante) ═══════
+// Retorna o id da movimentacao que "carrega" produtos para esta mov:
+// - Compra normal: o proprio id (mov com cat='Pagamento Fornecedor')
+// - Aporte mercadoria: se m e o lado Entrada, retorna o id do Saida pareado
+// - Outros: retorna null (nao carrega produtos)
+function getCompraMovId(m){
+  if(!m)return null;
+  if(m.cat==='Pagamento Fornecedor')return m.id;
+  if(m.aportePairId){
+    const _p=D.movimentacoes.find(x=>x.id===m.aportePairId);
+    if(_p&&_p.cat==='Pagamento Fornecedor')return _p.id;
+  }
+  return null;
+}
+
 function abrirMovDetalhes(movId){
   const m=D.movimentacoes.find(x=>x.id===movId);if(!m)return;
   if(!m.itens)m.itens=[];
@@ -1679,8 +1711,10 @@ function refreshMovModal(movId){
 function renderMovDetalhesModal(movId){
   const m=D.movimentacoes.find(x=>x.id===movId);if(!m)return'';
   const isSaida=m.tipo==='Saída';
-  const isCompraType=m.cat==='Pagamento Fornecedor'||/^Compra\b/i.test(m.desc||'');
-  const prodsLinked=isCompraType?D.produtos.filter(p=>p.movId===m.id):[];
+  const compraMovId=getCompraMovId(m);
+  const isCompraType=compraMovId!==null;
+  const isAporteMerc=m.cat==='Capital Inicial'&&m.aportePairId;
+  const prodsLinked=isCompraType?D.produtos.filter(p=>p.movId===compraMovId):[];
   const totalProds=prodsLinked.reduce((a,p)=>a+(+p.custo||0)*(+p.qtd||1),0);
   const totalQtdProds=prodsLinked.reduce((a,p)=>a+(+p.qtd||1),0);
   const diffProds=Math.round((totalProds-(m.valor||0))*100)/100;
@@ -1702,12 +1736,12 @@ function renderMovDetalhesModal(movId){
         ${isCompraType?`
         <div style="margin-bottom:14px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px">
-            <label style="font-size:13px;font-weight:700;color:var(--dark)">📦 Produtos desta compra (sincronizados com Estoque)</label>
+            <label style="font-size:13px;font-weight:700;color:var(--dark)">📦 ${isAporteMerc?'Mercadoria deste aporte':'Produtos desta compra'} (sincronizados com Estoque)</label>
             <span style="font-size:10px;color:var(--gray)">${prodsLinked.length} produto(s) • ${totalQtdProds} unid • Total: <strong>${fmt(totalProds)}</strong>${prodsLinked.length&&Math.abs(diffProds)>0.01?` <span style="color:${diffProds>0?'var(--red)':'var(--orange)'}" title="Diferença entre soma dos produtos e valor da movimentação">⚠ ${diffProds>0?'+':''}${fmt(diffProds)} vs mov.</span>`:''}</span>
           </div>
           <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:8px;max-height:320px;overflow-y:auto">
             ${prodsLinked.length===0?
-              `<div style="font-size:11px;color:var(--gray);padding:14px;text-align:center;line-height:1.5">Esta compra ainda não tem produtos vinculados.<br><span style="font-size:10px">Se foi registrada antes do controle de itens, os produtos estão no Estoque mas não foram amarrados a esta movimentação específica — e não há forma confiável de retroceder isso automaticamente.</span></div>`
+              `<div style="font-size:11px;color:var(--gray);padding:14px;text-align:center;line-height:1.5">${isAporteMerc?'Este aporte de mercadoria':'Esta compra'} ainda não tem produtos vinculados.<br><span style="font-size:10px">Se foi registrada antes do controle de itens, os produtos estão no Estoque mas não foram amarrados a esta movimentação específica — e não há forma confiável de retroceder isso automaticamente.</span></div>`
               : `<div style="display:grid;grid-template-columns:1.8fr 55px 80px 50px 95px 32px;gap:5px;font-size:9px;font-weight:700;color:var(--gray);padding:0 4px 6px;text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid var(--border);margin-bottom:6px">
                   <span>Nome</span><span>Nº</span><span>Custo</span><span>Qtd</span><span>Status</span><span></span>
                 </div>
@@ -1771,10 +1805,22 @@ function renderMovDetalhesModal(movId){
 function addProdItemMov(movId){
   if(!PERMS.insert){toast('Sem permissão para inserir',true);return}
   const m=D.movimentacoes.find(x=>x.id===movId);if(!m)return;
-  // Extrair fornecedor da descricao
-  const dm=(m.desc||'').match(/^(?:Compra|Pagamento)\s+([A-Za-zÀ-ÿ0-9 ]+?)(?:\s+—|\s+Lote|\s+\d|\s+-)/i);
-  const forn=dm?dm[1].trim():'';
-  const novo={id:D.nextProdId++,nome:'',marca:'',cat:'Outro',custo:0,qtd:1,status:'Em Estoque',num:'',img:'',imgs:[],precoVenda:0,obs:forn?`Fornecedor: ${forn}`:`Mov #${movId}`,movId:movId};
+  const compraMovId=getCompraMovId(m);
+  if(!compraMovId){toast('Esta movimentação não suporta itens',true);return}
+  // Determinar obs (fornecedor ou socio)
+  let obs;
+  if(m.aportePairId){
+    // Aporte mercadoria: pegar nome do socio da descricao do lado Entrada
+    const ent=m.cat==='Capital Inicial'?m:D.movimentacoes.find(x=>x.id===m.aportePairId);
+    const sm=ent?(ent.desc||'').match(/^Aporte\s+([A-Za-zÀ-ÿ0-9 ]+?)\s+—/i):null;
+    obs=sm?`Aporte ${sm[1].trim()}`:(ent?ent.desc:`Aporte`);
+  } else {
+    // Compra normal: extrair fornecedor da descricao
+    const dm=(m.desc||'').match(/^(?:Compra|Pagamento)\s+([A-Za-zÀ-ÿ0-9 ]+?)(?:\s+—|\s+Lote|\s+\d|\s+-)/i);
+    const forn=dm?dm[1].trim():'';
+    obs=forn?`Fornecedor: ${forn}`:`Mov #${compraMovId}`;
+  }
+  const novo={id:D.nextProdId++,nome:'',marca:'',cat:'Outro',custo:0,qtd:1,status:'Em Estoque',num:'',img:'',imgs:[],precoVenda:0,obs:obs,movId:compraMovId};
   D.produtos.push(novo);
   saveData();refreshMovModal(movId);toast('Produto adicionado ao estoque');
 }
@@ -1803,10 +1849,14 @@ function removerProdItemMov(prodId,movId){
 function sincronizarValorMov(movId){
   if(!PERMS.edit){toast('Sem permissão',true);return}
   const m=D.movimentacoes.find(x=>x.id===movId);if(!m)return;
-  const prods=D.produtos.filter(p=>p.movId===movId);
+  const compraMovId=getCompraMovId(m);if(!compraMovId)return;
+  const prods=D.produtos.filter(p=>p.movId===compraMovId);
   const total=prods.reduce((a,p)=>a+(+p.custo||0)*(+p.qtd||1),0);
-  if(!confirm(`Atualizar valor da movimentação de ${fmt(m.valor)} para ${fmt(total)}?`))return;
-  m.valor=total;recalcSaldos();saveData();refreshMovModal(movId);toast('Valor sincronizado');
+  if(!confirm(`Atualizar valor da movimentação de ${fmt(m.valor)} para ${fmt(total)}?\n\nIsso vai atualizar tanto a Entrada quanto a Saída (se houver pareamento).`))return;
+  m.valor=total;
+  // Se for aporte mercadoria, atualizar tambem o par
+  if(m.aportePairId){const _p=D.movimentacoes.find(x=>x.id===m.aportePairId);if(_p)_p.valor=total}
+  recalcSaldos();saveData();refreshMovModal(movId);toast('Valor sincronizado');
 }
 
 function uploadComprovanteMov(movId){
@@ -2252,8 +2302,8 @@ function salvarAporte(){
   if(tipo==='dinheiro'){
     D.movimentacoes.push({id:nm,data,desc:`Aporte ${socio} — ${desc||'Depósito'}`,tipo:'Entrada',cat:'Capital Inicial',plano,valor,saldo:0});
   } else if(tipo==='mercadoria'){
-    D.movimentacoes.push({id:nm,data,desc:`Aporte ${socio} — ${desc} (mercadoria)`,tipo:'Entrada',cat:'Capital Inicial',plano,valor,saldo:0});
-    D.movimentacoes.push({id:nm+1,data,desc:`${desc} (aporte mercadoria - sem fluxo bancário)`,tipo:'Saída',cat:'Pagamento Fornecedor',plano:'Mercadoria',valor,saldo:0});
+    D.movimentacoes.push({id:nm,data,desc:`Aporte ${socio} — ${desc} (mercadoria)`,tipo:'Entrada',cat:'Capital Inicial',plano,valor,saldo:0,aportePairId:nm+1});
+    D.movimentacoes.push({id:nm+1,data,desc:`${desc} (aporte mercadoria - sem fluxo bancário)`,tipo:'Saída',cat:'Pagamento Fornecedor',plano:'Mercadoria',valor,saldo:0,aportePairId:nm});
   } else {
     const despId=nextId(D.despesas);
     D.movimentacoes.push({id:nm,data,desc:`Aporte ${socio} — ${desc}`,tipo:'Entrada',cat:'Aporte Sócio',plano,valor,saldo:0});
