@@ -1741,7 +1741,7 @@ function renderMovDetalhesModal(movId){
           </div>
           <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:8px;max-height:320px;overflow-y:auto">
             ${prodsLinked.length===0?
-              `<div style="font-size:11px;color:var(--gray);padding:14px;text-align:center;line-height:1.5">${isAporteMerc?'Este aporte de mercadoria':'Esta compra'} ainda não tem produtos vinculados.<br><span style="font-size:10px">Se foi registrada antes do controle de itens, os produtos estão no Estoque mas não foram amarrados a esta movimentação específica — e não há forma confiável de retroceder isso automaticamente.</span></div>`
+              `<div style="font-size:11px;color:var(--gray);padding:14px;text-align:center;line-height:1.5">${isAporteMerc?'Este aporte de mercadoria':'Esta compra'} ainda não tem produtos vinculados.<br><span style="font-size:10px">Se foi registrada antes do controle de itens, use <strong>🔗 Vincular produtos cadastrados</strong> abaixo para amarrar produtos do estoque que ainda não têm dono.</span></div>`
               : `<div style="display:grid;grid-template-columns:1.8fr 55px 80px 50px 95px 32px;gap:5px;font-size:9px;font-weight:700;color:var(--gray);padding:0 4px 6px;text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid var(--border);margin-bottom:6px">
                   <span>Nome</span><span>Nº</span><span>Custo</span><span>Qtd</span><span>Status</span><span></span>
                 </div>
@@ -1760,6 +1760,7 @@ function renderMovDetalhesModal(movId){
           </div>
           <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;align-items:center">
             <button class="btn btn-secondary btn-sm" onclick="addProdItemMov(${m.id})">+ Adicionar Produto</button>
+            ${prodsLinked.length===0?`<button class="btn btn-sm" onclick="abrirConciliar(${m.id})" style="background:var(--blue);color:#fff" title="Vincular produtos ja cadastrados no estoque que ainda nao tem dono">🔗 Vincular produtos cadastrados</button>`:''}
             ${prodsLinked.length>0&&Math.abs(diffProds)>0.01?`<button class="btn btn-sm" onclick="sincronizarValorMov(${m.id})" style="background:var(--orange);color:#fff" title="Atualizar valor da movimentação para bater com a soma dos produtos">🔄 Sincronizar valor (${fmt(totalProds)})</button>`:''}
           </div>
           <div style="font-size:10px;color:var(--gray);margin-top:6px;line-height:1.4">💡 Editar nome/custo/qtd atualiza direto no estoque. Excluir remove o produto do estoque. <strong>+ Adicionar Produto</strong> cria um novo produto no estoque — não use se o produto já está cadastrado.</div>
@@ -1899,6 +1900,140 @@ function verComprovanteFull(movId){
     </div>`;
   document.body.appendChild(ov);
 }
+
+// ═══════ VINCULAR PRODUTOS CADASTRADOS (conciliacao retroativa) ═══════
+// Mostra somente produtos sem movId. Filtra por pista (socio/fornecedor) da descricao.
+// Permite ao usuario amarrar produtos antigos a uma compra ou aporte mercadoria.
+let _conState={movId:0,selected:new Set(),search:'',mostrarTodos:false};
+
+function _getConciliarPista(m){
+  if(!m)return {pista:'',tipoLabel:''};
+  if(m.aportePairId){
+    // Aporte mercadoria: pegar socio da descricao do lado Entrada
+    const ent=m.cat==='Capital Inicial'?m:D.movimentacoes.find(x=>x.id===m.aportePairId);
+    if(ent){
+      const sm=(ent.desc||'').match(/^Aporte\s+([A-Za-zÀ-ÿ0-9 ]+?)\s+—/i);
+      if(sm)return {pista:sm[1].trim(),tipoLabel:'aporte (sócio)'};
+    }
+    return {pista:'',tipoLabel:'aporte'};
+  }
+  // Compra normal: pegar fornecedor
+  const dm=(m.desc||'').match(/^(?:Compra|Pagamento)\s+([A-Za-zÀ-ÿ0-9 ]+?)(?:\s+—|\s+Lote|\s+\d|\s+-)/i);
+  if(dm)return {pista:dm[1].trim(),tipoLabel:'compra (fornecedor)'};
+  return {pista:'',tipoLabel:'compra'};
+}
+
+function _getConciliarCandidatos(){
+  const m=D.movimentacoes.find(x=>x.id===_conState.movId);if(!m)return [];
+  const {pista}=_getConciliarPista(m);
+  let cands=D.produtos.filter(p=>!p.movId);
+  if(!_conState.mostrarTodos&&pista){
+    cands=cands.filter(p=>(p.obs||'').toLowerCase().includes(pista.toLowerCase()));
+  }
+  const s=_conState.search.toLowerCase();
+  if(s)cands=cands.filter(p=>(p.nome||'').toLowerCase().includes(s)||(p.obs||'').toLowerCase().includes(s)||(p.cat||'').toLowerCase().includes(s));
+  cands.sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+  return cands;
+}
+
+function abrirConciliar(movId){
+  if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
+  _conState={movId:movId,selected:new Set(),search:'',mostrarTodos:false};
+  document.querySelectorAll('.con-overlay').forEach(o=>o.remove());
+  const overlay=document.createElement('div');
+  overlay.className='modal-overlay con-overlay';
+  overlay.id='conOverlay';
+  overlay.style.zIndex='1050';
+  overlay.onclick=function(e){if(e.target===overlay)overlay.remove()};
+  document.body.appendChild(overlay);
+  renderConciliar();
+}
+
+function renderConciliar(){
+  const overlay=document.getElementById('conOverlay');if(!overlay)return;
+  const m=D.movimentacoes.find(x=>x.id===_conState.movId);if(!m)return;
+  const {pista,tipoLabel}=_getConciliarPista(m);
+  const cands=_getConciliarCandidatos();
+  const totalSemDono=D.produtos.filter(p=>!p.movId).length;
+  const totalSel=Array.from(_conState.selected).reduce((a,pid)=>{const p=D.produtos.find(x=>x.id===pid);return a+(p?(+p.custo||0)*(+p.qtd||1):0)},0);
+  overlay.innerHTML=`
+    <div class="modal-card" style="max-width:780px" onclick="event.stopPropagation()">
+      <button class="modal-close" onclick="document.getElementById('conOverlay').remove()">✕</button>
+      <div class="modal-body" style="padding-top:32px">
+        <h2 style="font-size:16px;margin-bottom:4px">🔗 Vincular Produtos Cadastrados</h2>
+        <div style="font-size:11px;color:var(--gray);margin-bottom:8px">Mov #${m.id} — ${m.desc}<br>${pista?`Pista detectada (${tipoLabel}): <strong style="color:var(--blue)">${pista}</strong>`:'Sem pista clara na descrição — mostrando todos os produtos sem dono.'}</div>
+        <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:6px;padding:8px;font-size:10px;color:#1e40af;margin-bottom:8px;line-height:1.5">
+          ℹ Lista mostra apenas produtos <strong>sem dono no sistema</strong> (${totalSemDono} total). Esses produtos foram cadastrados no Estoque mas não foram amarrados a nenhuma compra ou aporte específico. Você escolhe quais vieram desta movimentação. Cada produto só pode ter um dono.
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap;align-items:center">
+          <input value="${(_conState.search||'').replace(/"/g,'&quot;')}" placeholder="🔍 Buscar por nome, obs ou categoria..." oninput="_conState.search=this.value;renderConciliar()" style="flex:1;min-width:180px;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+          ${pista?`<label style="font-size:11px;color:var(--text2);display:flex;align-items:center;gap:4px;cursor:pointer;white-space:nowrap"><input type="checkbox" ${_conState.mostrarTodos?'checked':''} onchange="_conState.mostrarTodos=this.checked;renderConciliar()"> Mostrar todos sem dono</label>`:''}
+        </div>
+        <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
+          <button class="btn btn-xs btn-secondary" onclick="conSelecionarTodos(true)">Selecionar visíveis</button>
+          <button class="btn btn-xs btn-secondary" onclick="conSelecionarTodos(false)">Limpar</button>
+        </div>
+        <div style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;background:#fff">
+          ${cands.length===0?`<div style="padding:20px;text-align:center;color:var(--gray);font-size:12px">Nenhum produto sem dono encontrado${pista&&!_conState.mostrarTodos?' com este filtro':''}.${pista&&!_conState.mostrarTodos?`<br><a onclick="_conState.mostrarTodos=true;renderConciliar()" style="color:var(--blue);cursor:pointer;text-decoration:underline">Ver todos os produtos sem dono</a>`:''}</div>`:`
+          <table style="width:100%;font-size:11px">
+            <thead style="position:sticky;top:0;background:#f8fafc;z-index:1">
+              <tr><th style="width:32px;padding:6px 8px"></th><th style="padding:6px 8px">Produto</th><th style="padding:6px 8px">Cat</th><th style="padding:6px 8px;text-align:right">Custo</th><th style="padding:6px 8px">Status</th></tr>
+            </thead>
+            <tbody>
+              ${cands.map(p=>{
+                const checked=_conState.selected.has(p.id);
+                return `<tr>
+                  <td style="padding:5px 8px"><input type="checkbox" ${checked?'checked':''} onchange="conToggle(${p.id},this.checked)"></td>
+                  <td style="padding:5px 8px">${p.nome||'(sem nome)'}${p.obs?`<div style="font-size:9px;color:var(--gray)">${p.obs}</div>`:''}</td>
+                  <td style="padding:5px 8px">${p.cat||'—'}</td>
+                  <td style="padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums">${fmt(p.custo)}</td>
+                  <td style="padding:5px 8px;font-size:10px">${p.status||''}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>`}
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:8px;flex-wrap:wrap">
+          <span style="font-size:11px;color:var(--gray)"><strong>${_conState.selected.size}</strong> selecionado(s) • Total: <strong>${fmt(totalSel)}</strong></span>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('conOverlay').remove()">Cancelar</button>
+            <button class="btn btn-primary btn-sm" onclick="confirmarConciliar()">✓ Vincular</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function conToggle(pid,checked){
+  if(checked)_conState.selected.add(pid);else _conState.selected.delete(pid);
+  renderConciliar();
+}
+
+function conSelecionarTodos(sel){
+  const cands=_getConciliarCandidatos();
+  cands.forEach(p=>{if(sel)_conState.selected.add(p.id);else _conState.selected.delete(p.id)});
+  renderConciliar();
+}
+
+function confirmarConciliar(){
+  const m=D.movimentacoes.find(x=>x.id===_conState.movId);if(!m)return;
+  const compraMovId=getCompraMovId(m);
+  if(!compraMovId){toast('Esta movimentação não suporta itens',true);return}
+  if(_conState.selected.size===0){toast('Nenhum produto selecionado',true);return}
+  let vinculados=0;
+  _conState.selected.forEach(pid=>{
+    const p=D.produtos.find(x=>x.id===pid);
+    if(p&&!p.movId){p.movId=compraMovId;vinculados++}
+  });
+  const movId=_conState.movId;
+  _conState={movId:0,selected:new Set(),search:'',mostrarTodos:false};
+  saveData();
+  const o=document.getElementById('conOverlay');if(o)o.remove();
+  refreshMovModal(movId);
+  toast(`${vinculados} produto(s) vinculado(s)`);
+}
+
+
 
 
 
