@@ -1742,19 +1742,22 @@ function renderMovDetalhesModal(movId){
           <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:8px;max-height:320px;overflow-y:auto">
             ${prodsLinked.length===0?
               `<div style="font-size:11px;color:var(--gray);padding:14px;text-align:center;line-height:1.5">${isAporteMerc?'Este aporte de mercadoria':'Esta compra'} ainda não tem produtos vinculados.<br><span style="font-size:10px">Se foi registrada antes do controle de itens, use <strong>🔗 Vincular produtos cadastrados</strong> abaixo para amarrar produtos do estoque que ainda não têm dono.</span></div>`
-              : `<div style="display:grid;grid-template-columns:1.8fr 55px 80px 50px 95px 32px;gap:5px;font-size:9px;font-weight:700;color:var(--gray);padding:0 4px 6px;text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid var(--border);margin-bottom:6px">
-                  <span>Nome</span><span>Nº</span><span>Custo</span><span>Qtd</span><span>Status</span><span></span>
+              : `<div style="display:grid;grid-template-columns:1.7fr 50px 75px 45px 85px 60px;gap:4px;font-size:9px;font-weight:700;color:var(--gray);padding:0 4px 6px;text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid var(--border);margin-bottom:6px">
+                  <span>Nome</span><span>Nº</span><span>Custo</span><span>Qtd</span><span>Status</span><span style="text-align:center">Ações</span>
                 </div>
                 ${prodsLinked.map(p=>{
                   const stBg=p.status==='Em Estoque'?'#d1fae5':p.status==='Vendido'?'#dbeafe':p.status&&p.status.includes('Reservado')?'#ede9fe':'#fef3c7';
                   const stFg=p.status==='Em Estoque'?'#065f46':p.status==='Vendido'?'#1e40af':p.status&&p.status.includes('Reservado')?'#5b21b6':'#92400e';
-                  return `<div style="display:grid;grid-template-columns:1.8fr 55px 80px 50px 95px 32px;gap:5px;margin-bottom:5px;align-items:center">
+                  return `<div style="display:grid;grid-template-columns:1.7fr 50px 75px 45px 85px 60px;gap:4px;margin-bottom:5px;align-items:center">
                     <input value="${(p.nome||'').replace(/"/g,'&quot;')}" onchange="updateProdItemMov(${p.id},${m.id},'nome',this.value)" placeholder="Nome do produto" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px">
                     <input value="${(p.num||'').replace(/"/g,'&quot;')}" onchange="updateProdItemMov(${p.id},${m.id},'num',this.value)" placeholder="—" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px">
                     <input type="number" step="0.01" value="${p.custo||''}" onchange="updateProdItemMov(${p.id},${m.id},'custo',+this.value)" placeholder="0" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px;text-align:right">
                     <input type="number" min="1" value="${p.qtd||1}" onchange="updateProdItemMov(${p.id},${m.id},'qtd',+this.value)" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px;text-align:right">
                     <span style="font-size:9px;padding:3px 5px;background:${stBg};color:${stFg};border-radius:6px;text-align:center;font-weight:600">${p.status||'—'}</span>
-                    <button onclick="removerProdItemMov(${p.id},${m.id})" style="background:var(--red);color:#fff;border:none;width:26px;height:26px;border-radius:5px;font-size:12px;cursor:pointer" title="Remover do estoque (CUIDADO)">✕</button>
+                    <div style="display:flex;gap:3px;justify-content:center">
+                      <button onclick="desdobrarProdItemMov(${p.id},${m.id})" style="background:var(--blue);color:#fff;border:none;width:26px;height:26px;border-radius:5px;font-size:11px;cursor:pointer" title="Desdobrar em N unidades separadas">🔀</button>
+                      <button onclick="removerProdItemMov(${p.id},${m.id})" style="background:var(--red);color:#fff;border:none;width:26px;height:26px;border-radius:5px;font-size:12px;cursor:pointer" title="Remover do estoque (CUIDADO)">✕</button>
+                    </div>
                   </div>`;}).join('')}`
             }
           </div>
@@ -1845,6 +1848,36 @@ function removerProdItemMov(prodId,movId){
   if(!confirm(msg))return;
   D.produtos=D.produtos.filter(x=>x.id!==prodId);
   saveData();refreshMovModal(movId);toast('Produto removido do estoque');
+}
+
+function desdobrarProdItemMov(prodId,movId){
+  if(!PERMS.insert){toast('Sem permissão para inserir',true);return}
+  const p=D.produtos.find(x=>x.id===prodId);if(!p)return;
+  if(p.status&&p.status!=='Em Estoque'){
+    if(!confirm(`⚠ Produto está com status "${p.status}". Desdobrar mesmo assim?\n\n(Os duplicados nascerão com status "Em Estoque")`))return;
+  }
+  const defQtd=p.qtd&&p.qtd>1?p.qtd:10;
+  const inp=prompt(`Desdobrar "${p.nome||'(sem nome)'}" em quantas unidades separadas?\n\nCada unidade ficará com qty=1 e o mesmo custo (${fmt(p.custo)}).\nO total: ${fmt((p.custo||0)*defQtd)} (custo × unidades)`,String(defQtd));
+  if(!inp)return;
+  const n=parseInt(inp);
+  if(isNaN(n)||n<2){toast('Número inválido (mínimo 2)',true);return}
+  // Renomear original com sufixo #1 se ainda nao tiver
+  const baseName=(p.nome||'Produto').replace(/\s*#\d+$/,'');
+  const tinhaNumero=/\s*#\d+$/.test(p.nome||'');
+  if(!tinhaNumero)p.nome=baseName+' #1';
+  p.qtd=1;
+  // Criar N-1 copias
+  for(let i=2;i<=n;i++){
+    const copia=JSON.parse(JSON.stringify(p));
+    copia.id=D.nextProdId++;
+    copia.nome=baseName+' #'+i;
+    copia.qtd=1;
+    copia.status='Em Estoque';
+    delete copia.cliente;
+    D.produtos.push(copia);
+  }
+  saveData();refreshMovModal(movId);
+  toast(`✓ Desdobrado em ${n} unidades: ${baseName} #1 a #${n}`);
 }
 
 function sincronizarValorMov(movId){
