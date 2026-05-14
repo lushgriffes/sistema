@@ -896,7 +896,7 @@ function uploadImg(prodId){
 }
 
 function editNumField(prodId,field,el){
-  if(_editing)return;_editing=true;
+  if(el.querySelector('input,select'))return;_editing=true;
   const p=D.produtos.find(x=>x.id===prodId);if(!p){_editing=false;return;}
   el.innerHTML=`<input class="edit-input" type="number" step="0.01" value="${p[field]||''}" onkeydown="if(event.key==='Enter')this.blur()" style="width:80px;text-align:right">`;
   const inp=el.querySelector('input');let done=false;
@@ -944,7 +944,7 @@ LUSH GRIFFES`;
 }
 
 function editField(prodId,field,el){
-  if(_editing)return;_editing=true;
+  if(el.querySelector('input,select'))return;_editing=true;
   const p=D.produtos.find(x=>x.id===prodId);if(!p){_editing=false;return;}
   el.innerHTML=`<input class="edit-input" value="${p[field]||''}" onkeydown="if(event.key==='Enter')this.blur()">`;
   const inp=el.querySelector('input');let done=false;
@@ -1922,7 +1922,7 @@ function excluirMov(movId){
 
 function editMovText(movId,field,el){
   if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
-  if(_editing)return;_editing=true;
+  if(el.querySelector('input,select'))return;_editing=true;
   const m=D.movimentacoes.find(x=>x.id===movId);if(!m){_editing=false;return;}
   el.innerHTML=`<input class="edit-input" value="${m[field]||''}" onkeydown="if(event.key==='Enter')this.blur()">`;
   const inp=el.querySelector('input');let done=false;
@@ -1931,12 +1931,12 @@ function editMovText(movId,field,el){
 }
 function editMovSelect(movId,field,el,options){
   if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
-  if(_editing)return;_editing=true;
+  if(el.querySelector('input,select'))return;_editing=true;
   const m=D.movimentacoes.find(x=>x.id===movId);if(!m){_editing=false;return;}
   el.innerHTML=`<select class="edit-input">${options.map(c=>`<option${c===(m[field]||'')?' selected':''}>${c}</option>`).join('')}</select>`;
   const sel=el.querySelector('select');let done=false;
   function commit(){if(done)return;done=true;_editing=false;m[field]=sel.value;syncMovToDesp(movId,field,sel.value);saveData();renderPage()}
-  sel.addEventListener('change',commit);sel.addEventListener('blur',()=>setTimeout(commit,250));
+  sel.addEventListener('change',commit);sel.addEventListener('blur',()=>setTimeout(commit,0));
   setTimeout(()=>sel.focus(),30);
 }
 
@@ -2622,11 +2622,37 @@ function renderDesp(){
     <td>${d.pago?'✅':'❌'}</td>
   </tr>`).join('')}
   </tbody><tfoot><tr><td colspan="4" style="font-weight:700">TOTAL</td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,d)=>a+(d.valor||0),0))}</td><td></td></tr></tfoot></table>
-  </div></div>`;
+  </div></div>
+  ${renderTaxasLancadasBox()}`;
+}
+
+// Lista das taxas de produto lancadas (sao custo do produto, NAO despesa operacional)
+function renderTaxasLancadasBox(){
+  const taxas=D.movimentacoes.filter(m=>m.cat==='Custo Produto (Frete/Taxa)'||(m.taxaItens&&m.taxaItens.length>0));
+  taxas.sort((a,b)=>{const d=(b.data||'').localeCompare(a.data||'');return d!==0?d:b.id-a.id});
+  const totalTaxas=taxas.reduce((a,m)=>a+(+m.valor||0),0);
+  return `
+  <div class="box" style="border-left:4px solid var(--orange)">
+    <h3>🧾 Taxas de Produto lançadas <span style="font-size:11px;font-weight:400;color:var(--gray)">(somam no custo do produto — NÃO contam como despesa operacional, evita contagem dupla)</span></h3>
+    <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:6px;padding:8px;font-size:10px;color:#92400e;margin-bottom:10px;line-height:1.5">
+      ℹ Estas taxas (importação, frete, correio) já estão embutidas no <strong>custo dos produtos</strong>. Por isso aparecem na DRE dentro de "Custo dos Produtos Vendidos" quando o produto é vendido — e não na seção de Despesas. Clique numa taxa para ver/editar os produtos vinculados.
+    </div>
+    <div style="max-height:300px;overflow-y:auto">
+    <table><thead><tr><th>Data</th><th>Descrição</th><th class="r">Valor</th><th class="r">Produtos</th></tr></thead><tbody>
+    ${taxas.length===0?'<tr><td colspan="4" style="font-size:11px;color:var(--gray);padding:10px">Nenhuma taxa de produto lançada ainda.</td></tr>':
+    taxas.map(m=>`<tr>
+      <td>${fmtD(m.data)}</td>
+      <td><span class="editable" onclick="abrirMovDetalhes(${m.id})" title="Ver/editar produtos da taxa">${m.desc}</span></td>
+      <td class="r" style="font-weight:600;color:var(--orange)">${fmt(m.valor)}</td>
+      <td class="r">${(m.taxaItens||[]).length}</td>
+    </tr>`).join('')}
+    </tbody><tfoot><tr><td colspan="2" style="font-weight:700">TOTAL EM TAXAS</td><td class="r" style="font-weight:700;color:var(--orange)">${fmt(totalTaxas)}</td><td></td></tr></tfoot></table>
+    </div>
+  </div>`;
 }
 
 function editDespText(despId,field,el){
-  if(_editing)return;_editing=true;
+  if(el.querySelector('input,select'))return;_editing=true;
   const d=D.despesas.find(x=>x.id===despId);if(!d){_editing=false;return;}
   el.innerHTML=`<input class="edit-input" value="${d[field]||''}" onkeydown="if(event.key==='Enter')this.blur()">`;
   const inp=el.querySelector('input');let done=false;
@@ -2634,12 +2660,12 @@ function editDespText(despId,field,el){
   setTimeout(()=>inp.focus(),30);
 }
 function editDespSelect(despId,field,el,options){
-  if(_editing)return;_editing=true;
+  if(el.querySelector('input,select'))return;_editing=true;
   const d=D.despesas.find(x=>x.id===despId);if(!d){_editing=false;return;}
   el.innerHTML=`<select class="edit-input">${options.map(c=>`<option${c===(d[field]||'')?' selected':''}>${c}</option>`).join('')}</select>`;
   const sel=el.querySelector('select');let done=false;
   function commit(){if(done)return;done=true;_editing=false;d[field]=sel.value;syncDespToMov(despId,field,sel.value);saveData();renderPage()}
-  sel.addEventListener('change',commit);sel.addEventListener('blur',()=>setTimeout(commit,250));
+  sel.addEventListener('change',commit);sel.addEventListener('blur',()=>setTimeout(commit,0));
   setTimeout(()=>sel.focus(),30);
 }
 
