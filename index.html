@@ -2,6 +2,9 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>LUSH GRIFFES - Sistema Financeiro</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js"></script>
@@ -267,6 +270,7 @@ async function loadDataFromSupabase(){
     // Migrations
     if(!d.planoContas)d.planoContas=DEFAULT_DATA.planoContas;
     if(!d.categoriasMov||!d.categoriasMov.length)d.categoriasMov=(DEFAULT_DATA.categoriasMov||["Capital Inicial","Pagamento Fornecedor","Recebimento Venda","Sinal Encomenda","Despesa Operacional","Custo Produto (Frete/Taxa)","Aporte Sócio","Outros"]);
+    if(!d.categoriasDespesa||!d.categoriasDespesa.length)d.categoriasDespesa=(DEFAULT_DATA.categoriasDespesa||["Transporte","Embalagem","Ferramenta","Comunicação","Alimentação","Comissão","Fornecedor","Outros"]);
     if(!d.contasPagar)d.contasPagar=[];
     if(!d.contasReceber)d.contasReceber=[];
     if(!d.fornecedores)d.fornecedores=DEFAULT_DATA.fornecedores;
@@ -389,6 +393,7 @@ const DEFAULT_DATA = {
   categorias: ["Tênis","Bolsa","Relógio","Chinelo","Óculos","Outro"],
   planoContas: ["Logística","Material","Equipamento","Fiscal/Tributário","Tecnologia","Marketing","Comissão","Alimentação","Investimento","Receita","Outros"],
   categoriasMov: ["Capital Inicial","Pagamento Fornecedor","Recebimento Venda","Sinal Encomenda","Despesa Operacional","Custo Produto (Frete/Taxa)","Aporte Sócio","Outros"],
+  categoriasDespesa: ["Transporte","Embalagem","Ferramenta","Comunicação","Alimentação","Comissão","Fornecedor","Outros"],
   taxaSelic: 14.75,
   spreadAportes: 3,
   historicoSelic: [
@@ -407,6 +412,7 @@ function loadData(){
       const d=JSON.parse(s);
       if(!d.planoContas)d.planoContas=DEFAULT_DATA.planoContas;
       if(!d.categoriasMov||!d.categoriasMov.length)d.categoriasMov=(DEFAULT_DATA.categoriasMov||["Capital Inicial","Pagamento Fornecedor","Recebimento Venda","Sinal Encomenda","Despesa Operacional","Custo Produto (Frete/Taxa)","Aporte Sócio","Outros"]);
+      if(!d.categoriasDespesa||!d.categoriasDespesa.length)d.categoriasDespesa=(DEFAULT_DATA.categoriasDespesa||["Transporte","Embalagem","Ferramenta","Comunicação","Alimentação","Comissão","Fornecedor","Outros"]);
       if(!d.contasPagar)d.contasPagar=[];
       if(!d.contasReceber)d.contasReceber=[];
       if(d.taxaSelic===undefined)d.taxaSelic=14.75;
@@ -2640,7 +2646,7 @@ function confirmarConciliar(){
 let despSearch='',despCatFilter='Todos',despPlanoFilter='Todos';
 function renderDesp(){
   const total=D.despesas.reduce((a,d)=>a+(d.valor||0),0);
-  const catDesp=["Transporte","Embalagem","Ferramenta","Comunicação","Alimentação","Comissão","Outros"];
+  const catDesp=D.categoriasDespesa||[];
   const allCatsDesp=['Todos',...new Set(D.despesas.map(d=>d.cat).filter(Boolean))];
   const allPlanos=['Todos',...new Set(D.despesas.map(d=>d.plano).filter(Boolean))];
   let fil=[...D.despesas].sort((a,b)=>{const d=(a.data||'').localeCompare(b.data||'');return d!==0?d:(a.id||0)-(b.id||0)});
@@ -2674,7 +2680,7 @@ function renderDesp(){
   ${fil.map(d=>`<tr>
     <td>${fmtD(d.data)}</td>
     <td><span class="editable" onclick="editDespText(${d.id},'nome',this)">${d.nome}</span></td>
-    <td><span class="editable" onclick="editDespSelect(${d.id},'cat',this,['Transporte','Embalagem','Ferramenta','Comunicação','Alimentação','Comissão','Outros'])">${d.cat||''}</span></td>
+    <td><span class="editable" onclick="editDespSelect(${d.id},'cat',this,D.categoriasDespesa)">${d.cat||''}</span></td>
     <td><span class="editable" onclick="editDespSelect(${d.id},'plano',this,D.planoContas)">${d.plano||'—'}</span></td>
     <td class="r" style="font-weight:600">${fmt(d.valor)}</td>
     <td>${d.pago?'✅':'❌'}</td>
@@ -3038,7 +3044,7 @@ function renderContasPagar(){
   let fil=D.contasPagar;
   if(cpSearch)fil=fil.filter(c=>c.desc.toLowerCase().includes(cpSearch.toLowerCase()));
   if(cpStatusFilter!=='Todos')fil=fil.filter(c=>c.status===cpStatusFilter);
-  const catDesp=["Transporte","Embalagem","Ferramenta","Comunicação","Alimentação","Comissão","Fornecedor","Outros"];
+  const catDesp=D.categoriasDespesa||[];
   return `
   <div class="cards">
     <div class="card red"><div class="card-lbl">Total Pendente</div><div class="card-val">${fmt(totalPend)}</div><div class="card-sub">${pendente.length} contas</div></div>
@@ -3492,7 +3498,7 @@ function initSelicChart(){
 
 // ═══════ CONFIGURAÇÕES ═══════
 function renderConfig(){
-  const catDesp=["Transporte","Embalagem","Ferramenta","Comunicação","Alimentação","Comissão","Fornecedor","Outros"];
+  const catDesp=D.categoriasDespesa||[];
   return `
   <div class="form-section"><h2>⚙️ Configurações do Sistema</h2>
   <p style="font-size:12px;color:var(--gray);margin-bottom:16px">Gerencie as categorias de produtos e os planos de contas usados em todo o sistema. Alterações são aplicadas imediatamente em todas as abas.</p>
@@ -3544,6 +3550,22 @@ function renderConfig(){
     <div style="display:flex;gap:6px">
       <input id="novaCatMov" placeholder="Nova categoria de movimentação..." style="flex:1;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px" onkeydown="if(event.key==='Enter')adicionarCategoriaMov()">
       <button class="btn btn-primary btn-sm" onclick="adicionarCategoriaMov()">+ Adicionar</button>
+    </div>
+  </div>
+
+  <div class="box">
+    <h3>🏷️ Categorias de Despesa</h3>
+    <p style="font-size:11px;color:var(--gray);margin-bottom:10px">Usadas em: Despesas e Contas a Pagar (Transporte, Embalagem, Ferramenta...). Renomear atualiza as despesas que já usam a categoria.</p>
+    <div style="margin-bottom:10px;display:grid;grid-template-columns:1fr 1fr;gap:6px">
+      ${(D.categoriasDespesa||[]).map((c,i)=>`<div style="display:flex;gap:6px;align-items:center">
+        <span class="cfg-item" style="flex:1;font-size:12px;padding:4px 8px;background:#f1f5f9;border-radius:6px">${c}</span>
+        <button class="btn btn-xs" onclick="renomearCfg('catdesp',${i},this)" title="Renomear" style="background:var(--blue);color:#fff">✎</button>
+        <button class="btn btn-danger btn-xs" onclick="removerCategoriaDespesa(${i})" title="Remover">✕</button>
+      </div>`).join('')}
+    </div>
+    <div style="display:flex;gap:6px">
+      <input id="novaCatDesp" placeholder="Nova categoria de despesa..." style="flex:1;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px" onkeydown="if(event.key==='Enter')adicionarCategoriaDespesa()">
+      <button class="btn btn-primary btn-sm" onclick="adicionarCategoriaDespesa()">+ Adicionar</button>
     </div>
   </div>
 
@@ -3748,6 +3770,21 @@ function removerCategoriaMov(i){
   if(confirm(msg)){D.categoriasMov.splice(i,1);saveData();toast('Categoria removida: '+nome);renderPage()}
 }
 
+function adicionarCategoriaDespesa(){
+  const inp=document.getElementById('novaCatDesp');const val=inp.value.trim();
+  if(!val){toast('Digite o nome da categoria',true);return}
+  if(!D.categoriasDespesa)D.categoriasDespesa=[];
+  if(D.categoriasDespesa.includes(val)){toast('Categoria já existe',true);return}
+  D.categoriasDespesa.push(val);saveData();toast('Categoria de despesa adicionada: '+val);renderPage();
+}
+function removerCategoriaDespesa(i){
+  const nome=D.categoriasDespesa[i];
+  const emUso=D.despesas.filter(d=>d.cat===nome).length;
+  let msg=`Remover a categoria de despesa "${nome}"?`;
+  if(emUso>0)msg=`⚠ A categoria "${nome}" está em uso por ${emUso} despesa(s).\nElas mantêm o texto, mas a categoria sai da lista de opções.\n\nConfirma a remoção?`;
+  if(confirm(msg)){D.categoriasDespesa.splice(i,1);saveData();toast('Categoria removida: '+nome);renderPage()}
+}
+
 function renomearCfg(tipo,idx,btn){
   const div=btn.parentElement;
   const span=div.querySelector('.cfg-item');
@@ -3782,6 +3819,11 @@ function aplicarRenomearCfg(tipo,idx,antigo,novo){
     D.categoriasMov[idx]=novo;
     let n=0;D.movimentacoes.forEach(m=>{if(m.cat===antigo){m.cat=novo;n++}});
     saveData();toast(`Categoria de movimentação renomeada para "${novo}"${n?` (${n} movimentação(ões) atualizada(s))`:''}`);renderPage();
+  }else if(tipo==='catdesp'){
+    if(D.categoriasDespesa.includes(novo)){toast('Já existe uma categoria com esse nome',true);renderPage();return}
+    D.categoriasDespesa[idx]=novo;
+    let n=0;D.despesas.forEach(d=>{if(d.cat===antigo){d.cat=novo;n++}});
+    saveData();toast(`Categoria de despesa renomeada para "${novo}"${n?` (${n} despesa(s) atualizada(s))`:''}`);renderPage();
   }else if(tipo==='fornecedor'){
     if(D.fornecedores.includes(novo)){toast('Já existe um fornecedor com esse nome',true);renderPage();return}
     D.fornecedores[idx]=novo;
