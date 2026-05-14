@@ -282,6 +282,9 @@ async function loadDataFromSupabase(){
     d.produtos.forEach(p=>{if(!p.dataEntrada){if(p.movId){const _m=d.movimentacoes.find(x=>x.id===p.movId);if(_m)p.dataEntrada=_m.data}}});
     // Migracao: sincronizar custo das vendas com o custo atual do produto (taxas posteriores etc)
     d.vendas.forEach(v=>{const _p=d.produtos.find(x=>x.id===v.produtoId);if(_p)v.custo=_p.custo});
+    // Migracao: numero de pedido de compra (PC-XXXX) para compras existentes, em ordem cronologica
+    if(d.nextPedidoCompra===undefined)d.nextPedidoCompra=1;
+    d.movimentacoes.filter(m=>m.cat==='Pagamento Fornecedor'&&!m.numPedido).sort((a,b)=>(a.data||'').localeCompare(b.data||'')||a.id-b.id).forEach(m=>{m.numPedido='PC-'+String(d.nextPedidoCompra).padStart(4,'0');d.nextPedidoCompra++;d.produtos.forEach(p=>{if(p.movId===m.id&&!p.numPedido)p.numPedido=m.numPedido})});
     // Migracao: parear aporte de mercadoria (Entrada Capital Inicial + Saida Pagamento Fornecedor com mesma data/valor)
     const _sorted=[...d.movimentacoes].sort((a,b)=>(a.data||'').localeCompare(b.data||'')||a.id-b.id);
     for(let _i=0;_i<_sorted.length-1;_i++){
@@ -403,6 +406,7 @@ const DEFAULT_DATA = {
     {data:"2025-01-29",taxa:13.25},{data:"2025-03-19",taxa:14.25},{data:"2025-05-07",taxa:14.75}
   ],
   nextProdId: 51,
+  nextPedidoCompra: 1,
 };
 
 function loadData(){
@@ -425,6 +429,9 @@ function loadData(){
       d.produtos.forEach(p=>{if(!p.dataEntrada){if(p.movId){const _m=d.movimentacoes.find(x=>x.id===p.movId);if(_m)p.dataEntrada=_m.data}}});
       // Migracao: sincronizar custo das vendas com o custo atual do produto (taxas posteriores etc)
       d.vendas.forEach(v=>{const _p=d.produtos.find(x=>x.id===v.produtoId);if(_p)v.custo=_p.custo});
+      // Migracao: numero de pedido de compra (PC-XXXX) para compras existentes, em ordem cronologica
+      if(d.nextPedidoCompra===undefined)d.nextPedidoCompra=1;
+      d.movimentacoes.filter(m=>m.cat==='Pagamento Fornecedor'&&!m.numPedido).sort((a,b)=>(a.data||'').localeCompare(b.data||'')||a.id-b.id).forEach(m=>{m.numPedido='PC-'+String(d.nextPedidoCompra).padStart(4,'0');d.nextPedidoCompra++;d.produtos.forEach(p=>{if(p.movId===m.id&&!p.numPedido)p.numPedido=m.numPedido})});
       // Migracao: parear aporte de mercadoria (Entrada Capital Inicial + Saida Pagamento Fornecedor com mesma data/valor)
       const _sorted=[...d.movimentacoes].sort((a,b)=>(a.data||'').localeCompare(b.data||'')||a.id-b.id);
       for(let _i=0;_i<_sorted.length-1;_i++){
@@ -811,8 +818,8 @@ function renderEstoque(m){
   </div>
   <div style="text-align:right;margin-bottom:10px"><button class="btn btn-sm" onclick="gerarPDFEstoque()" style="background:var(--dark);color:#fff">📄 Baixar PDF Estoque</button></div>
   <div class="box"><h3>Produtos (${fil.length} itens)</h3>
-  <div id="estTableScroll" style="max-height:600px;overflow-y:auto">
-  <table><thead><tr><th style="width:50px">Foto</th><th>ID</th><th>Data</th><th>Descrição</th><th>Nº</th><th>Rastreio</th><th>Cat.</th><th style="text-align:right">Custo</th><th style="text-align:right">Pç. Venda</th><th>Status</th><th>Ação</th></tr></thead><tbody>
+  <div id="estTableScroll" style="max-height:600px;overflow-y:auto;overflow-x:auto">
+  <table><thead><tr><th style="width:50px">Foto</th><th>ID</th><th>Data</th><th>Descrição</th><th>Nº</th><th>Rastreio</th><th>Cód. Forn.</th><th>Nº Pedido</th><th>Cat.</th><th style="text-align:right">Custo</th><th style="text-align:right">Pç. Venda</th><th>Status</th><th>Ação</th></tr></thead><tbody>
   ${fil.map(p=>{
     const allImgs=p.imgs&&p.imgs.length?p.imgs:(p.img?[p.img]:[]);
     const imgCount=allImgs.length;
@@ -823,12 +830,14 @@ function renderEstoque(m){
     <td><span class="editable" onclick="editField(${p.id},'nome',this)" style="cursor:pointer">${p.nome}</span></td>
     <td><span class="editable" onclick="editField(${p.id},'num',this)">${p.num||'—'}</span></td>
     <td><span class="editable" onclick="editField(${p.id},'rastreio',this)" style="font-size:10px">${p.rastreio||'—'}</span></td>
+    <td><span class="editable" onclick="editField(${p.id},'codFornecedor',this)" style="font-size:10px">${p.codFornecedor||'—'}</span></td>
+    <td><span style="font-size:10px;color:${p.numPedido?'var(--blue)':'var(--gray)'};font-weight:${p.numPedido?'600':'400'};white-space:nowrap">${p.numPedido||'—'}</span></td>
     <td><select onchange="mudaCat(${p.id},this.value)" style="font-size:10px;padding:2px 4px;border-radius:4px;border:1px solid #ddd">${D.categorias.map(c=>`<option${c===p.cat?' selected':''}>${c}</option>`).join('')}</select></td><td class="r"><span class="editable" onclick="editNumField(${p.id},'custo',this)" title="Clique para editar">${fmt(p.custo)}</span></td>
     <td class="r"><span class="editable" onclick="editNumField(${p.id},'precoVenda',this)" style="color:var(--green);font-weight:600">${p.precoVenda?fmt(p.precoVenda):'—'}</span></td>
     <td>${badgeS(p.status)}</td>
     <td><div style="display:flex;gap:3px;align-items:center"><select onchange="mudaStatus(${p.id},this.value)" style="font-size:10px;padding:2px 4px;border-radius:4px;border:1px solid #ddd;flex:1;min-width:0"><option value="">Alterar...</option><option value="Em Trânsito">Em Trânsito</option><option value="Em Estoque">Em Estoque</option><option value="Reservado (Encomenda)">Reservado</option><option value="Vendido">Vendido</option></select><button onclick="abrirProdCard(${p.id})" style="background:#6b7280;color:#fff;border:none;width:24px;height:24px;border-radius:4px;font-size:11px;cursor:pointer;flex-shrink:0" title="Ver produto: custo, taxas, fotos">👁</button><button onclick="desdobrarProdutoEstoque(${p.id})" style="background:var(--blue);color:#fff;border:none;width:24px;height:24px;border-radius:4px;font-size:10px;cursor:pointer;flex-shrink:0" title="Desdobrar em N unidades">🔀</button><button onclick="excluirProdutoEstoque(${p.id})" style="background:var(--red);color:#fff;border:none;width:24px;height:24px;border-radius:4px;font-size:11px;cursor:pointer;flex-shrink:0" title="Excluir do estoque">🗑️</button></div></td></tr>`}).join('')}
   </tbody>
-  <tfoot><tr><td colspan="6" style="font-weight:700">TOTAL</td><td style="font-weight:700">${fil.reduce((a,p)=>a+(p.qtd||1),0)} itens</td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,p)=>a+(p.custo||0),0))}</td><td class="r" style="font-weight:700">${fmt(fil.filter(p=>p.precoVenda).reduce((a,p)=>a+(p.precoVenda||0),0))}</td><td colspan="2"></td></tr></tfoot>
+  <tfoot><tr><td colspan="8" style="font-weight:700">TOTAL</td><td style="font-weight:700">${fil.reduce((a,p)=>a+(p.qtd||1),0)} itens</td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,p)=>a+(p.custo||0),0))}</td><td class="r" style="font-weight:700">${fmt(fil.filter(p=>p.precoVenda).reduce((a,p)=>a+(p.precoVenda||0),0))}</td><td colspan="2"></td></tr></tfoot>
   </table></div></div>`;
 }
 
@@ -2086,7 +2095,7 @@ function renderMovDetalhesModal(movId){
           <h2 style="font-size:16px;margin:0">Detalhes da Movimentação #${m.id}</h2>
           <span class="badge ${isSaida?'b-saida':'b-entrada'}" style="flex-shrink:0">${m.tipo}</span>
         </div>
-        <div style="font-size:11px;color:var(--gray);margin-bottom:14px">${fmtD(m.data)} • ${m.cat||'—'} • <strong style="color:${isSaida?'var(--red)':'var(--green)'}">${fmt(m.valor)}</strong></div>
+        <div style="font-size:11px;color:var(--gray);margin-bottom:14px">${fmtD(m.data)} • ${m.cat||'—'} • <strong style="color:${isSaida?'var(--red)':'var(--green)'}">${fmt(m.valor)}</strong>${m.numPedido?` • <strong style="color:var(--blue)">Pedido ${m.numPedido}</strong>`:''}${m.fornecedor?` • Fornecedor: ${m.fornecedor}`:''}</div>
 
         <div style="margin-bottom:14px">
           <label style="font-size:11px;font-weight:600;color:var(--text2);display:block;margin-bottom:4px">Descrição</label>
@@ -2128,16 +2137,17 @@ function renderMovDetalhesModal(movId){
           <div id="movItemsScroll" style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:8px;max-height:320px;overflow-y:auto;overflow-x:auto">
             ${prodsLinked.length===0?
               `<div style="font-size:11px;color:var(--gray);padding:14px;text-align:center;line-height:1.5">${isAporteMerc?'Este aporte de mercadoria':'Esta compra'} ainda não tem produtos vinculados.<br><span style="font-size:10px">Se foi registrada antes do controle de itens, use <strong>🔗 Vincular produtos cadastrados</strong> abaixo para amarrar produtos do estoque que ainda não têm dono.</span></div>`
-              : `<div style="display:grid;grid-template-columns:1.3fr 45px 95px 75px 90px 55px 70px 60px;gap:4px;min-width:780px;font-size:9px;font-weight:700;color:var(--gray);padding:0 4px 6px;text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid var(--border);margin-bottom:6px">
-                  <span>Nome</span><span>Nº</span><span>Rastreio</span><span>Custo</span><span>Categoria</span><span>Qtd</span><span>Status</span><span style="text-align:center">Ações</span>
+              : `<div style="display:grid;grid-template-columns:1.2fr 42px 88px 88px 70px 80px 48px 65px 56px;gap:4px;min-width:870px;font-size:9px;font-weight:700;color:var(--gray);padding:0 4px 6px;text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid var(--border);margin-bottom:6px">
+                  <span>Nome</span><span>Nº</span><span>Rastreio</span><span>Cód. Forn.</span><span>Custo</span><span>Categoria</span><span>Qtd</span><span>Status</span><span style="text-align:center">Ações</span>
                 </div>
                 ${prodsLinked.map(p=>{
                   const stBg=p.status==='Em Estoque'?'#d1fae5':p.status==='Vendido'?'#dbeafe':p.status&&p.status.includes('Reservado')?'#ede9fe':'#fef3c7';
                   const stFg=p.status==='Em Estoque'?'#065f46':p.status==='Vendido'?'#1e40af':p.status&&p.status.includes('Reservado')?'#5b21b6':'#92400e';
-                  return `<div style="display:grid;grid-template-columns:1.3fr 45px 95px 75px 90px 55px 70px 60px;gap:4px;min-width:780px;margin-bottom:5px;align-items:center">
+                  return `<div style="display:grid;grid-template-columns:1.2fr 42px 88px 88px 70px 80px 48px 65px 56px;gap:4px;min-width:870px;margin-bottom:5px;align-items:center">
                     <input id="movItemNome_${p.id}" value="${(p.nome||'').replace(/"/g,'&quot;')}" onchange="updateProdItemMov(${p.id},${m.id},'nome',this.value)" placeholder="Nome do produto" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px">
                     <input id="movItemNum_${p.id}" value="${(p.num||'').replace(/"/g,'&quot;')}" onchange="updateProdItemMov(${p.id},${m.id},'num',this.value)" placeholder="—" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px">
-                    <input id="movItemRastreio_${p.id}" value="${(p.rastreio||'').replace(/"/g,'&quot;')}" onchange="updateProdItemMov(${p.id},${m.id},'rastreio',this.value)" placeholder="Cód. rastreio" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px">
+                    <input id="movItemRastreio_${p.id}" value="${(p.rastreio||'').replace(/"/g,'&quot;')}" onchange="updateProdItemMov(${p.id},${m.id},'rastreio',this.value)" placeholder="Rastreio" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px">
+                    <input id="movItemCodForn_${p.id}" value="${(p.codFornecedor||'').replace(/"/g,'&quot;')}" onchange="updateProdItemMov(${p.id},${m.id},'codFornecedor',this.value)" placeholder="Cód. forn." style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px">
                     <input id="movItemCusto_${p.id}" type="number" step="0.01" value="${p.custo||''}" onchange="updateProdItemMov(${p.id},${m.id},'custo',+this.value)" placeholder="0" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px;text-align:right">
                     <select id="movItemCat_${p.id}" onchange="updateProdItemMov(${p.id},${m.id},'cat',this.value)" style="padding:5px 6px;border:1px solid var(--border);border-radius:5px;font-size:11px;background:#fff;width:100%;cursor:pointer">${D.categorias.map(c=>`<option${c===(p.cat||'')?' selected':''}>${c}</option>`).join('')}</select>
                     <input id="movItemQtd_${p.id}" type="number" min="1" value="${p.qtd||1}" onchange="updateProdItemMov(${p.id},${m.id},'qtd',+this.value)" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px;text-align:right">
@@ -3235,6 +3245,34 @@ function renderNovaCompra(){
     <strong id="compraTotalLabel">Total: ${fmt(compraItems.reduce((a,it)=>a+(it.custo||0)*(it.qtd||1),0))}</strong>
   </div>
   <div class="actions"><button class="btn btn-primary" onclick="salvarCompra()">💾 Salvar Compra</button></div>
+  </div>
+  ${renderHistoricoCompras()}`;
+}
+
+// Historico de compras: cada compra (movimentacao Pagamento Fornecedor) com seu Pedido de Compra
+function renderHistoricoCompras(){
+  const compras=D.movimentacoes.filter(m=>m.cat==='Pagamento Fornecedor');
+  compras.sort((a,b)=>{const d=(b.data||'').localeCompare(a.data||'');return d!==0?d:b.id-a.id});
+  const totalCompras=compras.reduce((a,m)=>a+(+m.valor||0),0);
+  return `
+  <div class="form-section">
+    <h2>📋 Histórico de Compras <span style="font-size:12px;font-weight:400;color:var(--gray)">(${compras.length} compras • cada uma com seu Nº de Pedido)</span></h2>
+    <p style="font-size:11px;color:var(--gray);margin-bottom:12px">Toda compra gera um Pedido de Compra (PC-XXXX) que segue o produto até o estoque e a movimentação — rastreabilidade de ponta a ponta. Clique numa compra para ver os produtos.</p>
+    <div style="max-height:420px;overflow-y:auto;overflow-x:auto">
+    <table style="min-width:560px"><thead><tr><th>Nº Pedido</th><th>Data</th><th>Fornecedor / Descrição</th><th class="r">Produtos</th><th class="r">Valor</th></tr></thead><tbody>
+    ${compras.length===0?'<tr><td colspan="5" style="font-size:11px;color:var(--gray);padding:12px">Nenhuma compra registrada ainda.</td></tr>':
+    compras.map(m=>{
+      const nProds=D.produtos.filter(p=>p.movId===m.id).length;
+      return `<tr>
+        <td><span style="font-weight:700;color:var(--blue);font-size:12px;white-space:nowrap">${m.numPedido||'—'}</span></td>
+        <td style="white-space:nowrap">${fmtD(m.data)}</td>
+        <td><span class="editable" onclick="abrirMovDetalhes(${m.id})" title="Ver produtos desta compra">${m.fornecedor?'<strong>'+m.fornecedor+'</strong> — ':''}${m.desc}</span></td>
+        <td class="r">${nProds}</td>
+        <td class="r" style="font-weight:600;color:var(--red)">${fmt(m.valor)}</td>
+      </tr>`;
+    }).join('')}
+    </tbody><tfoot><tr><td colspan="4" style="font-weight:700">TOTAL EM COMPRAS (${compras.length})</td><td class="r" style="font-weight:700;color:var(--red)">${fmt(totalCompras)}</td></tr></tfoot></table>
+    </div>
   </div>`;
 }
 
@@ -3273,22 +3311,24 @@ function salvarCompra(){
   const valid=compraItems.filter(it=>it.nome&&it.custo>0);
   if(!valid.length){toast('Adicione pelo menos 1 item',true);return}
   if(forn&&!D.fornecedores.includes(forn))D.fornecedores.push(forn);
+  // Gerar numero de pedido de compra (PC-XXXX) - sequencial automatico
+  if(D.nextPedidoCompra===undefined)D.nextPedidoCompra=1;
+  const _numPedido='PC-'+String(D.nextPedidoCompra).padStart(4,'0');
+  D.nextPedidoCompra++;
+  const _newMovId=nextId(D.movimentacoes);
   let total=0;
   valid.forEach(it=>{
     const qtd=it.qtd||1;
     const imgs=it.imgs||[];
     for(let j=0;j<qtd;j++){
       const suffix=qtd>1?` #${j+1}`:'';
-      D.produtos.push({id:D.nextProdId++,nome:it.nome+suffix,marca:'',cat:it.cat||'Outro',custo:it.custo,qtd:1,status:tipo==='Encomenda'?'Reservado (Encomenda)':'Em Estoque',num:it.num||'',img:imgs[0]||'',imgs:imgs.slice(),precoVenda:0,obs:`Fornecedor: ${forn||'—'}`,cliente:tipo==='Encomenda'?cliente:'',dataEntrada:data||hoje()});
+      D.produtos.push({id:D.nextProdId++,nome:it.nome+suffix,marca:'',cat:it.cat||'Outro',custo:it.custo,qtd:1,status:tipo==='Encomenda'?'Reservado (Encomenda)':'Em Estoque',num:it.num||'',rastreio:'',codFornecedor:it.codFornecedor||'',numPedido:_numPedido,img:imgs[0]||'',imgs:imgs.slice(),precoVenda:0,obs:`Fornecedor: ${forn||'—'}`,cliente:tipo==='Encomenda'?cliente:'',dataEntrada:data||hoje(),movId:_newMovId});
     }
     total+=it.custo*qtd;
   });
-  const _newMovId=nextId(D.movimentacoes);
-  D.movimentacoes.push({id:_newMovId,data,desc:`Compra ${forn||'—'} — ${valid.length} tipo(s)`,tipo:'Saída',cat:'Pagamento Fornecedor',plano:'Mercadoria',valor:total,saldo:0,itens:valid.map(it=>({nome:it.nome,cat:it.cat||'',custo:+it.custo||0,qtd:+it.qtd||1,num:it.num||''})),comprovante:''});
-  // Vincular produtos recem-criados a esta movimentacao
-  D.produtos.filter(p=>!p.movId&&(p.obs||'').includes(`Fornecedor: ${forn||'—'}`)).slice(-valid.reduce((a,it)=>a+(it.qtd||1),0)).forEach(p=>p.movId=_newMovId);
+  D.movimentacoes.push({id:_newMovId,data,desc:`Compra ${forn||'—'} — ${valid.length} tipo(s)`,tipo:'Saída',cat:'Pagamento Fornecedor',plano:'Mercadoria',valor:total,saldo:0,numPedido:_numPedido,fornecedor:forn||'',itens:valid.map(it=>({nome:it.nome,cat:it.cat||'',custo:+it.custo||0,qtd:+it.qtd||1,num:it.num||''})),comprovante:''});
   recalcSaldos();saveData();compraItems=[{nome:'',cat:'Tênis',custo:0,qtd:1,num:'',imgs:[]}];
-  toast(`Compra registrada! ${valid.reduce((a,i)=>a+(i.qtd||1),0)} produtos — Total: ${fmt(total)}`);showTab(2);
+  toast(`Compra ${_numPedido} registrada! ${valid.reduce((a,i)=>a+(i.qtd||1),0)} produtos — Total: ${fmt(total)}`);showTab(2);
 }
 
 // ═══════ NOVO APORTE ═══════
