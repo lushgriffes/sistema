@@ -1787,7 +1787,7 @@ function excluirMov(movId){
     m.taxaItens.forEach(it=>{
       const p=D.produtos.find(x=>x.id===it.produtoId);
       if(p){
-        p.custo=Math.round(((+p.custo||0)-(+it.valor||0))*100)/100;
+        _aplicarDeltaCustoProduto(it.produtoId,-(+it.valor||0));
         if(p.taxas)p.taxas=p.taxas.filter(t=>t.movId!==movId);
       }
     });
@@ -2610,6 +2610,18 @@ function dividirTaxaIgualmente(){
   toast(`Dividido: ${fmt(porItem)} por produto`);
 }
 
+// Aplica variacao de custo a um produto E a qualquer venda que o referencie.
+// Taxa lancada APOS a venda precisa refletir no custo/lucro daquela venda tambem.
+function _aplicarDeltaCustoProduto(produtoId,delta){
+  const p=D.produtos.find(x=>x.id===produtoId);
+  if(p)p.custo=Math.round(((+p.custo||0)+delta)*100)/100;
+  D.vendas.forEach(v=>{
+    if(v.produtoId===produtoId){
+      v.custo=Math.round(((+v.custo||0)+delta)*100)/100;
+    }
+  });
+}
+
 function salvarTaxa(){
   if(!PERMS.insert){toast('Sem permissão para inserir',true);return}
   const desc=document.getElementById('pgTaxaDesc').value.trim();
@@ -2632,7 +2644,7 @@ function salvarTaxa(){
   validos.forEach(it=>{
     const p=D.produtos.find(x=>x.id===it.produtoId);
     if(p){
-      p.custo=Math.round(((+p.custo||0)+(+it.valor||0))*100)/100;
+      _aplicarDeltaCustoProduto(it.produtoId,(+it.valor||0));
       if(!p.taxas)p.taxas=[];
       p.taxas.push({movId:nm,data,desc:`Taxa — ${desc}`,valor:Math.round((+it.valor)*100)/100});
     }
@@ -2656,7 +2668,7 @@ function updateTaxaItemMov(movId,produtoId,novoValor){
   item.valor=novo;
   const p=D.produtos.find(x=>x.id===produtoId);
   if(p){
-    p.custo=Math.round(((+p.custo||0)+diff)*100)/100;
+    _aplicarDeltaCustoProduto(produtoId,diff);
     if(p.taxas){const t=p.taxas.find(t=>t.movId===movId);if(t)t.valor=novo;}
   }
   m.valor=Math.round(m.taxaItens.reduce((a,it)=>a+(+it.valor||0),0)*100)/100;
@@ -2678,7 +2690,7 @@ function removerTaxaItemMov(movId,produtoId){
   const pnome=p?(p.nome||'(sem nome)'):'produto';
   if(!confirm(`Remover "${pnome}" desta taxa?\n\nO custo do produto será reduzido em ${fmt(item.valor)}.`))return;
   if(p){
-    p.custo=Math.round(((+p.custo||0)-(+item.valor||0))*100)/100;
+    _aplicarDeltaCustoProduto(produtoId,-(+item.valor||0));
     if(p.taxas)p.taxas=p.taxas.filter(t=>t.movId!==movId);
   }
   m.taxaItens=m.taxaItens.filter(it=>it.produtoId!==produtoId);
@@ -2791,7 +2803,7 @@ function confirmarTaxaPicker(){
     const p=D.produtos.find(x=>x.id===pid);
     if(p){
       m.taxaItens.push({produtoId:pid,valor:valor});
-      p.custo=Math.round(((+p.custo||0)+valor)*100)/100;
+      _aplicarDeltaCustoProduto(pid,valor);
       if(!p.taxas)p.taxas=[];
       p.taxas.push({movId:m.id,data:m.data,desc:m.desc,valor:valor});
       added++;
