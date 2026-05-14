@@ -266,7 +266,7 @@ async function loadDataFromSupabase(){
     const d=data.data;
     // Migrations
     if(!d.planoContas)d.planoContas=DEFAULT_DATA.planoContas;
-    if(!d.categoriasMov)d.categoriasMov=DEFAULT_DATA.categoriasMov;
+    if(!d.categoriasMov||!d.categoriasMov.length)d.categoriasMov=(DEFAULT_DATA.categoriasMov||["Capital Inicial","Pagamento Fornecedor","Recebimento Venda","Sinal Encomenda","Despesa Operacional","Custo Produto (Frete/Taxa)","Aporte Sócio","Outros"]);
     if(!d.contasPagar)d.contasPagar=[];
     if(!d.contasReceber)d.contasReceber=[];
     if(!d.fornecedores)d.fornecedores=DEFAULT_DATA.fornecedores;
@@ -386,6 +386,7 @@ const DEFAULT_DATA = {
   fornecedores: ["Pedro Dilly","Amin Rank","Chen","China 25"],
   categorias: ["Tênis","Bolsa","Relógio","Chinelo","Óculos","Outro"],
   planoContas: ["Logística","Material","Equipamento","Fiscal/Tributário","Tecnologia","Marketing","Comissão","Alimentação","Investimento","Receita","Outros"],
+  categoriasMov: ["Capital Inicial","Pagamento Fornecedor","Recebimento Venda","Sinal Encomenda","Despesa Operacional","Custo Produto (Frete/Taxa)","Aporte Sócio","Outros"],
   taxaSelic: 14.75,
   spreadAportes: 3,
   historicoSelic: [
@@ -403,7 +404,7 @@ function loadData(){
     if(s){
       const d=JSON.parse(s);
       if(!d.planoContas)d.planoContas=DEFAULT_DATA.planoContas;
-      if(!d.categoriasMov)d.categoriasMov=DEFAULT_DATA.categoriasMov;
+      if(!d.categoriasMov||!d.categoriasMov.length)d.categoriasMov=(DEFAULT_DATA.categoriasMov||["Capital Inicial","Pagamento Fornecedor","Recebimento Venda","Sinal Encomenda","Despesa Operacional","Custo Produto (Frete/Taxa)","Aporte Sócio","Outros"]);
       if(!d.contasPagar)d.contasPagar=[];
       if(!d.contasReceber)d.contasReceber=[];
       if(d.taxaSelic===undefined)d.taxaSelic=14.75;
@@ -1755,7 +1756,7 @@ function renderMov(){
     <td>${m.id}</td><td>${fmtD(m.data)}</td>
     <td><span class="editable" onclick="abrirMovDetalhes(${m.id})" title="Clique para ver/editar detalhes, itens e comprovante">${m.desc}${(()=>{const _cm=getCompraMovId(m);if(!_cm)return'';const _n=D.produtos.filter(p=>p.movId===_cm).length;return _n>0?` <span style="font-size:9px;background:#dbeafe;color:#1e40af;padding:1px 5px;border-radius:8px;margin-left:2px;font-weight:600" title="${_n} produto(s) vinculado(s)">📦 ${_n}</span>`:''})()}${m.comprovante?` <span style="font-size:9px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:8px;margin-left:2px;font-weight:600" title="Comprovante anexado">📎</span>`:''}</span></td>
     <td><span class="badge ${m.tipo==='Entrada'?'b-entrada':'b-saida'}">${m.tipo}</span></td>
-    <td><span class="editable" onclick="editMovSelect(${m.id},'cat',this,D.categoriasMov)">${m.cat||''}</span></td>
+    <td><span class="editable" onclick="editMovSelect(${m.id},'cat',this,D.categoriasMov||[])">${m.cat||''}</span></td>
     <td><span class="editable" onclick="editMovSelect(${m.id},'plano',this,D.planoContas.concat(['Mercadoria']))">${m.plano||'—'}</span></td>
     <td class="r" style="color:${m.tipo==='Entrada'?'#22c55e':'#ef4444'};font-weight:600">${m.tipo==='Entrada'?'+':'-'} ${fmt(m.valor)}</td>
     <td class="r"><span class="${(m.saldo||0)>=0?'saldo-pos':'saldo-neg'}">${fmt(m.saldo)}</span></td>
@@ -3328,7 +3329,7 @@ function renderConfig(){
     <h3>💸 Categorias de Movimentação</h3>
     <p style="font-size:11px;color:var(--gray);margin-bottom:10px">Usadas em: Movimentações (Pagamento Fornecedor, Custo Produto (Frete/Taxa), Recebimento Venda, Aporte Sócio...). Renomear atualiza as movimentações que já usam a categoria.</p>
     <div style="margin-bottom:10px;display:grid;grid-template-columns:1fr 1fr;gap:6px">
-      ${D.categoriasMov.map((c,i)=>`<div style="display:flex;gap:6px;align-items:center">
+      ${(D.categoriasMov||[]).map((c,i)=>`<div style="display:flex;gap:6px;align-items:center">
         <span class="cfg-item" style="flex:1;font-size:12px;padding:4px 8px;background:#f1f5f9;border-radius:6px">${c}</span>
         <button class="btn btn-xs" onclick="renomearCfg('catmov',${i},this)" title="Renomear" style="background:var(--blue);color:#fff">✎</button>
         <button class="btn btn-danger btn-xs" onclick="removerCategoriaMov(${i})" title="Remover">✕</button>
