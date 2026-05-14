@@ -659,7 +659,7 @@ function initCharts(m){
   new Chart(d1,{type:'doughnut',data:{labels:['Caixa','Em Trânsito','Em Estoque','Reservado','A Receber'],datasets:[{data:[m.caixa,m.mercT,m.mercE,m.mercR,m.contasR],backgroundColor:['#22c55e','#f59e0b','#3b82f6','#8b5cf6','#10b981'],borderWidth:2,borderColor:'#fff'}]},plugins:[ChartDataLabels],options:{responsive:true,plugins:{legend:{position:'bottom',labels:{font:{size:11}}},datalabels:{color:'#fff',font:{weight:'bold',size:11},formatter:(v)=>v>0?fmtK(v):'',textStrokeColor:'rgba(0,0,0,.4)',textStrokeWidth:2}}}});
   const cats=Object.entries(m.catTot).sort((a,b)=>b[1]-a[1]);
   const colors={'Tênis':'#3b82f6','Relógio':'#8b5cf6','Óculos':'#f59e0b','Chinelo':'#f97316','Bolsa':'#ec4899','Outro':'#6b7280'};
-  new Chart(d2,{type:'bar',data:{labels:cats.map(c=>c[0]),datasets:[{data:cats.map(c=>c[1]),backgroundColor:cats.map(c=>colors[c[0]]||'#6b7280'),borderRadius:6}]},plugins:[ChartDataLabels],options:{responsive:true,plugins:{legend:{display:false},datalabels:{anchor:'end',align:'end',color:'var(--dark)',font:{weight:'bold',size:10},formatter:v=>fmtK(v)}},scales:{y:{ticks:{callback:v=>fmtK(v)}}}}});
+  new Chart(d2,{type:'bar',data:{labels:cats.map(c=>c[0]),datasets:[{data:cats.map(c=>c[1]),backgroundColor:cats.map(c=>colors[c[0]]||'#6b7280'),borderRadius:6}]},plugins:[ChartDataLabels],options:{responsive:true,layout:{padding:{top:18}},plugins:{legend:{display:false},datalabels:{anchor:'end',align:'end',clip:false,color:'var(--dark)',font:{weight:'bold',size:10},formatter:v=>fmtK(v)}},scales:{y:{grace:'12%',ticks:{callback:v=>fmtK(v)}}}}});
 }
 
 // ═══════ DASHBOARD PERÍODO ═══════
@@ -761,7 +761,7 @@ function initPeriodoCharts(){
   const nomes=meses.map(m=>{const[,mo]=m.split('-');return['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][+mo-1]});
   const c1=document.getElementById('cPeriodoBar');
   if(c1){
-    new Chart(c1,{type:'bar',data:{labels:nomes,datasets:[{label:'Faturamento',data:meses.map(m=>vendasMes[m].fat),backgroundColor:'#3b82f6',borderRadius:6},{label:'Lucro',data:meses.map(m=>vendasMes[m].lucro),backgroundColor:'#22c55e',borderRadius:6}]},plugins:[ChartDataLabels],options:{responsive:true,plugins:{datalabels:{anchor:'end',align:'end',font:{size:9,weight:'bold'},formatter:v=>v>0?fmtK(v):''}},scales:{y:{ticks:{callback:v=>fmtK(v)}}}}});
+    new Chart(c1,{type:'bar',data:{labels:nomes,datasets:[{label:'Faturamento',data:meses.map(m=>vendasMes[m].fat),backgroundColor:'#3b82f6',borderRadius:6},{label:'Lucro',data:meses.map(m=>vendasMes[m].lucro),backgroundColor:'#22c55e',borderRadius:6}]},plugins:[ChartDataLabels],options:{responsive:true,layout:{padding:{top:20}},plugins:{datalabels:{anchor:'end',align:'end',clip:false,font:{size:9,weight:'bold'},formatter:v=>v>0?fmtK(v):''}},scales:{y:{grace:'14%',ticks:{callback:v=>fmtK(v)}}}}});
   }
   // Fluxo por mês
   const movMes={};
@@ -770,7 +770,7 @@ function initPeriodoCharts(){
   const nomesMov=mesesMov.map(m=>{const[,mo]=m.split('-');return['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][+mo-1]});
   const c2=document.getElementById('cFluxoBar');
   if(c2){
-    new Chart(c2,{type:'bar',data:{labels:nomesMov,datasets:[{label:'Entradas',data:mesesMov.map(m=>movMes[m].ent),backgroundColor:'#22c55e',borderRadius:6},{label:'Saídas',data:mesesMov.map(m=>movMes[m].sai),backgroundColor:'#ef4444',borderRadius:6}]},plugins:[ChartDataLabels],options:{responsive:true,plugins:{datalabels:{anchor:'end',align:'end',font:{size:9,weight:'bold'},formatter:v=>v>0?fmtK(v):''}},scales:{y:{ticks:{callback:v=>fmtK(v)}}}}});
+    new Chart(c2,{type:'bar',data:{labels:nomesMov,datasets:[{label:'Entradas',data:mesesMov.map(m=>movMes[m].ent),backgroundColor:'#22c55e',borderRadius:6},{label:'Saídas',data:mesesMov.map(m=>movMes[m].sai),backgroundColor:'#ef4444',borderRadius:6}]},plugins:[ChartDataLabels],options:{responsive:true,layout:{padding:{top:20}},plugins:{datalabels:{anchor:'end',align:'end',clip:false,font:{size:9,weight:'bold'},formatter:v=>v>0?fmtK(v):''}},scales:{y:{grace:'14%',ticks:{callback:v=>fmtK(v)}}}}});
   }
 }
 
