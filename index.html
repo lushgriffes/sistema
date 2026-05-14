@@ -274,6 +274,8 @@ async function loadDataFromSupabase(){
     if(!d.contasPagar)d.contasPagar=[];
     if(!d.contasReceber)d.contasReceber=[];
     if(!d.fornecedores)d.fornecedores=DEFAULT_DATA.fornecedores;
+    d.fornecedores=d.fornecedores.map((f,i)=>typeof f==='string'?{id:i+1,nome:f,telefone:'',endereco:'',itens:''}:f);
+    if(!d.nextFornId)d.nextFornId=d.fornecedores.reduce((m,f)=>Math.max(m,f.id||0),0)+1;
     if(!d.categorias)d.categorias=DEFAULT_DATA.categorias;
     d.produtos.forEach(p=>{if(p.num===undefined)p.num='';if(p.img===undefined)p.img='';if(!p.imgs){p.imgs=p.img?[p.img]:[]}if(p.precoVenda===undefined)p.precoVenda=0});
     d.despesas.forEach(x=>{if(!x.plano)x.plano=''});
@@ -392,7 +394,8 @@ const DEFAULT_DATA = {
   ],
   contasPagar: [],
   contasReceber: [],
-  fornecedores: ["Pedro Dilly","Amin Rank","Chen","China 25"],
+  fornecedores: [{id:1,nome:"Pedro Dilly",telefone:"",endereco:"",itens:""},{id:2,nome:"Amin Rank",telefone:"",endereco:"",itens:""},{id:3,nome:"Chen",telefone:"",endereco:"",itens:""},{id:4,nome:"China 25",telefone:"",endereco:"",itens:""}],
+  nextFornId: 5,
   categorias: ["Tênis","Bolsa","Relógio","Chinelo","Óculos","Outro"],
   planoContas: ["Logística","Material","Equipamento","Fiscal/Tributário","Tecnologia","Marketing","Comissão","Alimentação","Investimento","Receita","Outros"],
   categoriasMov: ["Capital Inicial","Pagamento Fornecedor","Recebimento Venda","Sinal Encomenda","Despesa Operacional","Custo Produto (Frete/Taxa)","Aporte Sócio","Outros"],
@@ -419,6 +422,9 @@ function loadData(){
       if(!d.categoriasDespesa||!d.categoriasDespesa.length)d.categoriasDespesa=(DEFAULT_DATA.categoriasDespesa||["Transporte","Embalagem","Ferramenta","Comunicação","Alimentação","Comissão","Fornecedor","Outros"]);
       if(!d.contasPagar)d.contasPagar=[];
       if(!d.contasReceber)d.contasReceber=[];
+      if(!d.fornecedores)d.fornecedores=DEFAULT_DATA.fornecedores;
+      d.fornecedores=d.fornecedores.map((f,i)=>typeof f==='string'?{id:i+1,nome:f,telefone:'',endereco:'',itens:''}:f);
+      if(!d.nextFornId)d.nextFornId=d.fornecedores.reduce((m,f)=>Math.max(m,f.id||0),0)+1;
       if(d.taxaSelic===undefined)d.taxaSelic=14.75;
       if(d.spreadAportes===undefined)d.spreadAportes=3;
       if(!d.historicoSelic)d.historicoSelic=[{data:"2025-05-07",taxa:14.75}];
@@ -522,6 +528,7 @@ function getTabs(){
     {name:'Novo Aporte',icon:'💼',perm:'insert'},
     {name:'Correção',icon:'📈',perm:'view'},
     {name:'Config',icon:'⚙️',perm:'edit'},
+    {name:'Fornecedores',icon:'🏢',perm:'view'},
   ];
   if(userProfile&&userProfile.role==='admin')tabs.push({name:'Usuários',icon:'👥',perm:'view'});
   return tabs;
@@ -544,7 +551,7 @@ function renderPage(){
   const _selStartPg=_focusPgId&&typeof _focusEl.selectionStart==='number'?_focusEl.selectionStart:null;
   const _selEndPg=_focusPgId&&typeof _focusEl.selectionEnd==='number'?_focusEl.selectionEnd:null;
   const m=calcMetrics();
-  const fns=[renderDash,renderDashPeriodo,renderBalanco,renderEstoque,renderEncomendas,renderVendas,renderMov,renderDesp,renderContasPagar,renderContasReceber,renderNovaCompra,renderNovoAporte,renderCorrecao,renderConfig];
+  const fns=[renderDash,renderDashPeriodo,renderBalanco,renderEstoque,renderEncomendas,renderVendas,renderMov,renderDesp,renderContasPagar,renderContasReceber,renderNovaCompra,renderNovoAporte,renderCorrecao,renderConfig,renderFornecedores];
   if(userProfile&&userProfile.role==='admin')fns.push(renderUsuarios);
   const tabIdx=Math.min(activeTab,fns.length-1);
   document.getElementById('main').innerHTML=`<div class="page active">${fns[tabIdx](m)}</div>`;
@@ -1274,6 +1281,8 @@ function renderVendas(m){
   <div class="box"><h3>Registrar Nova Venda <span style="font-size:11px;font-weight:400;color:var(--gray)">(pode adicionar vários produtos para o mesmo cliente)</span></h3>
   <div class="inline-form" style="margin-bottom:10px">
     <div class="if-group"><label>Cliente</label><input id="vCliente" placeholder="Nome"></div>
+    <div class="if-group"><label>Telefone</label><input id="vTelefone" placeholder="(00) 00000-0000"></div>
+    <div class="if-group full"><label>Endereço do cliente</label><input id="vEndereco" placeholder="Endereço de entrega / cobrança"></div>
     <div class="if-group"><label>Data</label><input type="date" id="vData" value="${hoje()}"></div>
     <div class="if-group"><label>Forma</label><select id="vForma" onchange="toggleParcelas()"><option>PIX</option><option>Dinheiro</option><option>Cartão</option><option>Parcelado</option><option>Pendente</option></select></div>
     <div class="if-group" id="vParcelasGrp" style="display:none"><label>Nº Parcelas</label><input type="number" id="vParcelas" min="2" max="24" value="3" placeholder="Ex: 5"></div>
@@ -1384,6 +1393,8 @@ function vendaCartUpdate(idx,field,val){
 function salvarVenda(){
   if(!PERMS.insert){toast('Sem permissão para inserir',true);return}
   const cliente=document.getElementById('vCliente').value.trim();
+  const telefone=document.getElementById('vTelefone').value.trim();
+  const endereco=document.getElementById('vEndereco').value.trim();
   const data=document.getElementById('vData').value;
   const forma=document.getElementById('vForma').value;
   const recebeu=document.getElementById('vRecebeu').value;
@@ -1411,7 +1422,7 @@ function salvarVenda(){
       const nv=nextId(D.vendas);
       const valorParcela=Math.round((valorVenda/nParcelas)*100)/100;
       const ajuste=Math.round((valorVenda-valorParcela*nParcelas)*100)/100;
-      D.vendas.push({id:nv,data,cliente,produto:prod.nome,produtoId:prod.id,custo,valorVenda,recebido:0,saldoReceber:valorVenda,status:'Pendente',forma:`${nParcelas}x ${fmt(valorParcela)}`,nParcelas});
+      D.vendas.push({id:nv,data,cliente,telefone,endereco,produto:prod.nome,produtoId:prod.id,custo,valorVenda,recebido:0,saldoReceber:valorVenda,status:'Pendente',forma:`${nParcelas}x ${fmt(valorParcela)}`,nParcelas});
       prod.status='Vendido';
       for(let i=0;i<nParcelas;i++){
         const dt=new Date(venc1+'T12:00:00');dt.setMonth(dt.getMonth()+i);
@@ -1430,7 +1441,7 @@ function salvarVenda(){
       const custo=prod.custo||0;const valorVenda=+it.valorVenda;
       const nv=nextId(D.vendas);
       const rec=recebeu==='sim'?valorVenda:0;const saldo=recebeu==='sim'?0:valorVenda;
-      D.vendas.push({id:nv,data,cliente,produto:prod.nome,produtoId:prod.id,custo,valorVenda,recebido:rec,saldoReceber:saldo,status:recebeu==='sim'?'Pago Total':'Pendente',forma});
+      D.vendas.push({id:nv,data,cliente,telefone,endereco,produto:prod.nome,produtoId:prod.id,custo,valorVenda,recebido:rec,saldoReceber:saldo,status:recebeu==='sim'?'Pago Total':'Pendente',forma});
       prod.status='Vendido';
       if(recebeu==='sim'){
         D.movimentacoes.push({id:nextId(D.movimentacoes),data,desc:`Recebimento Venda — ${cliente} — ${prod.nome}`,tipo:'Entrada',cat:'Recebimento Venda',plano:'Receita',valor:valorVenda,saldo:0});
@@ -3219,7 +3230,7 @@ function renderNovaCompra(){
   return `
   <div class="form-section"><h2>🛒 Lançar Nova Compra</h2>
   <div class="form-grid">
-    <div class="form-group"><label>Fornecedor</label><input id="cForn" list="fornList" placeholder="Nome"><datalist id="fornList">${D.fornecedores.map(f=>`<option value="${f}">`).join('')}</datalist></div>
+    <div class="form-group"><label>Fornecedor</label><input id="cForn" list="fornList" placeholder="Nome"><datalist id="fornList">${D.fornecedores.map(f=>`<option value="${f.nome}">`).join('')}</datalist></div>
     <div class="form-group"><label>Data</label><input type="date" id="cData" value="${hoje()}"></div>
     <div class="form-group"><label>Tipo</label><select id="cTipo"><option value="Estoque">Estoque</option><option value="Encomenda">Encomenda</option></select></div>
     <div class="form-group"><label>Cliente (se encomenda)</label><input id="cCliente" placeholder="Nome do cliente"></div>
@@ -3310,7 +3321,7 @@ function salvarCompra(){
   if(!data){toast('Preencha a data',true);return}
   const valid=compraItems.filter(it=>it.nome&&it.custo>0);
   if(!valid.length){toast('Adicione pelo menos 1 item',true);return}
-  if(forn&&!D.fornecedores.includes(forn))D.fornecedores.push(forn);
+  if(forn&&!D.fornecedores.some(f=>f.nome===forn)){if(!D.nextFornId)D.nextFornId=1;D.fornecedores.push({id:D.nextFornId++,nome:forn,telefone:'',endereco:'',itens:''})}
   // Gerar numero de pedido de compra (PC-XXXX) - sequencial automatico
   if(D.nextPedidoCompra===undefined)D.nextPedidoCompra=1;
   const _numPedido='PC-'+String(D.nextPedidoCompra).padStart(4,'0');
@@ -3610,19 +3621,10 @@ function renderConfig(){
   </div>
 
   <div class="row2">
-    <div class="box">
+    <div class="box" style="border-left:4px solid var(--blue)">
       <h3>🏢 Fornecedores</h3>
-      <div id="cfgForn" style="margin-bottom:10px">
-        ${D.fornecedores.map((f,i)=>`<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
-          <span class="cfg-item" style="flex:1;font-size:12px;padding:4px 8px;background:#f1f5f9;border-radius:6px">${f}</span>
-          <button class="btn btn-xs" onclick="renomearCfg('fornecedor',${i},this)" title="Renomear" style="background:var(--blue);color:#fff">✎</button>
-          <button class="btn btn-danger btn-xs" onclick="removerFornecedor(${i})" title="Remover">✕</button>
-        </div>`).join('')}
-      </div>
-      <div style="display:flex;gap:6px">
-        <input id="novoForn" placeholder="Novo fornecedor..." style="flex:1;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px" onkeydown="if(event.key==='Enter')adicionarFornecedor()">
-        <button class="btn btn-primary btn-sm" onclick="adicionarFornecedor()">+ Adicionar</button>
-      </div>
+      <p style="font-size:11px;color:var(--gray);margin-bottom:10px">O cadastro de fornecedores agora tem uma aba própria, com telefone, endereço e produtos que cada um vende.</p>
+      <button class="btn btn-primary btn-sm" onclick="activeTab=14;renderPage()">Ir para a aba Fornecedores 🏢</button>
     </div>
 
     <div class="box">
@@ -3790,11 +3792,78 @@ function removerPlano(i){
   const nome=D.planoContas[i];
   if(confirm(`Remover o plano "${nome}"?`)){D.planoContas.splice(i,1);saveData();toast('Plano removido: '+nome);renderPage()}
 }
-function adicionarFornecedor(){
-  const inp=document.getElementById('novoForn');const val=inp.value.trim();
-  if(!val){toast('Digite o nome do fornecedor',true);return}
-  if(D.fornecedores.includes(val)){toast('Fornecedor já existe',true);return}
-  D.fornecedores.push(val);saveData();toast('Fornecedor adicionado: '+val);renderPage();
+// ═══════ CADASTRO DE FORNECEDORES ═══════
+function renderFornecedores(){
+  const sorted=[...D.fornecedores].sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+  return `
+  <div class="form-section">
+    <h2>🏢 Cadastro de Fornecedores</h2>
+    <p style="font-size:12px;color:var(--gray);margin-bottom:14px">Cadastre seus fornecedores com contato e produtos. Ao lançar uma Nova Compra, use o mesmo nome cadastrado para manter o histórico amarrado ao fornecedor.</p>
+    <div class="box"><h3>Novo Fornecedor</h3>
+    <div class="inline-form">
+      <div class="if-group"><label>Nome *</label><input id="fNome" placeholder="Nome do fornecedor"></div>
+      <div class="if-group"><label>Telefone</label><input id="fTel" placeholder="(00) 00000-0000"></div>
+      <div class="if-group full"><label>Endereço</label><input id="fEnd" placeholder="Endereço completo"></div>
+      <div class="if-group full"><label>Produtos que vende</label><input id="fItens" placeholder="Ex: Tênis Nike, Bolsas, Relógios..."></div>
+      <div class="if-group" style="justify-content:end"><button class="btn btn-primary btn-sm" onclick="salvarNovoFornecedor()">💾 Cadastrar</button></div>
+    </div></div>
+    <div class="box"><h3>Fornecedores Cadastrados (${D.fornecedores.length})</h3>
+    <div style="max-height:520px;overflow-y:auto;overflow-x:auto">
+    <table style="min-width:660px"><thead><tr><th>Nome</th><th>Telefone</th><th>Endereço</th><th>Produtos que vende</th><th class="r">Compras</th><th>Ação</th></tr></thead><tbody>
+    ${sorted.length===0?'<tr><td colspan="6" style="font-size:11px;color:var(--gray);padding:12px">Nenhum fornecedor cadastrado ainda.</td></tr>':
+    sorted.map(f=>{
+      const nCompras=D.movimentacoes.filter(m=>m.cat==='Pagamento Fornecedor'&&m.fornecedor===f.nome).length;
+      return `<tr>
+        <td><span class="editable" onclick="editFornCampo(${f.id},'nome',this)" style="font-weight:600">${f.nome||'—'}</span></td>
+        <td><span class="editable" onclick="editFornCampo(${f.id},'telefone',this)">${f.telefone||'—'}</span></td>
+        <td><span class="editable" onclick="editFornCampo(${f.id},'endereco',this)" style="font-size:11px">${f.endereco||'—'}</span></td>
+        <td><span class="editable" onclick="editFornCampo(${f.id},'itens',this)" style="font-size:11px">${f.itens||'—'}</span></td>
+        <td class="r">${nCompras}</td>
+        <td><button class="btn btn-sm" onclick="excluirFornecedorCad(${f.id})" style="background:var(--red);color:#fff;font-size:9px;padding:3px 8px" title="Remover do cadastro">🗑️</button></td>
+      </tr>`;
+    }).join('')}
+    </tbody></table></div></div>
+  </div>`;
+}
+
+function salvarNovoFornecedor(){
+  if(!PERMS.insert){toast('Sem permissão para inserir',true);return}
+  const nome=document.getElementById('fNome').value.trim();
+  if(!nome){toast('Digite o nome do fornecedor',true);return}
+  if(D.fornecedores.some(f=>(f.nome||'').toLowerCase()===nome.toLowerCase())){toast('Já existe um fornecedor com esse nome',true);return}
+  if(!D.nextFornId)D.nextFornId=1;
+  D.fornecedores.push({id:D.nextFornId++,nome,telefone:document.getElementById('fTel').value.trim(),endereco:document.getElementById('fEnd').value.trim(),itens:document.getElementById('fItens').value.trim()});
+  saveData();toast('Fornecedor cadastrado: '+nome);renderPage();
+}
+
+function editFornCampo(fid,campo,el){
+  if(el.querySelector('input'))return;
+  const f=D.fornecedores.find(x=>x.id===fid);if(!f)return;
+  const atual=f[campo]||'';
+  el.innerHTML=`<input class="edit-input" value="${String(atual).replace(/"/g,'&quot;')}" onkeydown="if(event.key==='Enter')this.blur()">`;
+  const inp=el.querySelector('input');let done=false;
+  inp.addEventListener('blur',function(){
+    if(done)return;done=true;
+    const novo=inp.value.trim();
+    if(campo==='nome'){
+      if(!novo){toast('Nome não pode ficar vazio',true);renderPage();return}
+      if(novo!==atual&&D.fornecedores.some(x=>x.id!==fid&&(x.nome||'').toLowerCase()===novo.toLowerCase())){toast('Já existe fornecedor com esse nome',true);renderPage();return}
+      if(novo!==atual){
+        // Cascata: atualizar movimentacoes que referenciam o nome antigo
+        D.movimentacoes.forEach(m=>{if(m.fornecedor===atual)m.fornecedor=novo});
+      }
+    }
+    f[campo]=novo;saveData();renderPage();
+  });
+  setTimeout(()=>inp.focus(),30);
+}
+
+function excluirFornecedorCad(fid){
+  if(!PERMS.delete){toast('Sem permissão para excluir',true);return}
+  const f=D.fornecedores.find(x=>x.id===fid);if(!f)return;
+  if(!confirm(`Remover o fornecedor "${f.nome}" do cadastro?\n\n(As compras já feitas com ele continuam no histórico — só sai da lista de cadastro.)`))return;
+  D.fornecedores=D.fornecedores.filter(x=>x.id!==fid);
+  saveData();toast('Fornecedor removido: '+f.nome);renderPage();
 }
 function adicionarCategoriaMov(){
   const inp=document.getElementById('novaCatMov');const val=inp.value.trim();
@@ -3864,16 +3933,7 @@ function aplicarRenomearCfg(tipo,idx,antigo,novo){
     D.categoriasDespesa[idx]=novo;
     let n=0;D.despesas.forEach(d=>{if(d.cat===antigo){d.cat=novo;n++}});
     saveData();toast(`Categoria de despesa renomeada para "${novo}"${n?` (${n} despesa(s) atualizada(s))`:''}`);renderPage();
-  }else if(tipo==='fornecedor'){
-    if(D.fornecedores.includes(novo)){toast('Já existe um fornecedor com esse nome',true);renderPage();return}
-    D.fornecedores[idx]=novo;
-    saveData();toast(`Fornecedor renomeado para "${novo}"`);renderPage();
   }
-}
-
-function removerFornecedor(i){
-  const nome=D.fornecedores[i];
-  if(confirm(`Remover o fornecedor "${nome}"?`)){D.fornecedores.splice(i,1);saveData();toast('Fornecedor removido: '+nome);renderPage()}
 }
 
 // ═══════ GERENCIAMENTO DE USUÁRIOS (Admin) ═══════
