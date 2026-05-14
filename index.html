@@ -266,6 +266,7 @@ async function loadDataFromSupabase(){
     const d=data.data;
     // Migrations
     if(!d.planoContas)d.planoContas=DEFAULT_DATA.planoContas;
+    if(!d.categoriasMov)d.categoriasMov=DEFAULT_DATA.categoriasMov;
     if(!d.contasPagar)d.contasPagar=[];
     if(!d.contasReceber)d.contasReceber=[];
     if(!d.fornecedores)d.fornecedores=DEFAULT_DATA.fornecedores;
@@ -402,6 +403,7 @@ function loadData(){
     if(s){
       const d=JSON.parse(s);
       if(!d.planoContas)d.planoContas=DEFAULT_DATA.planoContas;
+      if(!d.categoriasMov)d.categoriasMov=DEFAULT_DATA.categoriasMov;
       if(!d.contasPagar)d.contasPagar=[];
       if(!d.contasReceber)d.contasReceber=[];
       if(d.taxaSelic===undefined)d.taxaSelic=14.75;
@@ -1753,7 +1755,7 @@ function renderMov(){
     <td>${m.id}</td><td>${fmtD(m.data)}</td>
     <td><span class="editable" onclick="abrirMovDetalhes(${m.id})" title="Clique para ver/editar detalhes, itens e comprovante">${m.desc}${(()=>{const _cm=getCompraMovId(m);if(!_cm)return'';const _n=D.produtos.filter(p=>p.movId===_cm).length;return _n>0?` <span style="font-size:9px;background:#dbeafe;color:#1e40af;padding:1px 5px;border-radius:8px;margin-left:2px;font-weight:600" title="${_n} produto(s) vinculado(s)">📦 ${_n}</span>`:''})()}${m.comprovante?` <span style="font-size:9px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:8px;margin-left:2px;font-weight:600" title="Comprovante anexado">📎</span>`:''}</span></td>
     <td><span class="badge ${m.tipo==='Entrada'?'b-entrada':'b-saida'}">${m.tipo}</span></td>
-    <td><span class="editable" onclick="editMovSelect(${m.id},'cat',this,['Capital Inicial','Pagamento Fornecedor','Recebimento Venda','Sinal Encomenda','Despesa Operacional','Custo Produto (Frete/Taxa)','Aporte Sócio','Outros'])">${m.cat||''}</span></td>
+    <td><span class="editable" onclick="editMovSelect(${m.id},'cat',this,D.categoriasMov)">${m.cat||''}</span></td>
     <td><span class="editable" onclick="editMovSelect(${m.id},'plano',this,D.planoContas.concat(['Mercadoria']))">${m.plano||'—'}</span></td>
     <td class="r" style="color:${m.tipo==='Entrada'?'#22c55e':'#ef4444'};font-weight:600">${m.tipo==='Entrada'?'+':'-'} ${fmt(m.valor)}</td>
     <td class="r"><span class="${(m.saldo||0)>=0?'saldo-pos':'saldo-neg'}">${fmt(m.saldo)}</span></td>
@@ -2538,7 +2540,6 @@ function salvarDespesa(){
 let _taxaItens=[];
 
 function renderTaxaBox(){
-  const prodOpts=D.produtos.map(p=>`<option value="${p.id}">${(p.nome||'(sem nome)')} — ${fmt(p.custo)}${p.num?' (Nº '+p.num+')':''}</option>`).join('');
   const soma=_taxaItens.reduce((a,it)=>a+(+it.valor||0),0);
   return `
   <div class="box" style="border-left:4px solid var(--orange)">
@@ -2546,55 +2547,69 @@ function renderTaxaBox(){
     <div class="inline-form" style="margin-bottom:10px">
       <div class="if-group"><label>Descrição</label><input id="pgTaxaDesc" placeholder="Ex: Taxa de importação"></div>
       <div class="if-group"><label>Data do pagamento</label><input type="date" id="pgTaxaData" value="${hoje()}"></div>
-      <div class="if-group"><label>Valor total (p/ dividir)</label><input type="number" id="pgTaxaTotal" step="0.01" placeholder="0,00"></div>
-      <div class="if-group" style="justify-content:end"><button class="btn btn-secondary btn-sm" onclick="dividirTaxaIgualmente()">➗ Dividir igualmente</button></div>
     </div>
     <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:6px">Produtos que receberão a taxa:</div>
-    <div id="taxaItensWrap">
-      ${_taxaItens.length===0?'<div style="font-size:11px;color:var(--gray);padding:8px 0">Nenhum produto adicionado. Clique em "+ Adicionar produto" abaixo.</div>':
-      _taxaItens.map((it,i)=>`
-        <div style="display:grid;grid-template-columns:1fr 110px 34px;gap:6px;margin-bottom:6px;align-items:center">
-          <select id="pgTaxaProd_${i}" onchange="updateTaxaItem(${i},'produtoId',+this.value)" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">
-            <option value="0">— selecione o produto —</option>
-            ${D.produtos.map(p=>`<option value="${p.id}"${p.id===it.produtoId?' selected':''}>${(p.nome||'(sem nome)')} — ${fmt(p.custo)}${p.num?' (Nº '+p.num+')':''}</option>`).join('')}
-          </select>
-          <input id="pgTaxaValor_${i}" type="number" step="0.01" value="${it.valor||''}" onchange="updateTaxaItem(${i},'valor',+this.value)" placeholder="R$ taxa" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;text-align:right">
-          <button onclick="removeTaxaItem(${i})" style="background:var(--red);color:#fff;border:none;width:30px;height:30px;border-radius:6px;font-size:13px;cursor:pointer" title="Remover">✕</button>
-        </div>`).join('')}
-    </div>
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;flex-wrap:wrap;gap:8px">
-      <button class="btn btn-secondary btn-sm" onclick="addTaxaItem()">+ Adicionar produto</button>
-      <div style="font-size:13px;font-weight:700">Soma da taxa: <span id="taxaSomaLabel" style="color:var(--orange)">${fmt(soma)}</span></div>
+    <div id="taxaItensWrap">${_buildTaxaItensHTML()}</div>
+    <button class="btn btn-secondary btn-sm" onclick="addTaxaItem()" style="margin-top:6px">+ Adicionar produto</button>
+    <div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--border)">
+      <label style="font-size:11px;font-weight:600;color:var(--text2)">Valor total da taxa:</label>
+      <input type="number" id="pgTaxaTotal" step="0.01" placeholder="0,00" style="width:120px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;text-align:right">
+      <button class="btn btn-secondary btn-sm" onclick="dividirTaxaIgualmente()">➗ Dividir igualmente entre os produtos acima</button>
+      <div style="margin-left:auto;font-size:13px;font-weight:700">Soma da taxa: <span id="taxaSomaLabel" style="color:var(--orange)">${fmt(soma)}</span></div>
     </div>
     <div class="actions" style="margin-top:10px"><button class="btn btn-primary" onclick="salvarTaxa()">💾 Lançar Taxa</button></div>
   </div>`;
 }
 
+function _buildTaxaItensHTML(){
+  if(_taxaItens.length===0)return '<div style="font-size:11px;color:var(--gray);padding:8px 0">Nenhum produto adicionado. Clique em "+ Adicionar produto" abaixo.</div>';
+  return _taxaItens.map((it,i)=>`
+    <div style="display:grid;grid-template-columns:1fr 110px 34px;gap:6px;margin-bottom:6px;align-items:center">
+      <select onchange="updateTaxaItem(${i},'produtoId',+this.value)" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+        <option value="0">— selecione o produto —</option>
+        ${D.produtos.map(p=>`<option value="${p.id}"${p.id===it.produtoId?' selected':''}>${(p.nome||'(sem nome)')} — ${fmt(p.custo)}${p.num?' (Nº '+p.num+')':''}</option>`).join('')}
+      </select>
+      <input type="number" step="0.01" value="${it.valor||''}" onchange="updateTaxaItem(${i},'valor',+this.value)" placeholder="R$ taxa" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;text-align:right">
+      <button onclick="removeTaxaItem(${i})" style="background:var(--red);color:#fff;border:none;width:30px;height:30px;border-radius:6px;font-size:13px;cursor:pointer" title="Remover">✕</button>
+    </div>`).join('');
+}
+
+function _updateTaxaItensWrap(){
+  const el=document.getElementById('taxaItensWrap');
+  if(el)el.innerHTML=_buildTaxaItensHTML();
+  const soma=_taxaItens.reduce((a,it)=>a+(+it.valor||0),0);
+  const sl=document.getElementById('taxaSomaLabel');
+  if(sl)sl.textContent=fmt(soma);
+}
+
 function addTaxaItem(){
   _taxaItens.push({produtoId:0,valor:0});
-  renderPage();
+  _updateTaxaItensWrap();
 }
+
 function removeTaxaItem(idx){
   _taxaItens.splice(idx,1);
-  renderPage();
+  _updateTaxaItensWrap();
 }
+
 function updateTaxaItem(idx,field,val){
   if(!_taxaItens[idx])return;
   _taxaItens[idx][field]=val;
-  // Atualizar so a soma (sem renderPage - preserva foco)
   const soma=_taxaItens.reduce((a,it)=>a+(+it.valor||0),0);
   const el=document.getElementById('taxaSomaLabel');
   if(el)el.textContent=fmt(soma);
 }
+
 function dividirTaxaIgualmente(){
   const total=+document.getElementById('pgTaxaTotal').value||0;
   if(total<=0){toast('Informe o valor total da taxa primeiro',true);return}
   if(_taxaItens.length===0){toast('Adicione produtos primeiro',true);return}
   const porItem=Math.round((total/_taxaItens.length)*100)/100;
   _taxaItens.forEach(it=>it.valor=porItem);
-  renderPage();
+  _updateTaxaItensWrap();
   toast(`Dividido: ${fmt(porItem)} por produto`);
 }
+
 function salvarTaxa(){
   if(!PERMS.insert){toast('Sem permissão para inserir',true);return}
   const desc=document.getElementById('pgTaxaDesc').value.trim();
@@ -3265,7 +3280,8 @@ function renderConfig(){
       <p style="font-size:11px;color:var(--gray);margin-bottom:10px">Usadas em: Estoque, Vendas, Nova Compra</p>
       <div id="cfgCats" style="margin-bottom:10px">
         ${D.categorias.map((c,i)=>`<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
-          <span style="flex:1;font-size:12px;padding:4px 8px;background:#f1f5f9;border-radius:6px">${c}</span>
+          <span class="cfg-item" style="flex:1;font-size:12px;padding:4px 8px;background:#f1f5f9;border-radius:6px">${c}</span>
+          <button class="btn btn-xs" onclick="renomearCfg('categoria',${i},this)" title="Renomear" style="background:var(--blue);color:#fff">✎</button>
           <button class="btn btn-danger btn-xs" onclick="removerCategoria(${i})" title="Remover">✕</button>
         </div>`).join('')}
       </div>
@@ -3280,7 +3296,8 @@ function renderConfig(){
       <p style="font-size:11px;color:var(--gray);margin-bottom:10px">Usados em: Movimentações, Despesas, A Pagar</p>
       <div id="cfgPlanos" style="margin-bottom:10px">
         ${D.planoContas.map((p,i)=>`<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
-          <span style="flex:1;font-size:12px;padding:4px 8px;background:#f1f5f9;border-radius:6px">${p}</span>
+          <span class="cfg-item" style="flex:1;font-size:12px;padding:4px 8px;background:#f1f5f9;border-radius:6px">${p}</span>
+          <button class="btn btn-xs" onclick="renomearCfg('plano',${i},this)" title="Renomear" style="background:var(--blue);color:#fff">✎</button>
           <button class="btn btn-danger btn-xs" onclick="removerPlano(${i})" title="Remover">✕</button>
         </div>`).join('')}
       </div>
@@ -3291,12 +3308,29 @@ function renderConfig(){
     </div>
   </div>
 
+  <div class="box">
+    <h3>💸 Categorias de Movimentação</h3>
+    <p style="font-size:11px;color:var(--gray);margin-bottom:10px">Usadas em: Movimentações (Pagamento Fornecedor, Custo Produto (Frete/Taxa), Recebimento Venda, Aporte Sócio...). Renomear atualiza as movimentações que já usam a categoria.</p>
+    <div style="margin-bottom:10px;display:grid;grid-template-columns:1fr 1fr;gap:6px">
+      ${D.categoriasMov.map((c,i)=>`<div style="display:flex;gap:6px;align-items:center">
+        <span class="cfg-item" style="flex:1;font-size:12px;padding:4px 8px;background:#f1f5f9;border-radius:6px">${c}</span>
+        <button class="btn btn-xs" onclick="renomearCfg('catmov',${i},this)" title="Renomear" style="background:var(--blue);color:#fff">✎</button>
+        <button class="btn btn-danger btn-xs" onclick="removerCategoriaMov(${i})" title="Remover">✕</button>
+      </div>`).join('')}
+    </div>
+    <div style="display:flex;gap:6px">
+      <input id="novaCatMov" placeholder="Nova categoria de movimentação..." style="flex:1;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px" onkeydown="if(event.key==='Enter')adicionarCategoriaMov()">
+      <button class="btn btn-primary btn-sm" onclick="adicionarCategoriaMov()">+ Adicionar</button>
+    </div>
+  </div>
+
   <div class="row2">
     <div class="box">
       <h3>🏢 Fornecedores</h3>
       <div id="cfgForn" style="margin-bottom:10px">
         ${D.fornecedores.map((f,i)=>`<div style="display:flex;gap:6px;align-items:center;margin-bottom:4px">
-          <span style="flex:1;font-size:12px;padding:4px 8px;background:#f1f5f9;border-radius:6px">${f}</span>
+          <span class="cfg-item" style="flex:1;font-size:12px;padding:4px 8px;background:#f1f5f9;border-radius:6px">${f}</span>
+          <button class="btn btn-xs" onclick="renomearCfg('fornecedor',${i},this)" title="Renomear" style="background:var(--blue);color:#fff">✎</button>
           <button class="btn btn-danger btn-xs" onclick="removerFornecedor(${i})" title="Remover">✕</button>
         </div>`).join('')}
       </div>
@@ -3449,6 +3483,61 @@ function adicionarFornecedor(){
   if(D.fornecedores.includes(val)){toast('Fornecedor já existe',true);return}
   D.fornecedores.push(val);saveData();toast('Fornecedor adicionado: '+val);renderPage();
 }
+function adicionarCategoriaMov(){
+  const inp=document.getElementById('novaCatMov');const val=inp.value.trim();
+  if(!val){toast('Digite o nome da categoria',true);return}
+  if(D.categoriasMov.includes(val)){toast('Categoria já existe',true);return}
+  D.categoriasMov.push(val);saveData();toast('Categoria de movimentação adicionada: '+val);renderPage();
+}
+function removerCategoriaMov(i){
+  const nome=D.categoriasMov[i];
+  const emUso=D.movimentacoes.filter(m=>m.cat===nome).length;
+  let msg=`Remover a categoria de movimentação "${nome}"?`;
+  if(emUso>0)msg=`⚠ A categoria "${nome}" está em uso por ${emUso} movimentação(ões).\nElas mantêm o texto, mas a categoria sai da lista de opções.\n\nConfirma a remoção?`;
+  if(confirm(msg)){D.categoriasMov.splice(i,1);saveData();toast('Categoria removida: '+nome);renderPage()}
+}
+
+function renomearCfg(tipo,idx,btn){
+  const div=btn.parentElement;
+  const span=div.querySelector('.cfg-item');
+  if(!span||span.querySelector('input'))return;
+  const atual=span.textContent;
+  span.innerHTML=`<input value="${atual.replace(/"/g,'&quot;')}" style="width:100%;padding:2px 6px;border:1px solid var(--blue);border-radius:4px;font-size:12px" onkeydown="if(event.key==='Enter')this.blur();if(event.key==='Escape'){this.dataset.cancel='1';this.blur()}">`;
+  const inp=span.querySelector('input');
+  let done=false;
+  inp.addEventListener('blur',function(){
+    if(done)return;done=true;
+    if(inp.dataset.cancel==='1'){renderPage();return}
+    aplicarRenomearCfg(tipo,idx,atual,inp.value.trim());
+  });
+  setTimeout(()=>{inp.focus();inp.select()},30);
+}
+
+function aplicarRenomearCfg(tipo,idx,antigo,novo){
+  if(!novo||novo===antigo){renderPage();return}
+  if(tipo==='categoria'){
+    if(D.categorias.includes(novo)){toast('Já existe uma categoria com esse nome',true);renderPage();return}
+    D.categorias[idx]=novo;
+    let n=0;D.produtos.forEach(p=>{if(p.cat===antigo){p.cat=novo;n++}});
+    saveData();toast(`Categoria renomeada para "${novo}"${n?` (${n} produto(s) atualizado(s))`:''}`);renderPage();
+  }else if(tipo==='plano'){
+    if(D.planoContas.includes(novo)){toast('Já existe um plano com esse nome',true);renderPage();return}
+    D.planoContas[idx]=novo;
+    let n=0;D.movimentacoes.forEach(m=>{if(m.plano===antigo){m.plano=novo;n++}});
+    D.despesas.forEach(d=>{if(d.plano===antigo){d.plano=novo;n++}});
+    saveData();toast(`Plano renomeado para "${novo}"${n?` (${n} registro(s) atualizado(s))`:''}`);renderPage();
+  }else if(tipo==='catmov'){
+    if(D.categoriasMov.includes(novo)){toast('Já existe uma categoria com esse nome',true);renderPage();return}
+    D.categoriasMov[idx]=novo;
+    let n=0;D.movimentacoes.forEach(m=>{if(m.cat===antigo){m.cat=novo;n++}});
+    saveData();toast(`Categoria de movimentação renomeada para "${novo}"${n?` (${n} movimentação(ões) atualizada(s))`:''}`);renderPage();
+  }else if(tipo==='fornecedor'){
+    if(D.fornecedores.includes(novo)){toast('Já existe um fornecedor com esse nome',true);renderPage();return}
+    D.fornecedores[idx]=novo;
+    saveData();toast(`Fornecedor renomeado para "${novo}"`);renderPage();
+  }
+}
+
 function removerFornecedor(i){
   const nome=D.fornecedores[i];
   if(confirm(`Remover o fornecedor "${nome}"?`)){D.fornecedores.splice(i,1);saveData();toast('Fornecedor removido: '+nome);renderPage()}
