@@ -1695,12 +1695,12 @@ function gerarPDFPedido(movId){
   doc.setFontSize(10);doc.setFont(undefined,'normal');
   doc.text(`Fornecedor: ${m.fornecedor||'—'}`,mx,y);y+=5;
   doc.text(`Data: ${fmtD(m.data)}   •   Valor total: ${fmt(m.valor)}`,mx,y);y+=6;
-  const body=prods.map(p=>[p.nome||'—',p.num||'—',p.rastreio||'—',p.codFornecedor||'—',fmt(p.custo||0),p.status||'—']);
-  if(!prods.length)body.push([{content:'Nenhum produto vinculado a este pedido.',colSpan:6,styles:{textColor:[150,150,150]}}]);
-  doc.autoTable({startY:y,head:[['Produto','Nº','Cód. Rastreio','Cód. Fornecedor','Custo','Status']],body:body,
-    foot:[['','','','TOTAL ('+prods.length+' itens)','',fmt(prods.reduce((a,p)=>a+(+p.custo||0),0))]],
+  const body=prods.map(p=>[p.nome||'—',p.num||'—',p.cat||'—',p.rastreio||'—',p.codFornecedor||'—',fmt(p.custo||0),p.status||'—']);
+  if(!prods.length)body.push([{content:'Nenhum produto vinculado a este pedido.',colSpan:7,styles:{textColor:[150,150,150]}}]);
+  doc.autoTable({startY:y,head:[['Produto','Nº','Categoria','Cód. Rastreio','Cód. Fornecedor','Custo','Status']],body:body,
+    foot:[['TOTAL ('+prods.length+' itens)','','','','',fmt(prods.reduce((a,p)=>a+(+p.custo||0),0)),'']],
     styles:{fontSize:8,cellPadding:2.5},headStyles:{fillColor:[30,41,59],textColor:255},footStyles:{fillColor:[241,245,249],textColor:[30,41,59],fontStyle:'bold'},
-    columnStyles:{0:{cellWidth:'auto'},1:{cellWidth:15},2:{cellWidth:32},3:{cellWidth:32},4:{cellWidth:22,halign:'right'},5:{cellWidth:24}},
+    columnStyles:{0:{cellWidth:'auto'},1:{cellWidth:13},2:{cellWidth:24},3:{cellWidth:28},4:{cellWidth:28},5:{cellWidth:22,halign:'right'},6:{cellWidth:22}},
     theme:'grid',margin:{left:mx,right:mx}});
   doc.setFontSize(7);doc.setFont(undefined,'italic');doc.setTextColor(150,150,150);doc.text('LUSH GRIFFES — Pedido de Compra '+(m.numPedido||''),w/2,h-5,{align:'center'});
   doc.save(`LUSH-GRIFFES-${m.numPedido||'Pedido'}-${m.data}.pdf`);toast('PDF do pedido gerado!');
