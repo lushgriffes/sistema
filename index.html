@@ -838,7 +838,7 @@ function renderEstoque(m){
     <td><span class="editable" onclick="editField(${p.id},'num',this)">${p.num||'—'}</span></td>
     <td><span class="editable" onclick="editField(${p.id},'rastreio',this)" style="font-size:10px">${p.rastreio||'—'}</span></td>
     <td><span class="editable" onclick="editField(${p.id},'codFornecedor',this)" style="font-size:10px">${p.codFornecedor||'—'}</span></td>
-    <td><span style="font-size:10px;color:${p.numPedido?'var(--blue)':'var(--gray)'};font-weight:${p.numPedido?'600':'400'};white-space:nowrap">${p.numPedido||'—'}</span></td>
+    <td>${p.numPedido?`<span onclick="irParaPedido('${p.numPedido}')" style="font-size:10px;color:var(--blue);font-weight:600;white-space:nowrap;cursor:pointer;text-decoration:underline" title="Ver pedido de compra completo">${p.numPedido}</span>`:`<span style="font-size:10px;color:var(--gray)">—</span>`}</td>
     <td><select onchange="mudaCat(${p.id},this.value)" style="font-size:10px;padding:2px 4px;border-radius:4px;border:1px solid #ddd">${D.categorias.map(c=>`<option${c===p.cat?' selected':''}>${c}</option>`).join('')}</select></td><td class="r"><span class="editable" onclick="editNumField(${p.id},'custo',this)" title="Clique para editar">${fmt(p.custo)}</span></td>
     <td class="r"><span class="editable" onclick="editNumField(${p.id},'precoVenda',this)" style="color:var(--green);font-weight:600">${p.precoVenda?fmt(p.precoVenda):'—'}</span></td>
     <td>${badgeS(p.status)}</td>
@@ -3258,6 +3258,15 @@ function renderNovaCompra(){
   <div class="actions"><button class="btn btn-primary" onclick="salvarCompra()">💾 Salvar Compra</button></div>
   </div>
   ${renderHistoricoCompras()}`;
+}
+
+// Navega para a aba Nova Compra e abre o pedido de compra completo
+function irParaPedido(numPedido){
+  const mov=D.movimentacoes.find(m=>m.numPedido===numPedido&&m.cat==='Pagamento Fornecedor');
+  if(!mov){toast('Pedido '+numPedido+' não encontrado',true);return}
+  activeTab=10; // aba Nova Compra
+  renderPage();
+  setTimeout(()=>abrirMovDetalhes(mov.id),120);
 }
 
 // Historico de compras: cada compra (movimentacao Pagamento Fornecedor) com seu Pedido de Compra
