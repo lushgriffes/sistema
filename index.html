@@ -276,6 +276,8 @@ async function loadDataFromSupabase(){
     d.movimentacoes.forEach(m=>{if(!m.plano)m.plano='';if(!m.itens)m.itens=[];if(m.comprovante===undefined)m.comprovante='';if(m.itens&&m.itens.length){m.itens.forEach(it=>{if(it.produtoId){const _p=d.produtos.find(x=>x.id===it.produtoId);if(_p&&!_p.movId)_p.movId=m.id}})}});
     // Migracao: dataEntrada para produtos via movimentacao vinculada
     d.produtos.forEach(p=>{if(!p.dataEntrada){if(p.movId){const _m=d.movimentacoes.find(x=>x.id===p.movId);if(_m)p.dataEntrada=_m.data}}});
+    // Migracao: sincronizar custo das vendas com o custo atual do produto (taxas posteriores etc)
+    d.vendas.forEach(v=>{const _p=d.produtos.find(x=>x.id===v.produtoId);if(_p)v.custo=_p.custo});
     // Migracao: parear aporte de mercadoria (Entrada Capital Inicial + Saida Pagamento Fornecedor com mesma data/valor)
     const _sorted=[...d.movimentacoes].sort((a,b)=>(a.data||'').localeCompare(b.data||'')||a.id-b.id);
     for(let _i=0;_i<_sorted.length-1;_i++){
@@ -415,6 +417,8 @@ function loadData(){
       d.movimentacoes.forEach(m=>{if(!m.plano)m.plano='';if(!m.itens)m.itens=[];if(m.comprovante===undefined)m.comprovante='';if(m.itens&&m.itens.length){m.itens.forEach(it=>{if(it.produtoId){const _p=d.produtos.find(x=>x.id===it.produtoId);if(_p&&!_p.movId)_p.movId=m.id}})}});
       // Migracao: dataEntrada para produtos via movimentacao vinculada
       d.produtos.forEach(p=>{if(!p.dataEntrada){if(p.movId){const _m=d.movimentacoes.find(x=>x.id===p.movId);if(_m)p.dataEntrada=_m.data}}});
+      // Migracao: sincronizar custo das vendas com o custo atual do produto (taxas posteriores etc)
+      d.vendas.forEach(v=>{const _p=d.produtos.find(x=>x.id===v.produtoId);if(_p)v.custo=_p.custo});
       // Migracao: parear aporte de mercadoria (Entrada Capital Inicial + Saida Pagamento Fornecedor com mesma data/valor)
       const _sorted=[...d.movimentacoes].sort((a,b)=>(a.data||'').localeCompare(b.data||'')||a.id-b.id);
       for(let _i=0;_i<_sorted.length-1;_i++){
@@ -816,7 +820,7 @@ function renderEstoque(m){
     <td><select onchange="mudaCat(${p.id},this.value)" style="font-size:10px;padding:2px 4px;border-radius:4px;border:1px solid #ddd">${D.categorias.map(c=>`<option${c===p.cat?' selected':''}>${c}</option>`).join('')}</select></td><td class="r"><span class="editable" onclick="editNumField(${p.id},'custo',this)" title="Clique para editar">${fmt(p.custo)}</span></td>
     <td class="r"><span class="editable" onclick="editNumField(${p.id},'precoVenda',this)" style="color:var(--green);font-weight:600">${p.precoVenda?fmt(p.precoVenda):'—'}</span></td>
     <td>${badgeS(p.status)}</td>
-    <td><div style="display:flex;gap:3px;align-items:center"><select onchange="mudaStatus(${p.id},this.value)" style="font-size:10px;padding:2px 4px;border-radius:4px;border:1px solid #ddd;flex:1;min-width:0"><option value="">Alterar...</option><option value="Em Trânsito">Em Trânsito</option><option value="Em Estoque">Em Estoque</option><option value="Reservado (Encomenda)">Reservado</option><option value="Vendido">Vendido</option></select><button onclick="desdobrarProdutoEstoque(${p.id})" style="background:var(--blue);color:#fff;border:none;width:24px;height:24px;border-radius:4px;font-size:10px;cursor:pointer;flex-shrink:0" title="Desdobrar em N unidades">🔀</button><button onclick="excluirProdutoEstoque(${p.id})" style="background:var(--red);color:#fff;border:none;width:24px;height:24px;border-radius:4px;font-size:11px;cursor:pointer;flex-shrink:0" title="Excluir do estoque">🗑️</button></div></td></tr>`}).join('')}
+    <td><div style="display:flex;gap:3px;align-items:center"><select onchange="mudaStatus(${p.id},this.value)" style="font-size:10px;padding:2px 4px;border-radius:4px;border:1px solid #ddd;flex:1;min-width:0"><option value="">Alterar...</option><option value="Em Trânsito">Em Trânsito</option><option value="Em Estoque">Em Estoque</option><option value="Reservado (Encomenda)">Reservado</option><option value="Vendido">Vendido</option></select><button onclick="abrirProdCard(${p.id})" style="background:#6b7280;color:#fff;border:none;width:24px;height:24px;border-radius:4px;font-size:11px;cursor:pointer;flex-shrink:0" title="Ver produto: custo, taxas, fotos">👁</button><button onclick="desdobrarProdutoEstoque(${p.id})" style="background:var(--blue);color:#fff;border:none;width:24px;height:24px;border-radius:4px;font-size:10px;cursor:pointer;flex-shrink:0" title="Desdobrar em N unidades">🔀</button><button onclick="excluirProdutoEstoque(${p.id})" style="background:var(--red);color:#fff;border:none;width:24px;height:24px;border-radius:4px;font-size:11px;cursor:pointer;flex-shrink:0" title="Excluir do estoque">🗑️</button></div></td></tr>`}).join('')}
   </tbody>
   <tfoot><tr><td colspan="6" style="font-weight:700">TOTAL</td><td style="font-weight:700">${fil.reduce((a,p)=>a+(p.qtd||1),0)} itens</td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,p)=>a+(p.custo||0),0))}</td><td class="r" style="font-weight:700">${fmt(fil.filter(p=>p.precoVenda).reduce((a,p)=>a+(p.precoVenda||0),0))}</td><td colspan="2"></td></tr></tfoot>
   </table></div></div>`;
@@ -911,17 +915,28 @@ function abrirProdCard(prodId){
   overlay.className='modal-overlay';
   overlay.onclick=function(e){if(e.target===overlay)overlay.remove()};
   const imgsHtml=allImgs.length?allImgs.map(img=>`<img src="${img}">`).join(''):'<div style="padding:40px;text-align:center;color:var(--gray)">Sem fotos</div>';
+  const _taxas=p.taxas||[];
+  const _totTaxas=_taxas.reduce((a,t)=>a+(+t.valor||0),0);
+  const _custoBase=Math.round(((+p.custo||0)-_totTaxas)*100)/100;
+  const _custoComp=_taxas.length?`
+        <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:10px;margin-top:10px">
+          <div style="font-size:11px;font-weight:700;color:#92400e;margin-bottom:6px">💰 Composição do custo</div>
+          <div style="font-size:11px;color:var(--text2);display:flex;justify-content:space-between;margin-bottom:2px"><span>Custo base (compra/aporte)</span><span style="font-variant-numeric:tabular-nums">${fmt(_custoBase)}</span></div>
+          ${_taxas.map(t=>`<div style="font-size:10px;color:var(--gray);display:flex;justify-content:space-between;margin-bottom:2px"><span>+ ${t.desc||'Taxa'}${t.data?' ('+fmtD(t.data)+')':''}</span><span style="font-variant-numeric:tabular-nums">${fmt(t.valor)}</span></div>`).join('')}
+          <div style="font-size:12px;font-weight:700;color:var(--dark);display:flex;justify-content:space-between;border-top:1px solid #fed7aa;margin-top:4px;padding-top:4px"><span>= Custo total</span><span style="font-variant-numeric:tabular-nums">${fmt(p.custo)}</span></div>
+        </div>`:`<div style="font-size:10px;color:var(--gray);margin-top:6px">Sem taxas vinculadas — custo total = custo base</div>`;
   overlay.innerHTML=`
     <div class="modal-card">
       <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">✕</button>
       <div class="modal-imgs">${imgsHtml}</div>
       <div class="modal-body">
         <h2>${p.nome}</h2>
-        <div class="prod-num">${p.num?'Nº '+p.num:''}${p.cat?' · '+p.cat:''}</div>
+        <div class="prod-num">${p.num?'Nº '+p.num:''}${p.cat?' · '+p.cat:''}${p.rastreio?' · Rastreio: '+p.rastreio:''}</div>
         <div class="prod-price">${p.precoVenda?fmt(p.precoVenda):'Preço a definir'}</div>
-        <div class="prod-info">Custo: ${fmt(p.custo)} ${p.precoVenda?'· Margem: '+Math.round(((p.precoVenda-p.custo)/p.custo)*100)+'%':''}</div>
+        <div class="prod-info">Custo total: <strong>${fmt(p.custo)}</strong> ${p.precoVenda?'· Margem: '+Math.round(((p.precoVenda-p.custo)/p.custo)*100)+'%':''}</div>
         <div class="prod-info">Status: ${p.status}</div>
         ${p.obs?`<div class="prod-info">${p.obs}</div>`:''}
+        ${_custoComp}
         <div style="display:flex;gap:8px;margin-top:12px">
           <button class="modal-share-btn" onclick="compartilharProd(${p.id})" style="flex:1">📤 Copiar p/ enviar ao cliente</button>
           <button class="modal-share-btn" onclick="uploadImg(${p.id});this.closest('.modal-overlay').remove()" style="flex:1;background:var(--blue)">📷 Add Foto (${allImgs.length}/5)</button>
