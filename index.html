@@ -1073,20 +1073,34 @@ function renderVendas(m){
   </div>
   <div style="text-align:right;margin-bottom:10px"><button class="btn btn-sm" onclick="gerarPDFVendas()" style="background:var(--red);color:#fff">📄 Baixar PDF Vendas</button></div>
 
-  <div class="box"><h3>Registrar Nova Venda</h3>
-  <div class="inline-form">
+  <div class="box"><h3>Registrar Nova Venda <span style="font-size:11px;font-weight:400;color:var(--gray)">(pode adicionar vários produtos para o mesmo cliente)</span></h3>
+  <div class="inline-form" style="margin-bottom:10px">
     <div class="if-group"><label>Cliente</label><input id="vCliente" placeholder="Nome"></div>
-    <div class="if-group"><label>Produto</label><select id="vProduto" onchange="previewVendaCusto()">${disponiveis.map(p=>`<option value="${p.id}" data-custo="${p.custo}">[${p.id}] ${p.nome} ${p.num?'Nº'+p.num:''}</option>`).join('')}</select></div>
-    <div class="if-group"><label>Custo</label><input id="vCusto" readonly style="background:#f1f5f9;font-weight:700"></div>
-    <div class="if-group"><label>Preço Venda (R$)</label><input type="number" id="vValor" step="0.01" oninput="calcMargemPreview()"></div>
-    <div class="if-group"><label>Margem</label><input id="vMargem" readonly style="background:#f1f5f9;font-weight:700;color:#22c55e"></div>
     <div class="if-group"><label>Data</label><input type="date" id="vData" value="${hoje()}"></div>
     <div class="if-group"><label>Forma</label><select id="vForma" onchange="toggleParcelas()"><option>PIX</option><option>Dinheiro</option><option>Cartão</option><option>Parcelado</option><option>Pendente</option></select></div>
     <div class="if-group" id="vParcelasGrp" style="display:none"><label>Nº Parcelas</label><input type="number" id="vParcelas" min="2" max="24" value="3" placeholder="Ex: 5"></div>
     <div class="if-group" id="vVencGrp" style="display:none"><label>1º Vencimento</label><input type="date" id="vVenc1"></div>
     <div class="if-group" id="vRecebeuGrp"><label>Recebeu?</label><select id="vRecebeu"><option value="nao">Não</option><option value="sim">Sim</option></select></div>
-    <div class="if-group" style="justify-content:end"><button class="btn btn-success btn-sm" onclick="salvarVenda()">💾 Salvar</button></div>
-  </div></div>
+  </div>
+  <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:6px">Itens da venda:</div>
+  <div id="vendaCartWrap">
+    ${_vendaCart.map((it,i)=>`
+      <div style="display:grid;grid-template-columns:1fr 110px 1.3fr 34px;gap:6px;margin-bottom:6px;align-items:center">
+        <select id="pgVendaCartProd_${i}" onchange="vendaCartUpdate(${i},'produtoId',+this.value)" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+          <option value="0">— selecione o produto —</option>
+          ${disponiveis.map(p=>`<option value="${p.id}"${p.id===it.produtoId?' selected':''}>[${p.id}] ${p.nome} ${p.num?'Nº'+p.num:''} — custo ${fmt(p.custo)}</option>`).join('')}
+        </select>
+        <input id="pgVendaCartValor_${i}" type="number" step="0.01" value="${it.valorVenda||''}" onchange="vendaCartUpdate(${i},'valorVenda',+this.value)" placeholder="Preço R$" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;text-align:right">
+        <span id="vendaCartInfo_${i}" style="font-size:10px;color:var(--gray)">${_vendaCartInfo(i)}</span>
+        <button onclick="removeVendaCartItem(${i})" style="background:var(--red);color:#fff;border:none;width:30px;height:30px;border-radius:6px;font-size:13px;cursor:pointer" title="Remover item">✕</button>
+      </div>`).join('')}
+  </div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;flex-wrap:wrap;gap:8px">
+    <button class="btn btn-secondary btn-sm" onclick="addVendaCartItem()">+ Adicionar item</button>
+    <div style="font-size:13px;font-weight:700">Total da venda: <span id="vendaCartTotal" style="color:var(--cyan)">${fmt(_vendaCart.reduce((a,it)=>a+(+it.valorVenda||0),0))}</span></div>
+  </div>
+  <div class="actions" style="margin-top:10px"><button class="btn btn-success" onclick="salvarVenda()">💾 Salvar Venda</button></div>
+  </div>
 
   <div class="box"><h3>Histórico de Vendas</h3>
   <div class="filter-bar" style="margin-bottom:10px">
@@ -1137,58 +1151,100 @@ function toggleParcelas(){
   }
 }
 
+let _vendaCart=[{produtoId:0,valorVenda:0}];
+
+function _vendaCartInfo(idx){
+  const it=_vendaCart[idx];if(!it||!it.produtoId)return 'Selecione um produto';
+  const p=D.produtos.find(x=>x.id===it.produtoId);if(!p)return '⚠ produto não encontrado';
+  const custo=+p.custo||0;const venda=+it.valorVenda||0;
+  if(venda<=0)return `Custo: ${fmt(custo)}`;
+  const lucro=venda-custo;const margem=venda>0?(lucro/venda*100).toFixed(1):0;
+  return `Custo: ${fmt(custo)} • Lucro: ${fmt(lucro)} • Margem: ${margem}%`;
+}
+
+function addVendaCartItem(){
+  _vendaCart.push({produtoId:0,valorVenda:0});
+  renderPage();
+}
+
+function removeVendaCartItem(idx){
+  _vendaCart.splice(idx,1);
+  if(_vendaCart.length===0)_vendaCart.push({produtoId:0,valorVenda:0});
+  renderPage();
+}
+
+function vendaCartUpdate(idx,field,val){
+  if(!_vendaCart[idx])return;
+  _vendaCart[idx][field]=val;
+  // Partial update (preserva foco): info da linha + total
+  const infoEl=document.getElementById('vendaCartInfo_'+idx);
+  if(infoEl)infoEl.textContent=_vendaCartInfo(idx);
+  const totEl=document.getElementById('vendaCartTotal');
+  if(totEl)totEl.textContent=fmt(_vendaCart.reduce((a,it)=>a+(+it.valorVenda||0),0));
+}
+
 function salvarVenda(){
-  const cliente=document.getElementById('vCliente').value;const data=document.getElementById('vData').value;
-  const prodId=+document.getElementById('vProduto').value;const valorVenda=+document.getElementById('vValor').value;
-  const forma=document.getElementById('vForma').value;const recebeu=document.getElementById('vRecebeu').value;
-  if(!cliente||!valorVenda||!data){toast('Preencha todos os campos',true);return}
-  const prod=D.produtos.find(p=>p.id===prodId);if(!prod){toast('Produto não encontrado',true);return}
-  const custo=prod.custo||0;const nv=nextId(D.vendas);
+  if(!PERMS.insert){toast('Sem permissão para inserir',true);return}
+  const cliente=document.getElementById('vCliente').value.trim();
+  const data=document.getElementById('vData').value;
+  const forma=document.getElementById('vForma').value;
+  const recebeu=document.getElementById('vRecebeu').value;
+  if(!cliente||!data){toast('Preencha cliente e data',true);return}
+  const validos=_vendaCart.filter(it=>it.produtoId&&(+it.valorVenda)>0);
+  if(!validos.length){toast('Adicione ao menos 1 item com preço',true);return}
+  // Checar produtos repetidos no carrinho
+  const ids=validos.map(it=>it.produtoId);
+  if(new Set(ids).size!==ids.length){toast('Há produtos repetidos na venda',true);return}
+  // Checar disponibilidade
+  for(const it of validos){
+    const p=D.produtos.find(x=>x.id===it.produtoId);
+    if(!p){toast('Produto não encontrado',true);return}
+    if(p.status==='Vendido'){toast(`Produto "${p.nome}" já está vendido`,true);return}
+  }
+
+  let totalGeral=0,nItens=0;
 
   if(forma==='Parcelado'){
     const nParcelas=Math.max(2,Math.min(24,+(document.getElementById('vParcelas').value||3)));
-    const valorParcela=Math.round((valorVenda/nParcelas)*100)/100;
-    // Ajustar última parcela pra bater o total exato
-    const ajuste=Math.round((valorVenda-valorParcela*nParcelas)*100)/100;
-
-    D.vendas.push({id:nv,data,cliente,produto:prod.nome,produtoId:prod.id,custo,valorVenda,recebido:0,saldoReceber:valorVenda,status:'Pendente',forma:`${nParcelas}x ${fmt(valorParcela)}`,nParcelas});
-    prod.status='Vendido';
-
-    // Criar uma conta a receber para cada parcela
     const venc1=document.getElementById('vVenc1').value||data;
-    for(let i=0;i<nParcelas;i++){
-      const dt=new Date(venc1+'T12:00:00');
-      dt.setMonth(dt.getMonth()+i);
-      const venc=dt.toISOString().slice(0,10);
-      const vlr=i===nParcelas-1?valorParcela+ajuste:valorParcela;
-      D.contasReceber.push({
-        id:nextId(D.contasReceber),
-        desc:`Parcela ${i+1}/${nParcelas} — ${cliente} — ${prod.nome}`,
-        valor:Math.round(vlr*100)/100,
-        vencimento:venc,
-        cliente,
-        vendaId:nv,
-        status:'Pendente',
-        dataReceb:'',
-        obs:`Parcelado ${nParcelas}x`,
-        parcela:i+1,
-        totalParcelas:nParcelas
-      });
-    }
+    validos.forEach(it=>{
+      const prod=D.produtos.find(p=>p.id===it.produtoId);
+      const custo=prod.custo||0;const valorVenda=+it.valorVenda;
+      const nv=nextId(D.vendas);
+      const valorParcela=Math.round((valorVenda/nParcelas)*100)/100;
+      const ajuste=Math.round((valorVenda-valorParcela*nParcelas)*100)/100;
+      D.vendas.push({id:nv,data,cliente,produto:prod.nome,produtoId:prod.id,custo,valorVenda,recebido:0,saldoReceber:valorVenda,status:'Pendente',forma:`${nParcelas}x ${fmt(valorParcela)}`,nParcelas});
+      prod.status='Vendido';
+      for(let i=0;i<nParcelas;i++){
+        const dt=new Date(venc1+'T12:00:00');dt.setMonth(dt.getMonth()+i);
+        const venc=dt.toISOString().slice(0,10);
+        const vlr=i===nParcelas-1?valorParcela+ajuste:valorParcela;
+        D.contasReceber.push({id:nextId(D.contasReceber),desc:`Parcela ${i+1}/${nParcelas} — ${cliente} — ${prod.nome}`,valor:Math.round(vlr*100)/100,vencimento:venc,cliente,vendaId:nv,status:'Pendente',dataReceb:'',obs:`Parcelado ${nParcelas}x`,parcela:i+1,totalParcelas:nParcelas});
+      }
+      totalGeral+=valorVenda;nItens++;
+    });
+    _vendaCart=[{produtoId:0,valorVenda:0}];
     saveData();
-    toast(`Venda parcelada: ${prod.nome} → ${cliente} | ${nParcelas}x ${fmt(valorParcela)}`);renderPage();
+    toast(`Venda parcelada: ${nItens} item(ns) → ${cliente} | Total ${fmt(totalGeral)} (cada item em ${nParcelas}x)`);renderPage();
   } else {
-    const rec=recebeu==='sim'?valorVenda:0;const saldo=recebeu==='sim'?0:valorVenda;
-    D.vendas.push({id:nv,data,cliente,produto:prod.nome,produtoId:prod.id,custo,valorVenda,recebido:rec,saldoReceber:saldo,status:recebeu==='sim'?'Pago Total':'Pendente',forma});
-    prod.status='Vendido';
-    if(recebeu==='sim'){
-      D.movimentacoes.push({id:nextId(D.movimentacoes),data,desc:`Recebimento Venda — ${cliente} — ${prod.nome}`,tipo:'Entrada',cat:'Recebimento Venda',plano:'Receita',valor:valorVenda,saldo:0});
-      recalcSaldos();
-    } else {
-      D.contasReceber.push({id:nextId(D.contasReceber),desc:`Venda — ${cliente} — ${prod.nome}`,valor:valorVenda,vencimento:data,cliente,vendaId:nv,status:'Pendente',dataReceb:'',obs:''});
-    }
+    validos.forEach(it=>{
+      const prod=D.produtos.find(p=>p.id===it.produtoId);
+      const custo=prod.custo||0;const valorVenda=+it.valorVenda;
+      const nv=nextId(D.vendas);
+      const rec=recebeu==='sim'?valorVenda:0;const saldo=recebeu==='sim'?0:valorVenda;
+      D.vendas.push({id:nv,data,cliente,produto:prod.nome,produtoId:prod.id,custo,valorVenda,recebido:rec,saldoReceber:saldo,status:recebeu==='sim'?'Pago Total':'Pendente',forma});
+      prod.status='Vendido';
+      if(recebeu==='sim'){
+        D.movimentacoes.push({id:nextId(D.movimentacoes),data,desc:`Recebimento Venda — ${cliente} — ${prod.nome}`,tipo:'Entrada',cat:'Recebimento Venda',plano:'Receita',valor:valorVenda,saldo:0});
+      } else {
+        D.contasReceber.push({id:nextId(D.contasReceber),desc:`Venda — ${cliente} — ${prod.nome}`,valor:valorVenda,vencimento:data,cliente,vendaId:nv,status:'Pendente',dataReceb:'',obs:''});
+      }
+      totalGeral+=valorVenda;nItens++;
+    });
+    if(recebeu==='sim')recalcSaldos();
+    _vendaCart=[{produtoId:0,valorVenda:0}];
     saveData();
-    const lucro=valorVenda-custo;toast(`Venda: ${prod.nome} → ${cliente} | Lucro: ${fmt(lucro)}`);renderPage();
+    toast(`Venda: ${nItens} item(ns) → ${cliente} | Total ${fmt(totalGeral)}`);renderPage();
   }
 }
 
