@@ -3279,19 +3279,20 @@ function renderHistoricoCompras(){
     <h2>📋 Histórico de Compras <span style="font-size:12px;font-weight:400;color:var(--gray)">(${compras.length} compras • cada uma com seu Nº de Pedido)</span></h2>
     <p style="font-size:11px;color:var(--gray);margin-bottom:12px">Toda compra gera um Pedido de Compra (PC-XXXX) que segue o produto até o estoque e a movimentação — rastreabilidade de ponta a ponta. Clique numa compra para ver os produtos.</p>
     <div style="max-height:420px;overflow-y:auto;overflow-x:auto">
-    <table style="min-width:560px"><thead><tr><th>Nº Pedido</th><th>Data</th><th>Fornecedor / Descrição</th><th class="r">Produtos</th><th class="r">Valor</th></tr></thead><tbody>
-    ${compras.length===0?'<tr><td colspan="5" style="font-size:11px;color:var(--gray);padding:12px">Nenhuma compra registrada ainda.</td></tr>':
+    <table style="min-width:680px"><thead><tr><th>Nº Pedido</th><th>Data</th><th>Fornecedor</th><th>Descrição</th><th style="text-align:right">Produtos</th><th style="text-align:right">Valor</th></tr></thead><tbody>
+    ${compras.length===0?'<tr><td colspan="6" style="font-size:11px;color:var(--gray);padding:12px">Nenhuma compra registrada ainda.</td></tr>':
     compras.map(m=>{
       const nProds=D.produtos.filter(p=>p.movId===m.id).length;
       return `<tr>
         <td><span style="font-weight:700;color:var(--blue);font-size:12px;white-space:nowrap">${m.numPedido||'—'}</span></td>
         <td style="white-space:nowrap">${fmtD(m.data)}</td>
-        <td><span class="editable" onclick="abrirMovDetalhes(${m.id})" title="Ver produtos desta compra">${m.fornecedor?'<strong>'+m.fornecedor+'</strong> — ':''}${m.desc}</span></td>
+        <td style="font-weight:600">${m.fornecedor||'—'}</td>
+        <td><span class="editable" onclick="abrirMovDetalhes(${m.id})" title="Ver produtos desta compra">${m.desc||'—'}</span></td>
         <td class="r">${nProds}</td>
         <td class="r" style="font-weight:600;color:var(--red)">${fmt(m.valor)}</td>
       </tr>`;
     }).join('')}
-    </tbody><tfoot><tr><td colspan="4" style="font-weight:700">TOTAL EM COMPRAS (${compras.length})</td><td class="r" style="font-weight:700;color:var(--red)">${fmt(totalCompras)}</td></tr></tfoot></table>
+    </tbody><tfoot><tr><td colspan="4" style="font-weight:700">TOTAL EM COMPRAS (${compras.length})</td><td class="r" style="font-weight:700">${compras.reduce((a,m)=>a+D.produtos.filter(p=>p.movId===m.id).length,0)}</td><td class="r" style="font-weight:700;color:var(--red)">${fmt(totalCompras)}</td></tr></tfoot></table>
     </div>
   </div>`;
 }
