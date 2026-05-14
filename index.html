@@ -899,7 +899,7 @@ function editNumField(prodId,field,el){
   const p=D.produtos.find(x=>x.id===prodId);if(!p){_editing=false;return;}
   el.innerHTML=`<input class="edit-input" type="number" step="0.01" value="${p[field]||''}" onkeydown="if(event.key==='Enter')this.blur()" style="width:80px;text-align:right">`;
   const inp=el.querySelector('input');let done=false;
-  inp.addEventListener('blur',function(){if(done)return;done=true;_editing=false;p[field]=+inp.value||0;saveData();renderPage()});
+  inp.addEventListener('blur',function(){if(done)return;done=true;_editing=false;const _nv=+inp.value||0;if(field==='custo'){const _d=_nv-(+p[field]||0);D.vendas.forEach(v=>{if(v.produtoId===prodId)v.custo=Math.round(((+v.custo||0)+_d)*100)/100})}p[field]=_nv;saveData();renderPage()});
   setTimeout(()=>inp.focus(),30);
 }
 
@@ -2111,6 +2111,10 @@ function updateProdItemMov(prodId,movId,field,val){
       toast(`✓ Desdobrado em ${val} unidades: ${baseName} #1 a #${val}`);
       return;
     }
+  }
+  if(field==='custo'){
+    const _d=(+val||0)-(+p.custo||0);
+    D.vendas.forEach(v=>{if(v.produtoId===prodId)v.custo=Math.round(((+v.custo||0)+_d)*100)/100});
   }
   p[field]=val;
   saveData();
@@ -3390,6 +3394,12 @@ function renderConfig(){
       </div>
     </div>
 
+    <div class="box" style="border-left:4px solid var(--orange)">
+      <h3>🔧 Manutenção</h3>
+      <p style="font-size:11px;color:var(--gray);margin-bottom:10px">Reconcilia o custo das vendas com o custo atual dos produtos no estoque. Útil quando uma taxa foi lançada num produto que já tinha sido vendido (antes da correção automática).</p>
+      <button class="btn btn-primary btn-sm" onclick="reconciliarCustosVendas()">🔄 Reconciliar custos das vendas com o estoque</button>
+    </div>
+
     <div class="box">
       <h3>💾 Dados do Sistema</h3>
       <p style="font-size:11px;color:var(--gray);margin-bottom:10px">Os dados são armazenados na nuvem (Supabase). Todos os sócios acessam os mesmos dados. Faça backup por segurança.</p>
@@ -3405,6 +3415,28 @@ function renderConfig(){
     </div>
   </div>
   </div>`;
+}
+
+function reconciliarCustosVendas(){
+  if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
+  let pendentes=[];
+  D.vendas.forEach(v=>{
+    const p=D.produtos.find(x=>x.id===v.produtoId);
+    if(p){
+      const novo=Math.round((+p.custo||0)*100)/100;
+      const atual=Math.round((+v.custo||0)*100)/100;
+      if(Math.abs(novo-atual)>0.01)pendentes.push({v,novo,atual});
+    }
+  });
+  if(pendentes.length===0){toast('Tudo já está reconciliado — nenhuma venda precisava ajuste');return}
+  let msg=`${pendentes.length} venda(s) com custo divergente do estoque:\n\n`;
+  msg+=pendentes.slice(0,12).map(x=>`• ${x.v.produto} (${x.v.cliente}): ${fmt(x.atual)} → ${fmt(x.novo)}`).join('\n');
+  if(pendentes.length>12)msg+=`\n... e mais ${pendentes.length-12}`;
+  msg+='\n\nAtualizar o custo dessas vendas para bater com o custo atual do estoque?\n(O lucro de cada venda será recalculado.)';
+  if(!confirm(msg))return;
+  pendentes.forEach(x=>{x.v.custo=x.novo});
+  saveData();renderPage();
+  toast(`✓ ${pendentes.length} venda(s) reconciliada(s) com o estoque`);
 }
 
 function salvarTaxas(){
