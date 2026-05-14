@@ -287,6 +287,8 @@ async function loadDataFromSupabase(){
     // Migracao: numero de pedido de compra (PC-XXXX) para compras existentes, em ordem cronologica
     if(d.nextPedidoCompra===undefined)d.nextPedidoCompra=1;
     d.movimentacoes.filter(m=>m.cat==='Pagamento Fornecedor'&&!m.numPedido).sort((a,b)=>(a.data||'').localeCompare(b.data||'')||a.id-b.id).forEach(m=>{m.numPedido='PC-'+String(d.nextPedidoCompra).padStart(4,'0');d.nextPedidoCompra++;d.produtos.forEach(p=>{if(p.movId===m.id&&!p.numPedido)p.numPedido=m.numPedido})});
+    // Migracao: status de entrega do pedido de compra (compras antigas ja foram entregues)
+    d.movimentacoes.forEach(m=>{if(m.cat==='Pagamento Fornecedor'&&m.statusEntrega===undefined)m.statusEntrega='Entregue'});
     // Migracao: parear aporte de mercadoria (Entrada Capital Inicial + Saida Pagamento Fornecedor com mesma data/valor)
     const _sorted=[...d.movimentacoes].sort((a,b)=>(a.data||'').localeCompare(b.data||'')||a.id-b.id);
     for(let _i=0;_i<_sorted.length-1;_i++){
@@ -438,6 +440,8 @@ function loadData(){
       // Migracao: numero de pedido de compra (PC-XXXX) para compras existentes, em ordem cronologica
       if(d.nextPedidoCompra===undefined)d.nextPedidoCompra=1;
       d.movimentacoes.filter(m=>m.cat==='Pagamento Fornecedor'&&!m.numPedido).sort((a,b)=>(a.data||'').localeCompare(b.data||'')||a.id-b.id).forEach(m=>{m.numPedido='PC-'+String(d.nextPedidoCompra).padStart(4,'0');d.nextPedidoCompra++;d.produtos.forEach(p=>{if(p.movId===m.id&&!p.numPedido)p.numPedido=m.numPedido})});
+      // Migracao: status de entrega do pedido de compra (compras antigas ja foram entregues)
+      d.movimentacoes.forEach(m=>{if(m.cat==='Pagamento Fornecedor'&&m.statusEntrega===undefined)m.statusEntrega='Entregue'});
       // Migracao: parear aporte de mercadoria (Entrada Capital Inicial + Saida Pagamento Fornecedor com mesma data/valor)
       const _sorted=[...d.movimentacoes].sort((a,b)=>(a.data||'').localeCompare(b.data||'')||a.id-b.id);
       for(let _i=0;_i<_sorted.length-1;_i++){
@@ -1694,7 +1698,9 @@ function gerarPDFPedido(movId){
   doc.setFontSize(13);doc.setFont(undefined,'bold');doc.text(`PEDIDO DE COMPRA ${m.numPedido||''}`,mx,y);y+=7;
   doc.setFontSize(10);doc.setFont(undefined,'normal');
   doc.text(`Fornecedor: ${m.fornecedor||'—'}`,mx,y);y+=5;
-  doc.text(`Data: ${fmtD(m.data)}   •   Valor total: ${fmt(m.valor)}`,mx,y);y+=6;
+  doc.text(`Data: ${fmtD(m.data)}   •   Valor total: ${fmt(m.valor)}`,mx,y);y+=5;
+  const _entPdf=(m.statusEntrega||'Entregue')==='Entregue';
+  doc.setFont(undefined,'bold');doc.setTextColor(_entPdf?5:146,_entPdf?95:64,_entPdf?70:14);doc.text(`Entrega: ${_entPdf?'ENTREGUE':'PENDENTE (em trânsito)'}`,mx,y);doc.setFont(undefined,'normal');doc.setTextColor(0,0,0);y+=6;
   const body=prods.map(p=>[p.nome||'—',p.num||'—',p.cat||'—',p.rastreio||'—',p.codFornecedor||'—',fmt(p.custo||0),p.status||'—']);
   if(!prods.length)body.push([{content:'Nenhum produto vinculado a este pedido.',colSpan:7,styles:{textColor:[150,150,150]}}]);
   doc.autoTable({startY:y,head:[['Produto','Nº','Categoria','Cód. Rastreio','Cód. Fornecedor','Custo','Status']],body:body,
@@ -2170,6 +2176,11 @@ function renderMovDetalhesModal(movId){
           <label style="font-size:11px;font-weight:600;color:var(--text2);display:block;margin-bottom:4px">Descrição</label>
           <input id="movDescInput" value="${(m.desc||'').replace(/"/g,'&quot;')}" onchange="var x=D.movimentacoes.find(y=>y.id===${m.id});if(x){x.desc=this.value;syncMovToDesp(${m.id},'desc',this.value);saveData()}" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px">
         </div>
+
+        ${m.cat==='Pagamento Fornecedor'?(function(){var _e=(m.statusEntrega||'Entregue')==='Entregue';return `<div style="margin-bottom:14px;padding:10px 12px;background:${_e?'#d1fae5':'#fef3c7'};border:1px solid ${_e?'#6ee7b7':'#fcd34d'};border-radius:8px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <div style="min-width:160px"><div style="font-size:12px;font-weight:700;color:${_e?'#065f46':'#92400e'}">${_e?'✅ Pedido entregue':'🚚 Pedido pendente (em trânsito)'}</div><div style="font-size:10px;color:var(--gray);margin-top:2px">${_e?'Os produtos deste pedido estão disponíveis no estoque.':'Comprado mas ainda não chegou. Os produtos ficam como "Em Trânsito" no estoque.'}</div></div>
+          <button class="btn btn-sm" onclick="toggleEntregaPedido(${m.id})" style="background:${_e?'var(--orange)':'var(--green)'};color:#fff;white-space:nowrap">${_e?'↩ Marcar como pendente':'✅ Marcar como entregue'}</button>
+        </div>`;})():''}
 
         ${isTaxa?`
         <div style="margin-bottom:14px">
@@ -3352,6 +3363,7 @@ function renderNovaCompra(){
     <div class="form-group"><label>Data</label><input type="date" id="cData" value="${hoje()}"></div>
     <div class="form-group"><label>Tipo</label><select id="cTipo"><option value="Estoque">Estoque</option><option value="Encomenda">Encomenda</option></select></div>
     <div class="form-group"><label>Cliente (se encomenda)</label><input id="cCliente" placeholder="Nome do cliente"></div>
+    <div class="form-group"><label>Status de entrega</label><select id="cStatusEntrega"><option value="Pendente">Pendente (em trânsito)</option><option value="Entregue">Já entregue</option></select></div>
   </div>
   <h3 style="margin:16px 0 8px;font-size:14px">Itens da Compra</h3>
   <div id="compraItens">
@@ -3397,21 +3409,23 @@ function renderHistoricoCompras(){
     <h2>📋 Histórico de Compras <span style="font-size:12px;font-weight:400;color:var(--gray)">(${compras.length} compras • cada uma com seu Nº de Pedido)</span></h2>
     <p style="font-size:11px;color:var(--gray);margin-bottom:12px">Toda compra gera um Pedido de Compra (PC-XXXX) que segue o produto até o estoque e a movimentação — rastreabilidade de ponta a ponta. Clique numa compra para ver os produtos.</p>
     <div style="max-height:420px;overflow-y:auto;overflow-x:auto">
-    <table style="min-width:720px"><thead><tr><th>Nº Pedido</th><th>Data</th><th>Fornecedor</th><th>Descrição</th><th style="text-align:right">Produtos</th><th style="text-align:right">Valor</th><th>PDF</th></tr></thead><tbody>
-    ${compras.length===0?'<tr><td colspan="7" style="font-size:11px;color:var(--gray);padding:12px">Nenhuma compra registrada ainda.</td></tr>':
+    <table style="min-width:820px"><thead><tr><th>Nº Pedido</th><th>Data</th><th>Fornecedor</th><th>Descrição</th><th>Entrega</th><th style="text-align:right">Produtos</th><th style="text-align:right">Valor</th><th>PDF</th></tr></thead><tbody>
+    ${compras.length===0?'<tr><td colspan="8" style="font-size:11px;color:var(--gray);padding:12px">Nenhuma compra registrada ainda.</td></tr>':
     compras.map(m=>{
       const nProds=D.produtos.filter(p=>p.movId===m.id).length;
+      const _ent=(m.statusEntrega||'Entregue')==='Entregue';
       return `<tr>
         <td><span onclick="abrirMovDetalhes(${m.id})" style="font-weight:700;color:var(--blue);font-size:12px;white-space:nowrap;cursor:pointer;text-decoration:underline" title="Abrir pedido completo">${m.numPedido||'—'}</span></td>
         <td style="white-space:nowrap">${fmtD(m.data)}</td>
         <td style="font-weight:600">${m.fornecedor||'—'}</td>
         <td><span class="editable" onclick="abrirMovDetalhes(${m.id})" title="Ver produtos desta compra">${m.desc||'—'}</span></td>
+        <td><span onclick="toggleEntregaPedido(${m.id})" title="Clique para alternar entrega" style="font-size:9px;padding:2px 6px;border-radius:6px;background:${_ent?'#d1fae5':'#fef3c7'};color:${_ent?'#065f46':'#92400e'};font-weight:600;white-space:nowrap;cursor:pointer">${_ent?'✅ Entregue':'🚚 Pendente'}</span></td>
         <td class="r">${nProds}</td>
         <td class="r" style="font-weight:600;color:var(--red)">${fmt(m.valor)}</td>
         <td><button class="btn btn-sm" onclick="gerarPDFPedido(${m.id})" style="background:var(--dark);color:#fff;font-size:9px;padding:3px 8px" title="Baixar PDF deste pedido">📄</button></td>
       </tr>`;
     }).join('')}
-    </tbody><tfoot><tr><td colspan="4" style="font-weight:700">TOTAL EM COMPRAS (${compras.length})</td><td class="r" style="font-weight:700">${compras.reduce((a,m)=>a+D.produtos.filter(p=>p.movId===m.id).length,0)}</td><td class="r" style="font-weight:700;color:var(--red)">${fmt(totalCompras)}</td><td></td></tr></tfoot></table>
+    </tbody><tfoot><tr><td colspan="5" style="font-weight:700">TOTAL EM COMPRAS (${compras.length})</td><td class="r" style="font-weight:700">${compras.reduce((a,m)=>a+D.produtos.filter(p=>p.movId===m.id).length,0)}</td><td class="r" style="font-weight:700;color:var(--red)">${fmt(totalCompras)}</td><td></td></tr></tfoot></table>
     </div>
   </div>`;
 }
@@ -3447,6 +3461,7 @@ function salvarCompra(){
   if(!PERMS.insert){toast('Sem permissão para inserir',true);return}
   const forn=_compraForn;const data=document.getElementById('cData').value;
   const tipo=document.getElementById('cTipo').value;const cliente=document.getElementById('cCliente').value;
+  const statusEntrega=document.getElementById('cStatusEntrega').value;
   if(!data){toast('Preencha a data',true);return}
   const valid=compraItems.filter(it=>it.nome&&it.custo>0);
   if(!valid.length){toast('Adicione pelo menos 1 item',true);return}
@@ -3463,13 +3478,31 @@ function salvarCompra(){
     const imgs=it.imgs||[];
     for(let j=0;j<qtd;j++){
       const suffix=qtd>1?` #${j+1}`:'';
-      D.produtos.push({id:D.nextProdId++,nome:it.nome+suffix,marca:'',cat:it.cat||'Outro',custo:it.custo,qtd:1,status:tipo==='Encomenda'?'Reservado (Encomenda)':'Em Estoque',num:it.num||'',rastreio:'',codFornecedor:it.codFornecedor||'',numPedido:_numPedido,img:imgs[0]||'',imgs:imgs.slice(),precoVenda:0,obs:`Fornecedor: ${forn||'—'}`,cliente:tipo==='Encomenda'?cliente:'',dataEntrada:data||hoje(),movId:_newMovId});
+      D.produtos.push({id:D.nextProdId++,nome:it.nome+suffix,marca:'',cat:it.cat||'Outro',custo:it.custo,qtd:1,status:tipo==='Encomenda'?'Reservado (Encomenda)':(statusEntrega==='Pendente'?'Em Trânsito':'Em Estoque'),num:it.num||'',rastreio:'',codFornecedor:it.codFornecedor||'',numPedido:_numPedido,img:imgs[0]||'',imgs:imgs.slice(),precoVenda:0,obs:`Fornecedor: ${forn||'—'}`,cliente:tipo==='Encomenda'?cliente:'',dataEntrada:data||hoje(),movId:_newMovId});
     }
     total+=it.custo*qtd;
   });
-  D.movimentacoes.push({id:_newMovId,data,desc:`Compra ${forn||'—'} — ${valid.length} tipo(s)`,tipo:'Saída',cat:'Pagamento Fornecedor',plano:'Mercadoria',valor:total,saldo:0,numPedido:_numPedido,fornecedor:forn||'',itens:valid.map(it=>({nome:it.nome,cat:it.cat||'',custo:+it.custo||0,qtd:+it.qtd||1,num:it.num||''})),comprovante:'',comprovantes:[]});
+  D.movimentacoes.push({id:_newMovId,data,desc:`Compra ${forn||'—'} — ${valid.length} tipo(s)`,tipo:'Saída',cat:'Pagamento Fornecedor',plano:'Mercadoria',valor:total,saldo:0,numPedido:_numPedido,statusEntrega,fornecedor:forn||'',itens:valid.map(it=>({nome:it.nome,cat:it.cat||'',custo:+it.custo||0,qtd:+it.qtd||1,num:it.num||''})),comprovante:'',comprovantes:[]});
   recalcSaldos();saveData();compraItems=[{nome:'',cat:'Tênis',custo:0,qtd:1,num:'',imgs:[]}];_compraForn='';
   toast(`Compra ${_numPedido} registrada! ${valid.reduce((a,i)=>a+(i.qtd||1),0)} produtos — Total: ${fmt(total)}`);showTab(2);
+}
+
+function toggleEntregaPedido(movId){
+  if(!PERMS.update){toast('Sem permissão para alterar',true);return}
+  const m=D.movimentacoes.find(x=>x.id===movId);if(!m)return;
+  const novo=(m.statusEntrega||'Entregue')==='Entregue'?'Pendente':'Entregue';
+  m.statusEntrega=novo;
+  const prods=D.produtos.filter(p=>p.movId===m.id);
+  let n=0;
+  if(novo==='Entregue'){
+    prods.forEach(p=>{if(p.status==='Em Trânsito'){p.status='Em Estoque';n++}});
+  }else{
+    prods.forEach(p=>{if(p.status==='Em Estoque'){p.status='Em Trânsito';n++}});
+  }
+  saveData();
+  const ov=document.getElementById('movDetalhesOverlay');
+  if(ov)refreshMovModal(movId);else renderPage();
+  toast(novo==='Entregue'?`Pedido entregue — ${n} produto(s) → Em Estoque`:`Pedido pendente — ${n} produto(s) → Em Trânsito`);
 }
 
 // ═══════ NOVO APORTE ═══════
