@@ -1023,7 +1023,129 @@ function renderBalanco(){
         ${ok?'✅ Balanço correto — todas as movimentações estão batendo':'⚠️ Diferença encontrada — verifique as movimentações'}
       </div>
     </div>
+  </div>
+  ${renderDRESection()}`;
+}
+
+// ═══════ DRE — DEMONSTRACAO DO RESULTADO ═══════
+let dreIni='',dreFim='';
+
+function calcDRE(ini,fim){
+  const vendasPeriodo=D.vendas.filter(v=>v.data&&v.data>=ini&&v.data<=fim);
+  const fatCat={},custoCat={};
+  vendasPeriodo.forEach(v=>{
+    const prod=D.produtos.find(p=>p.id===v.produtoId);
+    const cat=(prod&&prod.cat)||'Sem categoria';
+    fatCat[cat]=Math.round(((fatCat[cat]||0)+(+v.valorVenda||0))*100)/100;
+    custoCat[cat]=Math.round(((custoCat[cat]||0)+(+v.custo||0))*100)/100;
+  });
+  const totalFat=Math.round(Object.values(fatCat).reduce((a,b)=>a+b,0)*100)/100;
+  const totalCusto=Math.round(Object.values(custoCat).reduce((a,b)=>a+b,0)*100)/100;
+  const lucroBruto=Math.round((totalFat-totalCusto)*100)/100;
+  const despPeriodo=D.despesas.filter(d=>d.pago&&d.data&&d.data>=ini&&d.data<=fim);
+  const despPlano={};
+  despPeriodo.forEach(d=>{
+    const plano=d.plano||d.cat||'Outros';
+    despPlano[plano]=Math.round(((despPlano[plano]||0)+(+d.valor||0))*100)/100;
+  });
+  const totalDesp=Math.round(Object.values(despPlano).reduce((a,b)=>a+b,0)*100)/100;
+  const resultado=Math.round((lucroBruto-totalDesp)*100)/100;
+  return {fatCat,custoCat,totalFat,totalCusto,lucroBruto,despPlano,totalDesp,resultado,nVendas:vendasPeriodo.length,nDesp:despPeriodo.length};
+}
+
+function renderDRESection(){
+  if(!dreIni){const d=new Date();dreIni=new Date(d.getFullYear(),d.getMonth(),1).toISOString().slice(0,10)}
+  if(!dreFim)dreFim=hoje();
+  const dre=calcDRE(dreIni,dreFim);
+  const fatRows=Object.entries(dre.fatCat).sort((a,b)=>b[1]-a[1]);
+  const custoRows=Object.entries(dre.custoCat).sort((a,b)=>b[1]-a[1]);
+  const despRows=Object.entries(dre.despPlano).sort((a,b)=>b[1]-a[1]);
+  const margemBruta=dre.totalFat>0?(dre.lucroBruto/dre.totalFat*100).toFixed(1):'0';
+  const margemLiq=dre.totalFat>0?(dre.resultado/dre.totalFat*100).toFixed(1):'0';
+  return `
+  <div class="form-section">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;flex-wrap:wrap;gap:8px">
+      <h2>📑 DRE — Demonstração do Resultado</h2>
+      <button class="btn btn-sm" onclick="gerarPDFDRE()" style="background:var(--dark);color:#fff">📄 Baixar PDF</button>
+    </div>
+    <p style="font-size:12px;color:var(--gray);margin-bottom:14px">Fechamento do período — faturamento e custo por categoria + despesas pagas + resultado líquido.</p>
+    <div class="inline-form" style="margin-bottom:16px">
+      <div class="if-group"><label>Data inicial</label><input type="date" id="pgDreIni" value="${dreIni}" onchange="dreIni=this.value;renderPage()"></div>
+      <div class="if-group"><label>Data final</label><input type="date" id="pgDreFim" value="${dreFim}" onchange="dreFim=this.value;renderPage()"></div>
+      <div class="if-group" style="justify-content:end;align-self:end"><span style="font-size:11px;color:var(--gray)">${dre.nVendas} venda(s) • ${dre.nDesp} despesa(s) no período</span></div>
+    </div>
+    <div class="box" style="padding:0;overflow:hidden">
+      <table style="width:100%">
+        <tbody>
+          <tr style="background:#1e293b;color:#fff"><td colspan="2" style="padding:8px 14px;font-weight:700;font-size:12px">RECEITA BRUTA (Faturamento)</td></tr>
+          ${fatRows.length?fatRows.map(([cat,v])=>`<tr><td style="padding:6px 14px 6px 28px;font-size:12px">${cat}</td><td class="r" style="padding:6px 14px;font-size:12px;font-variant-numeric:tabular-nums">${fmt(v)}</td></tr>`).join(''):'<tr><td colspan="2" style="padding:8px 14px;font-size:11px;color:var(--gray)">Nenhuma venda no período</td></tr>'}
+          <tr style="background:#f0fdf4;font-weight:700"><td style="padding:8px 14px;font-size:12px">= TOTAL RECEITA</td><td class="r" style="padding:8px 14px;font-size:13px;color:var(--green);font-variant-numeric:tabular-nums">${fmt(dre.totalFat)}</td></tr>
+          <tr style="background:#1e293b;color:#fff"><td colspan="2" style="padding:8px 14px;font-weight:700;font-size:12px">(−) CUSTO DOS PRODUTOS VENDIDOS</td></tr>
+          ${custoRows.length?custoRows.map(([cat,v])=>`<tr><td style="padding:6px 14px 6px 28px;font-size:12px">${cat}</td><td class="r" style="padding:6px 14px;font-size:12px;font-variant-numeric:tabular-nums">− ${fmt(v)}</td></tr>`).join(''):'<tr><td colspan="2" style="padding:8px 14px;font-size:11px;color:var(--gray)">—</td></tr>'}
+          <tr style="background:#fef2f2;font-weight:700"><td style="padding:8px 14px;font-size:12px">= TOTAL CUSTO</td><td class="r" style="padding:8px 14px;font-size:13px;color:var(--red);font-variant-numeric:tabular-nums">− ${fmt(dre.totalCusto)}</td></tr>
+          <tr style="background:#dbeafe;font-weight:800"><td style="padding:10px 14px;font-size:13px">= LUCRO BRUTO <span style="font-size:10px;font-weight:600;color:var(--gray)">(margem ${margemBruta}%)</span></td><td class="r" style="padding:10px 14px;font-size:15px;color:${dre.lucroBruto>=0?'var(--green)':'var(--red)'};font-variant-numeric:tabular-nums">${fmt(dre.lucroBruto)}</td></tr>
+          <tr style="background:#1e293b;color:#fff"><td colspan="2" style="padding:8px 14px;font-weight:700;font-size:12px">(−) DESPESAS OPERACIONAIS (pagas no período)</td></tr>
+          ${despRows.length?despRows.map(([plano,v])=>`<tr><td style="padding:6px 14px 6px 28px;font-size:12px">${plano}</td><td class="r" style="padding:6px 14px;font-size:12px;font-variant-numeric:tabular-nums">− ${fmt(v)}</td></tr>`).join(''):'<tr><td colspan="2" style="padding:8px 14px;font-size:11px;color:var(--gray)">Nenhuma despesa paga no período</td></tr>'}
+          <tr style="background:#fef2f2;font-weight:700"><td style="padding:8px 14px;font-size:12px">= TOTAL DESPESAS</td><td class="r" style="padding:8px 14px;font-size:13px;color:var(--red);font-variant-numeric:tabular-nums">− ${fmt(dre.totalDesp)}</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="box" style="text-align:center;padding:18px;border:3px solid ${dre.resultado>=0?'var(--green)':'var(--red)'};margin-top:14px">
+      <div style="font-size:12px;color:var(--gray);text-transform:uppercase;letter-spacing:1px;font-weight:600;margin-bottom:4px">Resultado Líquido do Período</div>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:6px">${fmtD(dreIni)} a ${fmtD(dreFim)}</div>
+      <div style="font-size:32px;font-weight:800;color:${dre.resultado>=0?'var(--green)':'var(--red)'}">${fmt(dre.resultado)}</div>
+      <div style="font-size:11px;margin-top:4px;color:var(--gray)">Margem líquida: ${margemLiq}% • ${dre.resultado>=0?'✅ Lucro no período':'⚠️ Prejuízo no período'}</div>
+    </div>
   </div>`;
+}
+
+function gerarPDFDRE(){
+  try{
+  const{jsPDF}=window.jspdf;if(!jsPDF){toast('Erro: biblioteca PDF não carregou',true);return}
+  if(!dreIni)dreIni=hoje();if(!dreFim)dreFim=hoje();
+  const dre=calcDRE(dreIni,dreFim);
+  const doc=new jsPDF('p','mm','a4');const w=doc.internal.pageSize.getWidth();const h=doc.internal.pageSize.getHeight();const mx=15;let y=12;
+  doc.setFillColor(30,41,59);doc.rect(0,0,w,22,'F');
+  doc.setFontSize(16);doc.setFont(undefined,'bold');doc.setTextColor(255,255,255);doc.text('LUSH GRIFFES',mx,13);
+  doc.setFontSize(10);doc.setFont(undefined,'normal');doc.text('DRE — Demonstração do Resultado',w-mx,13,{align:'right'});
+  doc.setTextColor(0,0,0);y=30;
+  doc.setFontSize(11);doc.setFont(undefined,'bold');doc.text(`Período: ${fmtD(dreIni)} a ${fmtD(dreFim)}`,mx,y);
+  doc.setFontSize(8);doc.setFont(undefined,'normal');doc.setTextColor(120);doc.text(`${dre.nVendas} venda(s) • ${dre.nDesp} despesa(s)`,w-mx,y,{align:'right'});
+  doc.setTextColor(0,0,0);y+=6;
+  const fatRows=Object.entries(dre.fatCat).sort((a,b)=>b[1]-a[1]);
+  const custoRows=Object.entries(dre.custoCat).sort((a,b)=>b[1]-a[1]);
+  const despRows=Object.entries(dre.despPlano).sort((a,b)=>b[1]-a[1]);
+  const HEAD={fillColor:[30,41,59],textColor:255,fontStyle:'bold'};
+  const body=[];
+  body.push([{content:'RECEITA BRUTA (Faturamento)',colSpan:2,styles:HEAD}]);
+  fatRows.forEach(([c,v])=>body.push(['    '+c,fmt(v)]));
+  if(!fatRows.length)body.push([{content:'Nenhuma venda no período',colSpan:2,styles:{textColor:[150,150,150]}}]);
+  body.push([{content:'= TOTAL RECEITA',styles:{fontStyle:'bold',fillColor:[240,253,244]}},{content:fmt(dre.totalFat),styles:{fontStyle:'bold',fillColor:[240,253,244],halign:'right'}}]);
+  body.push([{content:'(-) CUSTO DOS PRODUTOS VENDIDOS',colSpan:2,styles:HEAD}]);
+  custoRows.forEach(([c,v])=>body.push(['    '+c,'- '+fmt(v)]));
+  if(!custoRows.length)body.push([{content:'—',colSpan:2,styles:{textColor:[150,150,150]}}]);
+  body.push([{content:'= TOTAL CUSTO',styles:{fontStyle:'bold',fillColor:[254,242,242]}},{content:'- '+fmt(dre.totalCusto),styles:{fontStyle:'bold',fillColor:[254,242,242],halign:'right'}}]);
+  body.push([{content:'= LUCRO BRUTO',styles:{fontStyle:'bold',fillColor:[219,234,254]}},{content:fmt(dre.lucroBruto),styles:{fontStyle:'bold',fillColor:[219,234,254],halign:'right'}}]);
+  body.push([{content:'(-) DESPESAS OPERACIONAIS (pagas no período)',colSpan:2,styles:HEAD}]);
+  despRows.forEach(([c,v])=>body.push(['    '+c,'- '+fmt(v)]));
+  if(!despRows.length)body.push([{content:'Nenhuma despesa paga no período',colSpan:2,styles:{textColor:[150,150,150]}}]);
+  body.push([{content:'= TOTAL DESPESAS',styles:{fontStyle:'bold',fillColor:[254,242,242]}},{content:'- '+fmt(dre.totalDesp),styles:{fontStyle:'bold',fillColor:[254,242,242],halign:'right'}}]);
+  doc.autoTable({startY:y,body:body,
+    styles:{fontSize:9,cellPadding:2.5},
+    columnStyles:{0:{cellWidth:'auto'},1:{cellWidth:45,halign:'right'}},
+    theme:'grid',margin:{left:mx,right:mx}});
+  y=doc.lastAutoTable.finalY+12;
+  if(y>h-45){doc.addPage();y=20;}
+  const ok=dre.resultado>=0;
+  doc.setFillColor(ok?236:254,ok?253:242,ok?245:242);doc.roundedRect(mx,y,w-mx*2,30,3,3,'F');
+  doc.setDrawColor(ok?34:239,ok?197:68,ok?94:68);doc.roundedRect(mx,y,w-mx*2,30,3,3,'S');
+  doc.setFontSize(10);doc.setFont(undefined,'normal');doc.setTextColor(100);doc.text('RESULTADO LÍQUIDO DO PERÍODO',w/2,y+9,{align:'center'});
+  doc.setFontSize(20);doc.setFont(undefined,'bold');doc.setTextColor(ok?34:239,ok?197:68,ok?94:68);doc.text(fmt(dre.resultado),w/2,y+20,{align:'center'});
+  const margemLiq=dre.totalFat>0?(dre.resultado/dre.totalFat*100).toFixed(1):'0';
+  doc.setFontSize(8);doc.setFont(undefined,'normal');doc.setTextColor(120);doc.text(`Margem líquida: ${margemLiq}%`,w/2,y+27,{align:'center'});
+  doc.setFontSize(7);doc.setFont(undefined,'italic');doc.setTextColor(150,150,150);doc.text('LUSH GRIFFES — DRE',w/2,h-5,{align:'center'});
+  doc.save(`LUSH-GRIFFES-DRE-${dreIni}_a_${dreFim}.pdf`);toast('PDF da DRE gerado!');
+  }catch(e){toast('Erro ao gerar PDF: '+e.message,true);console.error(e)}
 }
 
 // ═══════ ENCOMENDAS ═══════
