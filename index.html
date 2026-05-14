@@ -799,7 +799,7 @@ function renderEstoque(m){
   <div style="text-align:right;margin-bottom:10px"><button class="btn btn-sm" onclick="gerarPDFEstoque()" style="background:var(--dark);color:#fff">📄 Baixar PDF Estoque</button></div>
   <div class="box"><h3>Produtos (${fil.length} itens)</h3>
   <div id="estTableScroll" style="max-height:600px;overflow-y:auto">
-  <table><thead><tr><th style="width:50px">Foto</th><th>ID</th><th>Data</th><th>Descrição</th><th>Nº</th><th>Cat.</th><th style="text-align:right">Custo</th><th style="text-align:right">Pç. Venda</th><th>Status</th><th>Ação</th></tr></thead><tbody>
+  <table><thead><tr><th style="width:50px">Foto</th><th>ID</th><th>Data</th><th>Descrição</th><th>Nº</th><th>Rastreio</th><th>Cat.</th><th style="text-align:right">Custo</th><th style="text-align:right">Pç. Venda</th><th>Status</th><th>Ação</th></tr></thead><tbody>
   ${fil.map(p=>{
     const allImgs=p.imgs&&p.imgs.length?p.imgs:(p.img?[p.img]:[]);
     const imgCount=allImgs.length;
@@ -809,12 +809,13 @@ function renderEstoque(m){
     <td style="font-size:10px;color:var(--gray);white-space:nowrap">${p.dataEntrada?fmtD(p.dataEntrada):'—'}</td>
     <td><span class="editable" onclick="editField(${p.id},'nome',this)" style="cursor:pointer">${p.nome}</span></td>
     <td><span class="editable" onclick="editField(${p.id},'num',this)">${p.num||'—'}</span></td>
+    <td><span class="editable" onclick="editField(${p.id},'rastreio',this)" style="font-size:10px">${p.rastreio||'—'}</span></td>
     <td><select onchange="mudaCat(${p.id},this.value)" style="font-size:10px;padding:2px 4px;border-radius:4px;border:1px solid #ddd">${D.categorias.map(c=>`<option${c===p.cat?' selected':''}>${c}</option>`).join('')}</select></td><td class="r"><span class="editable" onclick="editNumField(${p.id},'custo',this)" title="Clique para editar">${fmt(p.custo)}</span></td>
     <td class="r"><span class="editable" onclick="editNumField(${p.id},'precoVenda',this)" style="color:var(--green);font-weight:600">${p.precoVenda?fmt(p.precoVenda):'—'}</span></td>
     <td>${badgeS(p.status)}</td>
     <td><div style="display:flex;gap:3px;align-items:center"><select onchange="mudaStatus(${p.id},this.value)" style="font-size:10px;padding:2px 4px;border-radius:4px;border:1px solid #ddd;flex:1;min-width:0"><option value="">Alterar...</option><option value="Em Trânsito">Em Trânsito</option><option value="Em Estoque">Em Estoque</option><option value="Reservado (Encomenda)">Reservado</option><option value="Vendido">Vendido</option></select><button onclick="desdobrarProdutoEstoque(${p.id})" style="background:var(--blue);color:#fff;border:none;width:24px;height:24px;border-radius:4px;font-size:10px;cursor:pointer;flex-shrink:0" title="Desdobrar em N unidades">🔀</button><button onclick="excluirProdutoEstoque(${p.id})" style="background:var(--red);color:#fff;border:none;width:24px;height:24px;border-radius:4px;font-size:11px;cursor:pointer;flex-shrink:0" title="Excluir do estoque">🗑️</button></div></td></tr>`}).join('')}
   </tbody>
-  <tfoot><tr><td colspan="5" style="font-weight:700">TOTAL</td><td style="font-weight:700">${fil.reduce((a,p)=>a+(p.qtd||1),0)} itens</td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,p)=>a+(p.custo||0),0))}</td><td class="r" style="font-weight:700">${fmt(fil.filter(p=>p.precoVenda).reduce((a,p)=>a+(p.precoVenda||0),0))}</td><td colspan="2"></td></tr></tfoot>
+  <tfoot><tr><td colspan="6" style="font-weight:700">TOTAL</td><td style="font-weight:700">${fil.reduce((a,p)=>a+(p.qtd||1),0)} itens</td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,p)=>a+(p.custo||0),0))}</td><td class="r" style="font-weight:700">${fmt(fil.filter(p=>p.precoVenda).reduce((a,p)=>a+(p.precoVenda||0),0))}</td><td colspan="2"></td></tr></tfoot>
   </table></div></div>`;
 }
 
@@ -1843,15 +1844,16 @@ function renderMovDetalhesModal(movId){
           <div id="movItemsScroll" style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:8px;max-height:320px;overflow-y:auto;overflow-x:auto">
             ${prodsLinked.length===0?
               `<div style="font-size:11px;color:var(--gray);padding:14px;text-align:center;line-height:1.5">${isAporteMerc?'Este aporte de mercadoria':'Esta compra'} ainda não tem produtos vinculados.<br><span style="font-size:10px">Se foi registrada antes do controle de itens, use <strong>🔗 Vincular produtos cadastrados</strong> abaixo para amarrar produtos do estoque que ainda não têm dono.</span></div>`
-              : `<div style="display:grid;grid-template-columns:1.4fr 50px 80px 95px 70px 75px 65px;gap:4px;min-width:680px;font-size:9px;font-weight:700;color:var(--gray);padding:0 4px 6px;text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid var(--border);margin-bottom:6px">
-                  <span>Nome</span><span>Nº</span><span>Custo</span><span>Categoria</span><span>Qtd</span><span>Status</span><span style="text-align:center">Ações</span>
+              : `<div style="display:grid;grid-template-columns:1.3fr 45px 95px 75px 90px 55px 70px 60px;gap:4px;min-width:780px;font-size:9px;font-weight:700;color:var(--gray);padding:0 4px 6px;text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid var(--border);margin-bottom:6px">
+                  <span>Nome</span><span>Nº</span><span>Rastreio</span><span>Custo</span><span>Categoria</span><span>Qtd</span><span>Status</span><span style="text-align:center">Ações</span>
                 </div>
                 ${prodsLinked.map(p=>{
                   const stBg=p.status==='Em Estoque'?'#d1fae5':p.status==='Vendido'?'#dbeafe':p.status&&p.status.includes('Reservado')?'#ede9fe':'#fef3c7';
                   const stFg=p.status==='Em Estoque'?'#065f46':p.status==='Vendido'?'#1e40af':p.status&&p.status.includes('Reservado')?'#5b21b6':'#92400e';
-                  return `<div style="display:grid;grid-template-columns:1.4fr 50px 80px 95px 70px 75px 65px;gap:4px;min-width:680px;margin-bottom:5px;align-items:center">
+                  return `<div style="display:grid;grid-template-columns:1.3fr 45px 95px 75px 90px 55px 70px 60px;gap:4px;min-width:780px;margin-bottom:5px;align-items:center">
                     <input id="movItemNome_${p.id}" value="${(p.nome||'').replace(/"/g,'&quot;')}" onchange="updateProdItemMov(${p.id},${m.id},'nome',this.value)" placeholder="Nome do produto" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px">
                     <input id="movItemNum_${p.id}" value="${(p.num||'').replace(/"/g,'&quot;')}" onchange="updateProdItemMov(${p.id},${m.id},'num',this.value)" placeholder="—" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px">
+                    <input id="movItemRastreio_${p.id}" value="${(p.rastreio||'').replace(/"/g,'&quot;')}" onchange="updateProdItemMov(${p.id},${m.id},'rastreio',this.value)" placeholder="Cód. rastreio" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px">
                     <input id="movItemCusto_${p.id}" type="number" step="0.01" value="${p.custo||''}" onchange="updateProdItemMov(${p.id},${m.id},'custo',+this.value)" placeholder="0" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px;text-align:right">
                     <select id="movItemCat_${p.id}" onchange="updateProdItemMov(${p.id},${m.id},'cat',this.value)" style="padding:5px 6px;border:1px solid var(--border);border-radius:5px;font-size:11px;background:#fff;width:100%;cursor:pointer">${D.categorias.map(c=>`<option${c===(p.cat||'')?' selected':''}>${c}</option>`).join('')}</select>
                     <input id="movItemQtd_${p.id}" type="number" min="1" value="${p.qtd||1}" onchange="updateProdItemMov(${p.id},${m.id},'qtd',+this.value)" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px;text-align:right">
