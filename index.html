@@ -330,6 +330,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
+const APP_VERSION = 'v2026.05.14-c';
 const STORAGE_KEY = 'importadora_data';
 const DEFAULT_DATA = {
   capital: 29640.61,
@@ -559,7 +560,7 @@ function renderPage(){
   if(userProfile&&userProfile.role==='admin')fns.push(renderUsuarios);
   const tabIdx=Math.min(activeTab,fns.length-1);
   document.getElementById('main').innerHTML=`<div class="page active">${fns[tabIdx](m)}</div>`;
-  document.getElementById('hdr-sub').textContent=`Patrimônio: ${fmt(m.patrimonio)} | Caixa: ${fmt(m.caixa)} | ${new Date().toLocaleDateString('pt-BR')}`;
+  document.getElementById('hdr-sub').textContent=`Patrimônio: ${fmt(m.patrimonio)} | Caixa: ${fmt(m.caixa)} | ${new Date().toLocaleDateString('pt-BR')} | ${APP_VERSION}`;
   if(tabIdx===0)initCharts(m);
   if(tabIdx===1)initPeriodoCharts();
   if(tabIdx===12)initSelicChart();
