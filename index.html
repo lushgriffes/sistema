@@ -3488,7 +3488,7 @@ function salvarCompra(){
 }
 
 function toggleEntregaPedido(movId){
-  if(!PERMS.update){toast('Sem permissão para alterar',true);return}
+  if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
   const m=D.movimentacoes.find(x=>x.id===movId);if(!m)return;
   const novo=(m.statusEntrega||'Entregue')==='Entregue'?'Pendente':'Entregue';
   m.statusEntrega=novo;
@@ -4212,4 +4212,4 @@ Chart.defaults.set('plugins.datalabels',{display:true});
 // If no session, login screen is shown
 </script>
 </body>
-</html>
+</html>  
