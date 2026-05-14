@@ -3226,11 +3226,70 @@ function mudarStatusCR(crId,newStatus){
 
 // ═══════ NOVA COMPRA ═══════
 let compraItems=[{nome:'',cat:'Tênis',custo:0,qtd:1,num:'',imgs:[]}];
+let _compraForn='';
+let _fornPickerSearch='';
+
+function abrirFornecedorPicker(){
+  _fornPickerSearch='';
+  document.querySelectorAll('.fornpicker-overlay').forEach(o=>o.remove());
+  const ov=document.createElement('div');
+  ov.className='modal-overlay fornpicker-overlay';
+  ov.id='fornPickerOverlay';
+  ov.style.zIndex='1050';
+  ov.onclick=function(e){if(e.target===ov)ov.remove()};
+  document.body.appendChild(ov);
+  renderFornecedorPicker();
+}
+
+function _fornPickerLista(){
+  let lista=D.fornecedores.slice();
+  const s=_fornPickerSearch.toLowerCase();
+  if(s)lista=lista.filter(f=>(f.nome||'').toLowerCase().includes(s)||(f.itens||'').toLowerCase().includes(s)||(f.telefone||'').toLowerCase().includes(s));
+  lista.sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+  return lista;
+}
+
+function _buildFornPickerList(){
+  const lista=_fornPickerLista();
+  if(lista.length===0)return '<div style="padding:20px;text-align:center;color:var(--gray);font-size:12px">Nenhum fornecedor encontrado.</div>';
+  return lista.map(f=>`
+    <div data-forn="${(f.nome||'').replace(/"/g,'&quot;')}" onclick="selecionarFornecedorCompra(this.dataset.forn)" style="padding:8px 12px;border-bottom:1px solid var(--border);cursor:pointer" onmouseover="this.style.background='#eff6ff'" onmouseout="this.style.background='#fff'">
+      <div style="font-size:13px;font-weight:600">${f.nome||'(sem nome)'}</div>
+      ${(f.itens||f.telefone)?`<div style="font-size:10px;color:var(--gray)">${f.itens?'Vende: '+f.itens:''}${f.itens&&f.telefone?' • ':''}${f.telefone?'Tel: '+f.telefone:''}</div>`:''}
+    </div>`).join('');
+}
+
+function renderFornecedorPicker(){
+  const ov=document.getElementById('fornPickerOverlay');if(!ov)return;
+  ov.innerHTML=`
+    <div class="modal-card" style="max-width:520px" onclick="event.stopPropagation()">
+      <button class="modal-close" onclick="document.getElementById('fornPickerOverlay').remove()">✕</button>
+      <div class="modal-body" style="padding-top:32px">
+        <h2 style="font-size:16px;margin-bottom:8px">🏢 Selecionar Fornecedor</h2>
+        <input id="fornPickerSearch" value="${(_fornPickerSearch||'').replace(/"/g,'&quot;')}" placeholder="🔍 Buscar por nome, produto ou telefone..." oninput="_fornPickerSearch=this.value;_updateFornPicker()" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;margin-bottom:8px">
+        <div id="fornPickerList" style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;background:#fff">${_buildFornPickerList()}</div>
+        <div style="margin-top:10px;font-size:11px;color:var(--gray)">Não encontrou? <a onclick="document.getElementById('fornPickerOverlay').remove();activeTab=14;renderPage()" style="color:var(--blue);cursor:pointer;text-decoration:underline">Cadastrar novo fornecedor</a></div>
+      </div>
+    </div>`;
+  setTimeout(()=>{const s=document.getElementById('fornPickerSearch');if(s)s.focus()},20);
+}
+
+function _updateFornPicker(){
+  const el=document.getElementById('fornPickerList');
+  if(el)el.innerHTML=_buildFornPickerList();
+}
+
+function selecionarFornecedorCompra(nome){
+  _compraForn=nome;
+  const o=document.getElementById('fornPickerOverlay');if(o)o.remove();
+  renderPage();
+}
+
 function renderNovaCompra(){
   return `
   <div class="form-section"><h2>🛒 Lançar Nova Compra</h2>
   <div class="form-grid">
-    <div class="form-group"><label>Fornecedor</label><input id="cForn" list="fornList" placeholder="Nome"><datalist id="fornList">${D.fornecedores.map(f=>`<option value="${f.nome}">`).join('')}</datalist></div>
+    <div class="form-group"><label>Fornecedor *</label><div onclick="abrirFornecedorPicker()" style="padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px;cursor:pointer;background:#fff;display:flex;justify-content:space-between;align-items:center;gap:8px" title="Clique para buscar e selecionar"><span style="color:${_compraForn?'var(--text)':'var(--gray)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_compraForn||'— clique para selecionar —'}</span><span style="font-size:11px;color:var(--blue);white-space:nowrap">🔍 buscar</span></div></div>
     <div class="form-group"><label>Data</label><input type="date" id="cData" value="${hoje()}"></div>
     <div class="form-group"><label>Tipo</label><select id="cTipo"><option value="Estoque">Estoque</option><option value="Encomenda">Encomenda</option></select></div>
     <div class="form-group"><label>Cliente (se encomenda)</label><input id="cCliente" placeholder="Nome do cliente"></div>
@@ -3326,12 +3385,13 @@ function uploadCompraImg(itemIdx){
 
 function salvarCompra(){
   if(!PERMS.insert){toast('Sem permissão para inserir',true);return}
-  const forn=document.getElementById('cForn').value;const data=document.getElementById('cData').value;
+  const forn=_compraForn;const data=document.getElementById('cData').value;
   const tipo=document.getElementById('cTipo').value;const cliente=document.getElementById('cCliente').value;
   if(!data){toast('Preencha a data',true);return}
   const valid=compraItems.filter(it=>it.nome&&it.custo>0);
   if(!valid.length){toast('Adicione pelo menos 1 item',true);return}
-  if(forn&&!D.fornecedores.some(f=>f.nome===forn)){if(!D.nextFornId)D.nextFornId=1;D.fornecedores.push({id:D.nextFornId++,nome:forn,telefone:'',endereco:'',itens:''})}
+  if(!forn){toast('Selecione um fornecedor cadastrado',true);return}
+  if(!D.fornecedores.some(f=>f.nome===forn)){toast('Fornecedor não cadastrado. Cadastre na aba Fornecedores.',true);return}
   // Gerar numero de pedido de compra (PC-XXXX) - sequencial automatico
   if(D.nextPedidoCompra===undefined)D.nextPedidoCompra=1;
   const _numPedido='PC-'+String(D.nextPedidoCompra).padStart(4,'0');
@@ -3348,7 +3408,7 @@ function salvarCompra(){
     total+=it.custo*qtd;
   });
   D.movimentacoes.push({id:_newMovId,data,desc:`Compra ${forn||'—'} — ${valid.length} tipo(s)`,tipo:'Saída',cat:'Pagamento Fornecedor',plano:'Mercadoria',valor:total,saldo:0,numPedido:_numPedido,fornecedor:forn||'',itens:valid.map(it=>({nome:it.nome,cat:it.cat||'',custo:+it.custo||0,qtd:+it.qtd||1,num:it.num||''})),comprovante:''});
-  recalcSaldos();saveData();compraItems=[{nome:'',cat:'Tênis',custo:0,qtd:1,num:'',imgs:[]}];
+  recalcSaldos();saveData();compraItems=[{nome:'',cat:'Tênis',custo:0,qtd:1,num:'',imgs:[]}];_compraForn='';
   toast(`Compra ${_numPedido} registrada! ${valid.reduce((a,i)=>a+(i.qtd||1),0)} produtos — Total: ${fmt(total)}`);showTab(2);
 }
 
