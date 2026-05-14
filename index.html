@@ -1724,6 +1724,16 @@ function excluirMov(movId){
     }
     cr.status='Pendente';cr.dataReceb='';cr.movIdEstorno=0;
   }
+  // Se for uma taxa de produto, reverter o custo aplicado aos produtos
+  if(m.taxaItens&&m.taxaItens.length){
+    m.taxaItens.forEach(it=>{
+      const p=D.produtos.find(x=>x.id===it.produtoId);
+      if(p){
+        p.custo=Math.round(((+p.custo||0)-(+it.valor||0))*100)/100;
+        if(p.taxas)p.taxas=p.taxas.filter(t=>t.movId!==movId);
+      }
+    });
+  }
   // Remover a movimentação
   D.movimentacoes=D.movimentacoes.filter(x=>x.id!==movId);
   recalcSaldos();saveData();toast(`Movimentação excluída: ${m.desc}`);renderPage();
@@ -1816,6 +1826,9 @@ function renderMovDetalhesModal(movId){
   const compraMovId=getCompraMovId(m);
   const isCompraType=compraMovId!==null;
   const isAporteMerc=m.cat==='Capital Inicial'&&m.aportePairId;
+  const isTaxa=m.cat==='Custo Produto (Frete/Taxa)'||(m.taxaItens&&m.taxaItens.length>0);
+  const taxaItensList=m.taxaItens||[];
+  const somaTaxa=taxaItensList.reduce((a,it)=>a+(+it.valor||0),0);
   const prodsLinked=isCompraType?D.produtos.filter(p=>p.movId===compraMovId):[];
   const totalProds=prodsLinked.reduce((a,p)=>a+(+p.custo||0)*(+p.qtd||1),0);
   const totalQtdProds=prodsLinked.reduce((a,p)=>a+(+p.qtd||1),0);
@@ -1835,7 +1848,33 @@ function renderMovDetalhesModal(movId){
           <input id="movDescInput" value="${(m.desc||'').replace(/"/g,'&quot;')}" onchange="var x=D.movimentacoes.find(y=>y.id===${m.id});if(x){x.desc=this.value;syncMovToDesp(${m.id},'desc',this.value);saveData()}" style="width:100%;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px">
         </div>
 
-        ${isCompraType?`
+        ${isTaxa?`
+        <div style="margin-bottom:14px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px">
+            <label style="font-size:13px;font-weight:700;color:var(--dark)">🧾 Produtos que receberam esta taxa</label>
+            <span style="font-size:10px;color:var(--gray)">${taxaItensList.length} produto(s) • Total: <strong id="movTaxaHeaderTotal" style="color:var(--orange)">${fmt(somaTaxa)}</strong></span>
+          </div>
+          <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:8px;max-height:300px;overflow-y:auto">
+            ${taxaItensList.length===0?
+              `<div style="font-size:11px;color:var(--gray);padding:14px;text-align:center">Esta taxa ainda não tem produtos vinculados.<br>Use <strong>+ Adicionar produto à taxa</strong> abaixo.</div>`
+              : `<div style="display:grid;grid-template-columns:1.6fr 100px 36px;gap:6px;font-size:9px;font-weight:700;color:var(--gray);padding:0 4px 6px;text-transform:uppercase;letter-spacing:.3px;border-bottom:1px solid #fed7aa;margin-bottom:6px"><span>Produto</span><span style="text-align:right">Valor da taxa</span><span></span></div>
+                ${taxaItensList.map(it=>{
+                  const _tp=D.produtos.find(x=>x.id===it.produtoId);
+                  const _tpnome=_tp?(_tp.nome||'(sem nome)'):('⚠ produto #'+it.produtoId+' removido do estoque');
+                  return `<div style="display:grid;grid-template-columns:1.6fr 100px 36px;gap:6px;margin-bottom:5px;align-items:center">
+                    <div style="font-size:11px">${_tpnome}${_tp?`<div id="movTaxaCusto_${it.produtoId}" style="font-size:9px;color:var(--gray)">Custo atual no estoque: ${fmt(_tp.custo)}${_tp.num?' • Nº '+_tp.num:''}</div>`:''}</div>
+                    <input id="movTaxaValor_${it.produtoId}" type="number" step="0.01" value="${it.valor||''}" onchange="updateTaxaItemMov(${m.id},${it.produtoId},+this.value)" style="padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:11px;text-align:right" title="Valor da taxa para este produto">
+                    <button onclick="removerTaxaItemMov(${m.id},${it.produtoId})" style="background:var(--red);color:#fff;border:none;width:30px;height:30px;border-radius:5px;font-size:12px;cursor:pointer" title="Remover produto da taxa">✕</button>
+                  </div>`;
+                }).join('')}`
+            }
+          </div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+            <button class="btn btn-sm" onclick="abrirTaxaPicker(${m.id})" style="background:var(--orange);color:#fff">+ Adicionar produto à taxa</button>
+          </div>
+          <div style="font-size:10px;color:var(--gray);margin-top:6px;line-height:1.4">💡 O valor da taxa de cada produto é somado ao <strong>custo dele no estoque</strong>. Editar ou remover ajusta o custo automaticamente. Excluir esta movimentação reverte tudo.</div>
+        </div>
+        `:isCompraType?`
         <div style="margin-bottom:14px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px">
             <label style="font-size:13px;font-weight:700;color:var(--dark)">📦 ${isAporteMerc?'Mercadoria deste aporte':'Produtos desta compra'} (sincronizados com Estoque)</label>
@@ -2379,6 +2418,7 @@ function renderDesp(){
     <div class="if-group"><label>Sócio</label><input id="dSocio" placeholder="Se aporte"></div>
     <div class="if-group" style="justify-content:end"><button class="btn btn-primary btn-sm" onclick="salvarDespesa()">💾 Lançar</button></div>
   </div></div>
+  ${renderTaxaBox()}
   <div class="filter-bar">
     <div class="f-group"><label>Buscar:</label><input placeholder="Descrição..." id="pgSearchDesp" value="${despSearch}" oninput="despSearch=this.value;renderPage()"></div>
     <div class="f-group"><label>Categoria:</label><select onchange="despCatFilter=this.value;renderPage()">${allCatsDesp.map(c=>`<option${c===despCatFilter?' selected':''}>${c}</option>`).join('')}</select></div>
@@ -2436,6 +2476,263 @@ function salvarDespesa(){
     D.movimentacoes.push({id:nm,data,desc:`Despesa — ${nome}`,tipo:'Saída',cat:'Despesa Operacional',plano,valor,saldo:0,despId:nd});
   }
   recalcSaldos();saveData();toast(`Despesa lançada: ${nome} — ${fmt(valor)}`);renderPage();
+}
+
+// ═══════ TAXAS DE PRODUTO ═══════
+let _taxaItens=[];
+
+function renderTaxaBox(){
+  const prodOpts=D.produtos.map(p=>`<option value="${p.id}">${(p.nome||'(sem nome)')} — ${fmt(p.custo)}${p.num?' (Nº '+p.num+')':''}</option>`).join('');
+  const soma=_taxaItens.reduce((a,it)=>a+(+it.valor||0),0);
+  return `
+  <div class="box" style="border-left:4px solid var(--orange)">
+    <h3>🧾 Lançar Taxa de Produto <span style="font-size:11px;font-weight:400;color:var(--gray)">(taxa de importação, frete, correio — vincula ao(s) produto(s) e soma no custo)</span></h3>
+    <div class="inline-form" style="margin-bottom:10px">
+      <div class="if-group"><label>Descrição</label><input id="pgTaxaDesc" placeholder="Ex: Taxa de importação"></div>
+      <div class="if-group"><label>Data do pagamento</label><input type="date" id="pgTaxaData" value="${hoje()}"></div>
+      <div class="if-group"><label>Valor total (p/ dividir)</label><input type="number" id="pgTaxaTotal" step="0.01" placeholder="0,00"></div>
+      <div class="if-group" style="justify-content:end"><button class="btn btn-secondary btn-sm" onclick="dividirTaxaIgualmente()">➗ Dividir igualmente</button></div>
+    </div>
+    <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:6px">Produtos que receberão a taxa:</div>
+    <div id="taxaItensWrap">
+      ${_taxaItens.length===0?'<div style="font-size:11px;color:var(--gray);padding:8px 0">Nenhum produto adicionado. Clique em "+ Adicionar produto" abaixo.</div>':
+      _taxaItens.map((it,i)=>`
+        <div style="display:grid;grid-template-columns:1fr 110px 34px;gap:6px;margin-bottom:6px;align-items:center">
+          <select id="pgTaxaProd_${i}" onchange="updateTaxaItem(${i},'produtoId',+this.value)" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+            <option value="0">— selecione o produto —</option>
+            ${D.produtos.map(p=>`<option value="${p.id}"${p.id===it.produtoId?' selected':''}>${(p.nome||'(sem nome)')} — ${fmt(p.custo)}${p.num?' (Nº '+p.num+')':''}</option>`).join('')}
+          </select>
+          <input id="pgTaxaValor_${i}" type="number" step="0.01" value="${it.valor||''}" onchange="updateTaxaItem(${i},'valor',+this.value)" placeholder="R$ taxa" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;text-align:right">
+          <button onclick="removeTaxaItem(${i})" style="background:var(--red);color:#fff;border:none;width:30px;height:30px;border-radius:6px;font-size:13px;cursor:pointer" title="Remover">✕</button>
+        </div>`).join('')}
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;flex-wrap:wrap;gap:8px">
+      <button class="btn btn-secondary btn-sm" onclick="addTaxaItem()">+ Adicionar produto</button>
+      <div style="font-size:13px;font-weight:700">Soma da taxa: <span id="taxaSomaLabel" style="color:var(--orange)">${fmt(soma)}</span></div>
+    </div>
+    <div class="actions" style="margin-top:10px"><button class="btn btn-primary" onclick="salvarTaxa()">💾 Lançar Taxa</button></div>
+  </div>`;
+}
+
+function addTaxaItem(){
+  _taxaItens.push({produtoId:0,valor:0});
+  renderPage();
+}
+function removeTaxaItem(idx){
+  _taxaItens.splice(idx,1);
+  renderPage();
+}
+function updateTaxaItem(idx,field,val){
+  if(!_taxaItens[idx])return;
+  _taxaItens[idx][field]=val;
+  // Atualizar so a soma (sem renderPage - preserva foco)
+  const soma=_taxaItens.reduce((a,it)=>a+(+it.valor||0),0);
+  const el=document.getElementById('taxaSomaLabel');
+  if(el)el.textContent=fmt(soma);
+}
+function dividirTaxaIgualmente(){
+  const total=+document.getElementById('pgTaxaTotal').value||0;
+  if(total<=0){toast('Informe o valor total da taxa primeiro',true);return}
+  if(_taxaItens.length===0){toast('Adicione produtos primeiro',true);return}
+  const porItem=Math.round((total/_taxaItens.length)*100)/100;
+  _taxaItens.forEach(it=>it.valor=porItem);
+  renderPage();
+  toast(`Dividido: ${fmt(porItem)} por produto`);
+}
+function salvarTaxa(){
+  if(!PERMS.insert){toast('Sem permissão para inserir',true);return}
+  const desc=document.getElementById('pgTaxaDesc').value.trim();
+  const data=document.getElementById('pgTaxaData').value;
+  if(!desc||!data){toast('Preencha descrição e data',true);return}
+  const validos=_taxaItens.filter(it=>it.produtoId&&(+it.valor)>0);
+  if(validos.length===0){toast('Adicione ao menos 1 produto com valor de taxa',true);return}
+  // Verificar produtos duplicados
+  const ids=validos.map(it=>it.produtoId);
+  if(new Set(ids).size!==ids.length){toast('Há produtos repetidos na lista da taxa',true);return}
+  const total=Math.round(validos.reduce((a,it)=>a+(+it.valor||0),0)*100)/100;
+  const nm=nextId(D.movimentacoes);
+  D.movimentacoes.push({
+    id:nm,data,desc:`Taxa — ${desc}`,tipo:'Saída',cat:'Custo Produto (Frete/Taxa)',
+    plano:'Mercadoria',valor:total,saldo:0,
+    taxaItens:validos.map(it=>({produtoId:it.produtoId,valor:Math.round((+it.valor)*100)/100})),
+    comprovante:''
+  });
+  // Aplicar a taxa ao custo de cada produto + registrar historico
+  validos.forEach(it=>{
+    const p=D.produtos.find(x=>x.id===it.produtoId);
+    if(p){
+      p.custo=Math.round(((+p.custo||0)+(+it.valor||0))*100)/100;
+      if(!p.taxas)p.taxas=[];
+      p.taxas.push({movId:nm,data,desc:`Taxa — ${desc}`,valor:Math.round((+it.valor)*100)/100});
+    }
+  });
+  _taxaItens=[];
+  recalcSaldos();saveData();
+  toast(`✓ Taxa lançada: ${fmt(total)} em ${validos.length} produto(s) — custo atualizado`);
+  renderPage();
+}
+
+// ═══════ EDICAO DE TAXA NO MODAL DE MOVIMENTACAO ═══════
+function updateTaxaItemMov(movId,produtoId,novoValor){
+  if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
+  const m=D.movimentacoes.find(x=>x.id===movId);
+  if(!m||!m.taxaItens)return;
+  const item=m.taxaItens.find(it=>it.produtoId===produtoId);
+  if(!item)return;
+  const antigo=+item.valor||0;
+  const novo=Math.round((+novoValor||0)*100)/100;
+  const diff=novo-antigo;
+  item.valor=novo;
+  const p=D.produtos.find(x=>x.id===produtoId);
+  if(p){
+    p.custo=Math.round(((+p.custo||0)+diff)*100)/100;
+    if(p.taxas){const t=p.taxas.find(t=>t.movId===movId);if(t)t.valor=novo;}
+  }
+  m.valor=Math.round(m.taxaItens.reduce((a,it)=>a+(+it.valor||0),0)*100)/100;
+  recalcSaldos();saveData();
+  // Partial update (preserva foco): custo do produto na linha + total do header
+  const custoEl=document.getElementById('movTaxaCusto_'+produtoId);
+  if(custoEl&&p)custoEl.textContent='Custo atual no estoque: '+fmt(p.custo)+(p.num?' • Nº '+p.num:'');
+  const totEl=document.getElementById('movTaxaHeaderTotal');
+  if(totEl)totEl.textContent=fmt(m.taxaItens.reduce((a,it)=>a+(+it.valor||0),0));
+}
+
+function removerTaxaItemMov(movId,produtoId){
+  if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
+  const m=D.movimentacoes.find(x=>x.id===movId);
+  if(!m||!m.taxaItens)return;
+  const item=m.taxaItens.find(it=>it.produtoId===produtoId);
+  if(!item)return;
+  const p=D.produtos.find(x=>x.id===produtoId);
+  const pnome=p?(p.nome||'(sem nome)'):'produto';
+  if(!confirm(`Remover "${pnome}" desta taxa?\n\nO custo do produto será reduzido em ${fmt(item.valor)}.`))return;
+  if(p){
+    p.custo=Math.round(((+p.custo||0)-(+item.valor||0))*100)/100;
+    if(p.taxas)p.taxas=p.taxas.filter(t=>t.movId!==movId);
+  }
+  m.taxaItens=m.taxaItens.filter(it=>it.produtoId!==produtoId);
+  m.valor=Math.round(m.taxaItens.reduce((a,it)=>a+(+it.valor||0),0)*100)/100;
+  recalcSaldos();saveData();refreshMovModal(movId);
+  toast(`${pnome} removido da taxa`);
+}
+
+// ── Picker para adicionar produtos a uma taxa existente ──
+let _taxaPicker={movId:0,search:'',sel:{}};
+
+function abrirTaxaPicker(movId){
+  if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
+  _taxaPicker={movId:movId,search:'',sel:{}};
+  document.querySelectorAll('.taxapicker-overlay').forEach(o=>o.remove());
+  const ov=document.createElement('div');
+  ov.className='modal-overlay taxapicker-overlay';
+  ov.id='taxaPickerOverlay';
+  ov.style.zIndex='1050';
+  ov.onclick=function(e){if(e.target===ov)ov.remove()};
+  document.body.appendChild(ov);
+  renderTaxaPicker();
+}
+
+function _taxaPickerCandidatos(){
+  const m=D.movimentacoes.find(x=>x.id===_taxaPicker.movId);
+  const jaNaTaxa=new Set((m&&m.taxaItens?m.taxaItens:[]).map(it=>it.produtoId));
+  let cands=D.produtos.filter(p=>!jaNaTaxa.has(p.id));
+  const s=_taxaPicker.search.toLowerCase();
+  if(s)cands=cands.filter(p=>(p.nome||'').toLowerCase().includes(s)||(p.obs||'').toLowerCase().includes(s)||(p.num||'').toLowerCase().includes(s));
+  cands.sort((a,b)=>(a.nome||'').localeCompare(b.nome||''));
+  return cands;
+}
+
+function _buildTaxaPickerTable(){
+  const cands=_taxaPickerCandidatos();
+  if(cands.length===0)return '<div style="padding:20px;text-align:center;color:var(--gray);font-size:12px">Nenhum produto encontrado.</div>';
+  return `<table style="width:100%;font-size:11px"><thead style="position:sticky;top:0;background:#f8fafc;z-index:1"><tr><th style="width:32px;padding:6px 8px"></th><th style="padding:6px 8px">Produto</th><th style="padding:6px 8px;text-align:right">Custo atual</th><th style="padding:6px 8px;width:100px">Valor taxa</th></tr></thead><tbody>
+  ${cands.map(p=>{
+    const checked=_taxaPicker.sel[p.id]!==undefined;
+    return `<tr style="${checked?'background:#fff7ed':''}">
+      <td style="padding:5px 8px"><input type="checkbox" ${checked?'checked':''} onchange="taxaPickerToggle(${p.id},this.checked)"></td>
+      <td style="padding:5px 8px">${p.nome||'(sem nome)'}${p.num?` <span style="font-size:9px;color:var(--gray)">Nº ${p.num}</span>`:''}${p.obs?`<div style="font-size:9px;color:var(--gray)">${p.obs}</div>`:''}</td>
+      <td style="padding:5px 8px;text-align:right;font-variant-numeric:tabular-nums">${fmt(p.custo)}</td>
+      <td style="padding:5px 8px"><input type="number" step="0.01" value="${_taxaPicker.sel[p.id]||''}" oninput="taxaPickerSetValor(${p.id},+this.value)" placeholder="R$" ${checked?'':'disabled'} style="width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:11px;text-align:right"></td>
+    </tr>`;
+  }).join('')}
+  </tbody></table>`;
+}
+
+function renderTaxaPicker(){
+  const ov=document.getElementById('taxaPickerOverlay');if(!ov)return;
+  const m=D.movimentacoes.find(x=>x.id===_taxaPicker.movId);if(!m)return;
+  ov.innerHTML=`
+    <div class="modal-card" style="max-width:680px" onclick="event.stopPropagation()">
+      <button class="modal-close" onclick="document.getElementById('taxaPickerOverlay').remove()">✕</button>
+      <div class="modal-body" style="padding-top:32px">
+        <h2 style="font-size:16px;margin-bottom:4px">🧾 Adicionar Produtos à Taxa</h2>
+        <div style="font-size:11px;color:var(--gray);margin-bottom:10px">Taxa: ${m.desc}<br>Marque os produtos e informe quanto da taxa vai para cada um.</div>
+        <input id="taxaPickerSearch" value="${(_taxaPicker.search||'').replace(/"/g,'&quot;')}" placeholder="🔍 Buscar produto por nome, obs ou número..." oninput="_taxaPicker.search=this.value;_updateTaxaPickerTable()" style="width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;margin-bottom:8px">
+        <div id="taxaPickerScroll" style="max-height:340px;overflow-y:auto;border:1px solid var(--border);border-radius:8px;background:#fff">${_buildTaxaPickerTable()}</div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:8px;flex-wrap:wrap">
+          <span style="font-size:11px;color:var(--gray)"><strong id="taxaPickerCount">0</strong> selecionado(s) • Total: <strong id="taxaPickerTotal">R$ 0,00</strong></span>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-secondary btn-sm" onclick="document.getElementById('taxaPickerOverlay').remove()">Cancelar</button>
+            <button class="btn btn-primary btn-sm" onclick="confirmarTaxaPicker()">✓ Adicionar à taxa</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  _updateTaxaPickerFooter();
+}
+
+function _updateTaxaPickerTable(){
+  const el=document.getElementById('taxaPickerScroll');if(!el)return;
+  const sc=el.scrollTop;
+  el.innerHTML=_buildTaxaPickerTable();
+  el.scrollTop=sc;
+  _updateTaxaPickerFooter();
+}
+
+function _updateTaxaPickerFooter(){
+  const keys=Object.keys(_taxaPicker.sel);
+  const cEl=document.getElementById('taxaPickerCount');
+  if(cEl)cEl.textContent=keys.length;
+  const tot=keys.reduce((a,k)=>a+(+_taxaPicker.sel[k]||0),0);
+  const tEl=document.getElementById('taxaPickerTotal');
+  if(tEl)tEl.textContent=fmt(tot);
+}
+
+function taxaPickerToggle(pid,checked){
+  if(checked)_taxaPicker.sel[pid]=_taxaPicker.sel[pid]||0;
+  else delete _taxaPicker.sel[pid];
+  _updateTaxaPickerTable();
+}
+
+function taxaPickerSetValor(pid,val){
+  if(_taxaPicker.sel[pid]!==undefined)_taxaPicker.sel[pid]=val;
+  _updateTaxaPickerFooter();
+}
+
+function confirmarTaxaPicker(){
+  const m=D.movimentacoes.find(x=>x.id===_taxaPicker.movId);if(!m)return;
+  if(!m.taxaItens)m.taxaItens=[];
+  const entries=Object.keys(_taxaPicker.sel).filter(k=>(+_taxaPicker.sel[k])>0);
+  if(entries.length===0){toast('Selecione produtos e informe valores maiores que zero',true);return}
+  let added=0;
+  entries.forEach(k=>{
+    const pid=+k;const valor=Math.round((+_taxaPicker.sel[k])*100)/100;
+    const p=D.produtos.find(x=>x.id===pid);
+    if(p){
+      m.taxaItens.push({produtoId:pid,valor:valor});
+      p.custo=Math.round(((+p.custo||0)+valor)*100)/100;
+      if(!p.taxas)p.taxas=[];
+      p.taxas.push({movId:m.id,data:m.data,desc:m.desc,valor:valor});
+      added++;
+    }
+  });
+  m.valor=Math.round(m.taxaItens.reduce((a,it)=>a+(+it.valor||0),0)*100)/100;
+  const movId=_taxaPicker.movId;
+  _taxaPicker={movId:0,search:'',sel:{}};
+  recalcSaldos();saveData();
+  const o=document.getElementById('taxaPickerOverlay');if(o)o.remove();
+  refreshMovModal(movId);
+  toast(`${added} produto(s) adicionado(s) à taxa — custo atualizado`);
 }
 
 // ═══════ CONTAS A PAGAR ═══════
