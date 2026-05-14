@@ -805,15 +805,28 @@ function initPeriodoCharts(){
 
 // ═══════ ESTOQUE ═══════
 let estFilter='Todos',estSearch='',estStatus='Todos';
+let estCol={id:'',data:'',nome:'',num:'',rastreio:'',codForn:'',numPedido:'',custo:'',precoVenda:''};
 function renderEstoque(m){
   const cats=['Todos',...new Set(D.produtos.map(p=>p.cat))];
   const statuses=['Todos','Em Trânsito','Em Estoque','Reservado (Encomenda)','Vendido'];
   let fil=D.produtos;
   if(estFilter!=='Todos')fil=fil.filter(p=>p.cat===estFilter);
   if(estStatus!=='Todos')fil=fil.filter(p=>p.status===estStatus);
-  if(estSearch)fil=fil.filter(p=>(p.nome+' '+p.marca+' '+p.obs).toLowerCase().includes(estSearch.toLowerCase()));
+  const _ic=s=>(s==null?'':String(s)).toLowerCase();
+  if(estCol.id)fil=fil.filter(p=>_ic(p.id).includes(estCol.id.toLowerCase()));
+  if(estCol.data)fil=fil.filter(p=>_ic(fmtD(p.dataEntrada)+' '+(p.dataEntrada||'')).includes(estCol.data.toLowerCase()));
+  if(estCol.nome)fil=fil.filter(p=>_ic(p.nome).includes(estCol.nome.toLowerCase()));
+  if(estCol.num)fil=fil.filter(p=>_ic(p.num).includes(estCol.num.toLowerCase()));
+  if(estCol.rastreio)fil=fil.filter(p=>_ic(p.rastreio).includes(estCol.rastreio.toLowerCase()));
+  if(estCol.codForn)fil=fil.filter(p=>_ic(p.codFornecedor).includes(estCol.codForn.toLowerCase()));
+  if(estCol.numPedido)fil=fil.filter(p=>_ic(p.numPedido).includes(estCol.numPedido.toLowerCase()));
+  if(estCol.custo)fil=fil.filter(p=>_ic(p.custo).includes(estCol.custo.toLowerCase()));
+  if(estCol.precoVenda)fil=fil.filter(p=>_ic(p.precoVenda).includes(estCol.precoVenda.toLowerCase()));
+  if(estSearch){const _q=estSearch.toLowerCase();fil=fil.filter(p=>[p.id,p.nome,p.marca,p.obs,p.num,p.rastreio,p.codFornecedor,p.numPedido,p.cat,p.status,p.custo,p.precoVenda,p.dataEntrada].map(_ic).join(' ').includes(_q));}
   const statCount={};
   D.produtos.forEach(p=>{statCount[p.status]=(statCount[p.status]||0)+(p.qtd||1)});
+  const _fInp='width:100%;font-size:10px;padding:3px 4px;border:1px solid var(--border);border-radius:4px;box-sizing:border-box;font-weight:400';
+  const _ev=v=>(v==null?'':String(v)).replace(/"/g,'&quot;');
   return `
   <div class="cards">
     <div class="card"><div class="card-lbl">Total</div><div class="card-val">${Object.values(statCount).reduce((a,b)=>a+b,0)}</div></div>
@@ -822,15 +835,16 @@ function renderEstoque(m){
     <div class="card purple"><div class="card-lbl">Reservado</div><div class="card-val">${statCount['Reservado (Encomenda)']||0}</div></div>
   </div>
   <div class="filter-bar">
-    <div class="f-group"><label>Buscar:</label><input placeholder="Descrição, marca..." id="pgSearchEst" value="${estSearch}" oninput="estSearch=this.value;renderPage()"></div>
-    <div class="f-group"><label>Categoria:</label><select onchange="estFilter=this.value;renderPage()">${cats.map(c=>`<option${c===estFilter?' selected':''}>${c}</option>`).join('')}</select></div>
-    <div class="f-group"><label>Status:</label><select onchange="estStatus=this.value;renderPage()">${statuses.map(s=>`<option${s===estStatus?' selected':''}>${s}</option>`).join('')}</select></div>
-    <span class="f-clear" onclick="estFilter='Todos';estStatus='Todos';estSearch='';renderPage()">Limpar filtros</span>
+    <div class="f-group"><label>Buscar (todas as colunas):</label><input placeholder="Qualquer campo..." id="pgSearchEst" value="${_ev(estSearch)}" oninput="estSearch=this.value;renderPage()"></div>
+    <span class="f-clear" onclick="estFilter='Todos';estStatus='Todos';estSearch='';estCol={id:'',data:'',nome:'',num:'',rastreio:'',codForn:'',numPedido:'',custo:'',precoVenda:''};renderPage()">Limpar filtros</span>
   </div>
+  <div style="font-size:11px;color:var(--gray);margin-bottom:8px">💡 Use a busca geral acima ou filtre coluna por coluna na linha de filtros abaixo do cabeçalho da tabela.</div>
   <div style="text-align:right;margin-bottom:10px"><button class="btn btn-sm" onclick="gerarPDFEstoque()" style="background:var(--dark);color:#fff">📄 Baixar PDF Estoque</button></div>
   <div class="box"><h3>Produtos (${fil.length} itens)</h3>
   <div id="estTableScroll" style="max-height:600px;overflow-y:auto;overflow-x:auto">
-  <table><thead><tr><th style="width:50px">Foto</th><th>ID</th><th>Data</th><th>Descrição</th><th>Nº</th><th>Rastreio</th><th>Cód. Forn.</th><th>Nº Pedido</th><th>Cat.</th><th style="text-align:right">Custo</th><th style="text-align:right">Pç. Venda</th><th>Status</th><th>Ação</th></tr></thead><tbody>
+  <table><thead><tr><th style="width:50px">Foto</th><th>ID</th><th>Data</th><th>Descrição</th><th>Nº</th><th>Rastreio</th><th>Cód. Forn.</th><th>Nº Pedido</th><th>Cat.</th><th style="text-align:right">Custo</th><th style="text-align:right">Pç. Venda</th><th>Status</th><th>Ação</th></tr>
+  <tr style="background:#f8fafc"><th></th><th><input id="pgEstId" value="${_ev(estCol.id)}" oninput="estCol.id=this.value;renderPage()" placeholder="ID" style="${_fInp}"></th><th><input id="pgEstData" value="${_ev(estCol.data)}" oninput="estCol.data=this.value;renderPage()" placeholder="Data" style="${_fInp}"></th><th><input id="pgEstNome" value="${_ev(estCol.nome)}" oninput="estCol.nome=this.value;renderPage()" placeholder="Descrição" style="${_fInp}"></th><th><input id="pgEstNum" value="${_ev(estCol.num)}" oninput="estCol.num=this.value;renderPage()" placeholder="Nº" style="${_fInp}"></th><th><input id="pgEstRast" value="${_ev(estCol.rastreio)}" oninput="estCol.rastreio=this.value;renderPage()" placeholder="Rastreio" style="${_fInp}"></th><th><input id="pgEstCodForn" value="${_ev(estCol.codForn)}" oninput="estCol.codForn=this.value;renderPage()" placeholder="Cód." style="${_fInp}"></th><th><input id="pgEstNumPed" value="${_ev(estCol.numPedido)}" oninput="estCol.numPedido=this.value;renderPage()" placeholder="Pedido" style="${_fInp}"></th><th><select onchange="estFilter=this.value;renderPage()" style="${_fInp}">${cats.map(c=>`<option${c===estFilter?' selected':''}>${c}</option>`).join('')}</select></th><th><input id="pgEstCusto" value="${_ev(estCol.custo)}" oninput="estCol.custo=this.value;renderPage()" placeholder="Custo" style="${_fInp}"></th><th><input id="pgEstPreco" value="${_ev(estCol.precoVenda)}" oninput="estCol.precoVenda=this.value;renderPage()" placeholder="Venda" style="${_fInp}"></th><th><select onchange="estStatus=this.value;renderPage()" style="${_fInp}">${statuses.map(s=>`<option${s===estStatus?' selected':''}>${s}</option>`).join('')}</select></th><th></th></tr>
+  </thead><tbody>
   ${fil.map(p=>{
     const allImgs=p.imgs&&p.imgs.length?p.imgs:(p.img?[p.img]:[]);
     const imgCount=allImgs.length;
@@ -4212,4 +4226,4 @@ Chart.defaults.set('plugins.datalabels',{display:true});
 // If no session, login screen is shown
 </script>
 </body>
-</html>  
+</html>
