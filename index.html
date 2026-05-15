@@ -1339,8 +1339,11 @@ function renderVendas(m){
   <table><thead><tr><th>Data</th><th>Cliente</th><th>Produto</th><th class="r">Custo</th><th class="r">Venda</th><th class="r">Lucro</th><th>Margem</th><th>Pgto</th><th class="r">Recebido</th><th class="r">A Receber</th><th>Ação</th></tr></thead>
   <tbody>${fil.map(v=>{
     const lucro=(v.valorVenda||0)-(v.custo||0);const margem=v.valorVenda>0?((lucro/v.valorVenda)*100).toFixed(1):0;
+    const _curProd=D.produtos.find(p=>p.id===v.produtoId);
+    const _prodOpts=[];if(_curProd)_prodOpts.push(_curProd);disponiveis.forEach(p=>{if(!_curProd||p.id!==_curProd.id)_prodOpts.push(p)});
     return `<tr>
-      <td>${fmtD(v.data)}</td><td>${v.cliente}</td><td>${v.produto}</td>
+      <td>${fmtD(v.data)}</td><td>${v.cliente}</td>
+      <td><select onchange="trocarProdutoVenda(${v.id},+this.value)" style="font-size:11px;padding:3px 5px;border-radius:5px;border:1px solid var(--border);max-width:220px;cursor:pointer" title="Trocar o produto desta venda (atualiza estoque, custo e lucro)">${_curProd?'':`<option value="0" selected>⚠ ${(v.produto||'produto removido')}</option>`}${_prodOpts.map(p=>`<option value="${p.id}"${p.id===v.produtoId?' selected':''}>[${p.id}] ${p.nome}${p.num?' Nº'+p.num:''} — ${fmt(p.custo)}</option>`).join('')}</select></td>
       <td class="r">${fmt(v.custo)}</td><td class="r">${fmt(v.valorVenda)}</td>
       <td class="r" style="color:${lucro>=0?'#22c55e':'#ef4444'};font-weight:600">${fmt(lucro)}</td>
       <td><span class="${lucro>=0?'margem-pos':'margem-neg'}">${margem}%</span></td>
@@ -1532,6 +1535,28 @@ function cancelarVenda(vendaId){
     recalcSaldos();saveData();
     toast(`Venda cancelada: ${v.produto} → ${v.cliente}`);renderPage();
   }
+}
+
+function trocarProdutoVenda(vendaId,novoProdutoId){
+  if(!PERMS.edit){toast('Sem permissão para alterar',true);renderPage();return}
+  const v=D.vendas.find(x=>x.id===vendaId);if(!v)return;
+  if(!novoProdutoId||novoProdutoId===v.produtoId){renderPage();return}
+  const novoProd=D.produtos.find(p=>p.id===novoProdutoId);
+  if(!novoProd){toast('Produto não encontrado',true);renderPage();return}
+  if(novoProd.status==='Vendido'){toast('"'+novoProd.nome+'" já está vendido',true);renderPage();return}
+  const antigoProd=D.produtos.find(p=>p.id===v.produtoId);
+  const antigoNome=(antigoProd&&antigoProd.nome)||v.produto||'';
+  if(!confirm('Trocar o produto desta venda?\n\nDe: '+(antigoNome||'(produto removido do estoque)')+'\nPara: '+novoProd.nome+'\n\n• '+(antigoProd?('"'+antigoNome+'" volta para o estoque (Em Estoque)'):'(produto antigo não está mais no estoque — nada a devolver)')+'\n• "'+novoProd.nome+'" passa para Vendido\n• Custo da venda: '+fmt(v.custo||0)+' → '+fmt(novoProd.custo||0)+'\n• Lucro é recalculado automaticamente')){renderPage();return}
+  if(antigoProd)antigoProd.status='Em Estoque';
+  novoProd.status='Vendido';
+  v.produtoId=novoProd.id;
+  v.produto=novoProd.nome;
+  v.custo=novoProd.custo||0;
+  if(antigoNome){
+    D.contasReceber.forEach(c=>{if(c.vendaId===vendaId&&c.desc&&c.desc.indexOf(antigoNome)>=0)c.desc=c.desc.split(antigoNome).join(novoProd.nome)});
+  }
+  saveData();renderPage();
+  toast('Produto da venda trocado: '+(antigoNome||'—')+' → '+novoProd.nome);
 }
 
 function drawCard(doc,x,y,w,h,label,value,color){
