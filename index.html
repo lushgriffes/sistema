@@ -2065,6 +2065,8 @@ function salvarAporte(){
 
 // ═══════ PEDIDOS (ANOTAÇÕES) ═══════
 let pedidoSearch='',pedidoStatusFilter='Todos';
+let _pedidoItens=[{produto:'',obs:''}];
+
 function renderPedidos(){
   const anot=D.anotacoes||[];
   const pendentes=anot.filter(a=>a.status==='Pendente').length;
@@ -2072,9 +2074,16 @@ function renderPedidos(){
   const cancelados=anot.filter(a=>a.status==='Cancelado').length;
 
   let fil=[...anot];
-  if(pedidoSearch){const s=pedidoSearch.toLowerCase();fil=fil.filter(a=>(a.cliente||'').toLowerCase().includes(s)||(a.produto||'').toLowerCase().includes(s))}
+  if(pedidoSearch){const s=pedidoSearch.toLowerCase();fil=fil.filter(a=>(a.cliente||'').toLowerCase().includes(s)||(a.itens||[]).some(it=>(it.produto||'').toLowerCase().includes(s))||(a.produto||'').toLowerCase().includes(s))}
   if(pedidoStatusFilter!=='Todos')fil=fil.filter(a=>a.status===pedidoStatusFilter);
   fil.sort((a,b)=>{const ord={Pendente:0,Concluído:1,Cancelado:2};return (ord[a.status]||0)-(ord[b.status]||0)||(b.data||'').localeCompare(a.data||'')});
+
+  const itensHtml=_pedidoItens.map((it,i)=>`
+    <div style="display:flex;gap:8px;align-items:end;margin-bottom:6px" class="ped-item-row">
+      <div style="flex:2"><label style="font-size:11px;font-weight:600;color:var(--text2)">Produto ${_pedidoItens.length>1?'#'+(i+1):''} *</label><input class="pedProdInput" data-idx="${i}" value="${it.produto}" placeholder="Ex: Tênis Nike Dunk 42" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px"></div>
+      <div style="flex:1"><label style="font-size:11px;font-weight:600;color:var(--text2)">Obs</label><input class="pedObsInput" data-idx="${i}" value="${it.obs}" placeholder="Cor, nº..." style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-size:13px"></div>
+      ${_pedidoItens.length>1?`<button onclick="removePedItem(${i})" style="padding:8px 10px;border:none;background:var(--red);color:#fff;border-radius:8px;cursor:pointer;font-size:14px;margin-bottom:1px">✕</button>`:''}
+    </div>`).join('');
 
   return `
   <div class="cards">
@@ -2088,11 +2097,14 @@ function renderPedidos(){
     <h2>Novo Pedido</h2>
     <div class="form-grid">
       <div class="form-group"><label>Cliente *</label><input id="pedCliente" placeholder="Nome do cliente"></div>
-      <div class="form-group"><label>Produto *</label><input id="pedProduto" placeholder="Ex: Tênis Nike Dunk 42"></div>
       <div class="form-group"><label>Telefone</label><input id="pedTel" placeholder="(00) 00000-0000" oninput="maskTel(this)"></div>
       <div class="form-group"><label>Endereço</label><input id="pedEnd" placeholder="Opcional"></div>
-      <div class="form-group"><label>Observações</label><input id="pedObs" placeholder="Cor, tamanho, detalhes..."></div>
       <div class="form-group"><label>Data</label><input type="date" id="pedData" value="${hoje()}"></div>
+    </div>
+    <div style="margin-top:14px">
+      <label style="font-size:12px;font-weight:700;color:var(--dark2);margin-bottom:8px;display:block">Itens do Pedido</label>
+      <div id="pedItensContainer">${itensHtml}</div>
+      <button onclick="addPedItem()" style="margin-top:4px;padding:6px 14px;border:1px dashed var(--blue);background:transparent;color:var(--blue);border-radius:8px;font-size:12px;font-weight:600;cursor:pointer">+ Adicionar item</button>
     </div>
     <div class="actions"><button class="btn btn-primary" onclick="salvarPedido()">Salvar Pedido</button></div>
   </div>
@@ -2104,16 +2116,17 @@ function renderPedidos(){
     <span class="f-clear" onclick="pedidoSearch='';pedidoStatusFilter='Todos';renderPage()">Limpar filtros</span>
   </div>
   <div style="max-height:500px;overflow-y:auto">
-  <table><thead><tr><th>Data</th><th>Cliente</th><th>Produto</th><th>Telefone</th><th>Endereço</th><th>Obs</th><th>Status</th><th>Ação</th></tr></thead>
-  <tbody>${fil.length===0?'<tr><td colspan="8" style="text-align:center;color:var(--gray);padding:30px">Nenhum pedido anotado ainda</td></tr>':fil.map(a=>{
+  <table><thead><tr><th>Data</th><th>Cliente</th><th>Itens</th><th>Telefone</th><th>Endereço</th><th>Status</th><th>Ação</th></tr></thead>
+  <tbody>${fil.length===0?'<tr><td colspan="7" style="text-align:center;color:var(--gray);padding:30px">Nenhum pedido anotado ainda</td></tr>':fil.map(a=>{
     const stCls=a.status==='Pendente'?'b-pendente':a.status==='Concluído'?'b-pago':'b-vencido';
+    const itens=a.itens||[{produto:a.produto||'',obs:a.obs||''}];
+    const itensStr=itens.map(it=>`<div style="margin-bottom:2px"><strong>${it.produto}</strong>${it.obs?' <span style="color:var(--gray);font-size:10px">('+it.obs+')</span>':''}</div>`).join('');
     return `<tr style="${a.status==='Cancelado'?'opacity:.5':''}">
       <td>${fmtD(a.data)}</td>
       <td style="font-weight:600">${a.cliente}</td>
-      <td>${a.produto}</td>
+      <td>${itensStr}<span style="font-size:10px;color:var(--gray)">${itens.length} ${itens.length===1?'item':'itens'}</span></td>
       <td>${a.tel?`<a href="https://wa.me/55${(a.tel||'').replace(/\\D/g,'')}" target="_blank" style="color:var(--green)">${a.tel}</a>`:'-'}</td>
       <td>${a.endereco||'-'}</td>
-      <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${a.obs||''}">${a.obs||'-'}</td>
       <td><select class="badge ${stCls}" style="border:none;cursor:pointer;font-size:10px;padding:3px 6px" onchange="updatePedidoStatus(${a.id},this.value)">
         <option${a.status==='Pendente'?' selected':''}>Pendente</option>
         <option${a.status==='Concluído'?' selected':''}>Concluído</option>
@@ -2132,16 +2145,36 @@ function maskTel(el){
   el.value=v;
 }
 
+function syncPedItens(){
+  document.querySelectorAll('.pedProdInput').forEach(el=>{_pedidoItens[+el.dataset.idx].produto=el.value});
+  document.querySelectorAll('.pedObsInput').forEach(el=>{_pedidoItens[+el.dataset.idx].obs=el.value});
+}
+
+function addPedItem(){
+  syncPedItens();
+  _pedidoItens.push({produto:'',obs:''});
+  renderPage();
+  setTimeout(()=>{const inputs=document.querySelectorAll('.pedProdInput');if(inputs.length)inputs[inputs.length-1].focus()},50);
+}
+
+function removePedItem(idx){
+  syncPedItens();
+  _pedidoItens.splice(idx,1);
+  renderPage();
+}
+
 function salvarPedido(){
+  syncPedItens();
   const cliente=document.getElementById('pedCliente').value.trim();
-  const produto=document.getElementById('pedProduto').value.trim();
-  if(!cliente||!produto){toast('Preencha cliente e produto',true);return}
+  if(!cliente){toast('Preencha o nome do cliente',true);return}
+  const itensValidos=_pedidoItens.filter(it=>it.produto.trim());
+  if(itensValidos.length===0){toast('Adicione pelo menos 1 produto',true);return}
   const tel=document.getElementById('pedTel').value.trim();
   const endereco=document.getElementById('pedEnd').value.trim();
-  const obs=document.getElementById('pedObs').value.trim();
   const data=document.getElementById('pedData').value||hoje();
-  D.anotacoes.push({id:nextId(D.anotacoes),cliente,produto,tel,endereco,obs,data,status:'Pendente',criadoEm:new Date().toISOString()});
-  saveData();renderPage();toast('Pedido anotado!');
+  D.anotacoes.push({id:nextId(D.anotacoes),cliente,itens:itensValidos.map(it=>({produto:it.produto.trim(),obs:it.obs.trim()})),tel,endereco,data,status:'Pendente',criadoEm:new Date().toISOString()});
+  _pedidoItens=[{produto:'',obs:''}];
+  saveData();renderPage();toast(`Pedido salvo — ${itensValidos.length} ${itensValidos.length===1?'item':'itens'}!`);
 }
 
 function updatePedidoStatus(id,status){
