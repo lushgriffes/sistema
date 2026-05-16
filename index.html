@@ -270,6 +270,7 @@ async function loadDataFromSupabase(){
     if(!d.contasReceber)d.contasReceber=[];
     if(!d.fornecedores)d.fornecedores=DEFAULT_DATA.fornecedores;
     if(!d.categorias)d.categorias=DEFAULT_DATA.categorias;
+    if(!d.anotacoes)d.anotacoes=[];
     d.produtos.forEach(p=>{if(p.num===undefined)p.num='';if(p.img===undefined)p.img='';if(!p.imgs){p.imgs=p.img?[p.img]:[]}if(p.precoVenda===undefined)p.precoVenda=0});
     d.despesas.forEach(x=>{if(!x.plano)x.plano=''});
     d.movimentacoes.forEach(m=>{if(!m.plano)m.plano=''});
