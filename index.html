@@ -333,7 +333,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.05.15-b';
+const APP_VERSION = 'v2026.05.15-c';
 const STORAGE_KEY = 'importadora_data';
 const DEFAULT_DATA = {
   capital: 29640.61,
@@ -1638,10 +1638,10 @@ function renderRecebimentos(){
     <table><thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th class="r">Valor</th><th>Ação</th></tr></thead><tbody>
     ${filtered.length===0?`<tr><td colspan="5" style="padding:14px;text-align:center;font-size:11px;color:var(--gray)">Nenhum recebimento ${_recSearch?'encontrado para esse filtro':'lançado ainda'}.</td></tr>`:
     filtered.map(r=>`<tr>
-      <td style="white-space:nowrap">${fmtD(r.data)}</td>
-      <td>${escH(r.desc)}</td>
-      <td><span class="badge b-estoque" style="font-size:9px">${escH(r.cat||'—')}</span></td>
-      <td class="r" style="color:var(--green);font-weight:600">${fmt(r.valor)}</td>
+      <td><input type="date" value="${r.data||''}" onchange="editarRecebimento(${r.id},'data',this.value)" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;width:135px" title="Clique para editar a data"></td>
+      <td><input id="pgRecEditDesc_${r.id}" value="${esc(r.desc)}" onchange="editarRecebimento(${r.id},'desc',this.value)" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;width:100%;min-width:180px" title="Clique para editar a descrição"></td>
+      <td><select onchange="editarRecebimento(${r.id},'cat',this.value)" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;cursor:pointer" title="Trocar categoria">${cats.map(c=>`<option value="${esc(c)}"${c===r.cat?' selected':''}>${escH(c)}</option>`).join('')}${(r.cat&&!cats.includes(r.cat))?`<option value="${esc(r.cat)}" selected>${escH(r.cat)} (removida)</option>`:''}</select></td>
+      <td class="r"><input type="number" step="0.01" value="${r.valor||''}" onchange="editarRecebimento(${r.id},'valor',+this.value)" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;text-align:right;width:100px;color:var(--green);font-weight:600" title="Clique para editar o valor"></td>
       <td><button class="btn btn-sm" onclick="excluirRecebimento(${r.id})" style="background:var(--red);color:#fff;font-size:9px;padding:3px 8px" title="Excluir recebimento (reverte movimentação)">✕</button></td>
     </tr>`).join('')}
     </tbody>
@@ -1679,6 +1679,36 @@ function excluirRecebimento(rid){
   D.recebimentos=D.recebimentos.filter(x=>x.id!==rid);
   recalcSaldos();saveData();renderPage();
   toast('Recebimento removido');
+}
+
+function editarRecebimento(rid, field, value){
+  if(!PERMS.edit){toast('Sem permissão para alterar',true);renderPage();return}
+  const r=(D.recebimentos||[]).find(x=>x.id===rid);if(!r)return;
+  const mov=(D.movimentacoes||[]).find(m=>m.id===r.movId);
+  if(field==='data'){
+    if(!value){toast('Data inválida',true);renderPage();return}
+    r.data=value;
+    if(mov)mov.data=value;
+    recalcSaldos();
+  } else if(field==='desc'){
+    const v=(value||'').trim();
+    if(!v){toast('Descrição não pode ficar vazia',true);renderPage();return}
+    r.desc=v;
+    if(mov)mov.desc='Recebimento — '+v;
+  } else if(field==='cat'){
+    r.cat=value||'';
+    if(mov)mov.cat=value||'';
+  } else if(field==='valor'){
+    const v=+value;
+    if(!(v>0)){toast('Valor deve ser maior que zero',true);renderPage();return}
+    r.valor=v;
+    if(mov)mov.valor=v;
+    recalcSaldos();
+  } else {
+    return;
+  }
+  saveData();renderPage();
+  toast('Recebimento atualizado');
 }
 
 function addCategoriaRecebimento(){
