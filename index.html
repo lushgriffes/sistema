@@ -338,7 +338,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.05.15-e';
+const APP_VERSION = 'v2026.05.15-f';
 const STORAGE_KEY = 'importadora_data';
 const DEFAULT_DATA = {
   capital: 29640.61,
@@ -1044,7 +1044,8 @@ function renderBalanco(){
   const aportes=aportesLista.reduce((a,x)=>a+x.valor,0);
   const despesas=m.despTotal;
   const lucro=m.lucroVendas;
-  const totalLado2=Math.round((aportes-despesas+lucro-cpPendente)*100)/100;
+  const outrasReceitas=(D.recebimentos||[]).reduce((a,r)=>a+(+r.valor||0),0);
+  const totalLado2=Math.round((aportes-despesas+lucro+outrasReceitas-cpPendente)*100)/100;
 
   // Diferença
   const diferenca=Math.round((totalLado1-totalLado2)*100)/100;
@@ -1078,6 +1079,7 @@ function renderBalanco(){
             <tr><td style="font-weight:600;padding:8px 12px">💼 Aportes <span style="font-size:10px;color:var(--gray)">(${aportesLista.length} lançamentos)</span></td><td class="r" style="font-weight:600;padding:8px 12px;font-size:15px;color:var(--green)">+ ${fmt(aportes)}</td></tr>
             <tr style="background:#f8fafc"><td style="padding:8px 12px">📉 Despesas</td><td class="r" style="font-weight:600;padding:8px 12px;font-size:15px;color:var(--red)">− ${fmt(despesas)}</td></tr>
             <tr><td style="padding:8px 12px">📈 Lucro com Vendas</td><td class="r" style="font-weight:600;padding:8px 12px;font-size:15px;color:var(--green)">+ ${fmt(lucro)}</td></tr>
+            ${outrasReceitas>0?`<tr style="background:#f8fafc"><td style="padding:8px 12px">💵 Outras Receitas <span style="font-size:10px;color:var(--gray)">(${(D.recebimentos||[]).length} lançamento(s))</span></td><td class="r" style="font-weight:600;padding:8px 12px;font-size:15px;color:var(--green)">+ ${fmt(outrasReceitas)}</td></tr>`:''}
             ${cpPendente>0?`<tr style="background:#f8fafc"><td style="padding:8px 12px">🔴 Contas a Pagar</td><td class="r" style="font-weight:600;padding:8px 12px;font-size:15px;color:var(--red)">− ${fmt(cpPendente)}</td></tr>`:''}
           </tbody>
           <tfoot>
@@ -2114,8 +2116,9 @@ function gerarPDFBalanco(){
   const m=calcMetrics();const caixa=m.caixa;const estoque=m.mercE+m.mercT+m.mercR;const aReceber=m.contasR-m.mercR;const totalL1=Math.round((caixa+estoque+aReceber)*100)/100;
   const aportesLista=getAportes();const aportes=aportesLista.reduce((a,x)=>a+x.valor,0);
   const despesas=m.despTotal;const lucro=m.lucroVendas;
+  const outrasReceitas=(D.recebimentos||[]).reduce((a,r)=>a+(+r.valor||0),0);
   const cpPend=D.contasPagar.filter(c=>c.status!=='Pago').reduce((a,c)=>a+(c.valor||0),0);
-  const totalL2=Math.round((aportes-despesas+lucro-cpPend)*100)/100;const dif=Math.round((totalL1-totalL2)*100)/100;
+  const totalL2=Math.round((aportes-despesas+lucro+outrasReceitas-cpPend)*100)/100;const dif=Math.round((totalL1-totalL2)*100)/100;
   const colW=(w-mx*2-10)/2;
   // Lado 1
   doc.setFontSize(12);doc.setFont(undefined,'bold');doc.setTextColor(59,130,246);doc.text('Onde está o dinheiro',mx,y);
@@ -2128,7 +2131,7 @@ function gerarPDFBalanco(){
     theme:'grid',margin:{left:mx,right:mx+colW+10},tableWidth:colW});
   const yAfter1=doc.lastAutoTable.finalY;
   doc.autoTable({startY:y,head:[['Item','Valor']],
-    body:[['Aportes ('+aportesLista.length+')',fmt(aportes)],['Despesas','- '+fmt(despesas)],['Lucro Vendas',fmt(lucro)]].concat(cpPend>0?[['Contas a Pagar','- '+fmt(cpPend)]]:[]),
+    body:[['Aportes ('+aportesLista.length+')',fmt(aportes)],['Despesas','- '+fmt(despesas)],['Lucro Vendas',fmt(lucro)]].concat(outrasReceitas>0?[['Outras Receitas ('+(D.recebimentos||[]).length+')',fmt(outrasReceitas)]]:[]).concat(cpPend>0?[['Contas a Pagar','- '+fmt(cpPend)]]:[]),
     foot:[['TOTAL',fmt(totalL2)]],
     styles:{fontSize:9,cellPadding:3},headStyles:{fillColor:[34,197,94],textColor:255},footStyles:{fillColor:[34,197,94],textColor:255,fontStyle:'bold'},
     columnStyles:{0:{cellWidth:colW*0.6},1:{cellWidth:colW*0.4,halign:'right'}},
