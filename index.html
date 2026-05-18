@@ -271,6 +271,9 @@ async function loadDataFromSupabase(){
     if(!d.planoContas)d.planoContas=DEFAULT_DATA.planoContas;
     if(!d.categoriasMov||!d.categoriasMov.length)d.categoriasMov=(DEFAULT_DATA.categoriasMov||["Capital Inicial","Pagamento Fornecedor","Recebimento Venda","Sinal Encomenda","Despesa Operacional","Custo Produto (Frete/Taxa)","Aporte Sócio","Outros"]);
     if(!d.categoriasDespesa||!d.categoriasDespesa.length)d.categoriasDespesa=(DEFAULT_DATA.categoriasDespesa||["Transporte","Embalagem","Ferramenta","Comunicação","Alimentação","Comissão","Fornecedor","Outros"]);
+    if(!d.recebimentos)d.recebimentos=[];
+    if(!d.categoriasRecebimento||!d.categoriasRecebimento.length)d.categoriasRecebimento=(DEFAULT_DATA.categoriasRecebimento||["Reembolso","Rendimento Financeiro","Empréstimo Recebido","Outras Receitas"]);
+    if(!d.nextRecebId)d.nextRecebId=(d.recebimentos.reduce((m,r)=>Math.max(m,r.id||0),0)+1);
     if(!d.contasPagar)d.contasPagar=[];
     if(!d.contasReceber)d.contasReceber=[];
     if(!d.fornecedores)d.fornecedores=DEFAULT_DATA.fornecedores;
@@ -330,7 +333,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.05.14-c';
+const APP_VERSION = 'v2026.05.15-a';
 const STORAGE_KEY = 'importadora_data';
 const DEFAULT_DATA = {
   capital: 29640.61,
@@ -413,6 +416,9 @@ const DEFAULT_DATA = {
   ],
   nextProdId: 51,
   nextPedidoCompra: 1,
+  recebimentos: [],
+  categoriasRecebimento: ["Reembolso","Rendimento Financeiro","Empréstimo Recebido","Outras Receitas"],
+  nextRecebId: 1,
 };
 
 function loadData(){
@@ -423,6 +429,9 @@ function loadData(){
       if(!d.planoContas)d.planoContas=DEFAULT_DATA.planoContas;
       if(!d.categoriasMov||!d.categoriasMov.length)d.categoriasMov=(DEFAULT_DATA.categoriasMov||["Capital Inicial","Pagamento Fornecedor","Recebimento Venda","Sinal Encomenda","Despesa Operacional","Custo Produto (Frete/Taxa)","Aporte Sócio","Outros"]);
       if(!d.categoriasDespesa||!d.categoriasDespesa.length)d.categoriasDespesa=(DEFAULT_DATA.categoriasDespesa||["Transporte","Embalagem","Ferramenta","Comunicação","Alimentação","Comissão","Fornecedor","Outros"]);
+      if(!d.recebimentos)d.recebimentos=[];
+      if(!d.categoriasRecebimento||!d.categoriasRecebimento.length)d.categoriasRecebimento=(DEFAULT_DATA.categoriasRecebimento||["Reembolso","Rendimento Financeiro","Empréstimo Recebido","Outras Receitas"]);
+      if(!d.nextRecebId)d.nextRecebId=(d.recebimentos.reduce((m,r)=>Math.max(m,r.id||0),0)+1);
       if(!d.contasPagar)d.contasPagar=[];
       if(!d.contasReceber)d.contasReceber=[];
       if(!d.fornecedores)d.fornecedores=DEFAULT_DATA.fornecedores;
@@ -534,6 +543,7 @@ function getTabs(){
     {name:'Correção',icon:'📈',perm:'view'},
     {name:'Config',icon:'⚙️',perm:'edit'},
     {name:'Fornecedores',icon:'🏢',perm:'view'},
+    {name:'Recebimentos',icon:'💵',perm:'view'},
   ];
   if(userProfile&&userProfile.role==='admin')tabs.push({name:'Usuários',icon:'👥',perm:'view'});
   return tabs;
@@ -556,7 +566,7 @@ function renderPage(){
   const _selStartPg=_focusPgId&&typeof _focusEl.selectionStart==='number'?_focusEl.selectionStart:null;
   const _selEndPg=_focusPgId&&typeof _focusEl.selectionEnd==='number'?_focusEl.selectionEnd:null;
   const m=calcMetrics();
-  const fns=[renderDash,renderDashPeriodo,renderBalanco,renderEstoque,renderEncomendas,renderVendas,renderMov,renderDesp,renderContasPagar,renderContasReceber,renderNovaCompra,renderNovoAporte,renderCorrecao,renderConfig,renderFornecedores];
+  const fns=[renderDash,renderDashPeriodo,renderBalanco,renderEstoque,renderEncomendas,renderVendas,renderMov,renderDesp,renderContasPagar,renderContasReceber,renderNovaCompra,renderNovoAporte,renderCorrecao,renderConfig,renderFornecedores,renderRecebimentos];
   if(userProfile&&userProfile.role==='admin')fns.push(renderUsuarios);
   const tabIdx=Math.min(activeTab,fns.length-1);
   document.getElementById('main').innerHTML=`<div class="page active">${fns[tabIdx](m)}</div>`;
@@ -1557,6 +1567,133 @@ function trocarProdutoVenda(vendaId,novoProdutoId){
   }
   saveData();renderPage();
   toast('Produto da venda trocado: '+(antigoNome||'—')+' → '+novoProd.nome);
+}
+
+// ═══════ RECEBIMENTOS (receitas diversas que entram no caixa) ═══════
+let _recDate='', _recDesc='', _recValor='', _recCat='', _recSearch='';
+
+function renderRecebimentos(){
+  const lista=(D.recebimentos||[]).slice().sort((a,b)=>{const d=(b.data||'').localeCompare(a.data||'');return d!==0?d:(b.id||0)-(a.id||0)});
+  const q=(_recSearch||'').toLowerCase();
+  const filtered=q?lista.filter(r=>((r.desc||'')+' '+(r.cat||'')).toLowerCase().includes(q)):lista;
+  const total=lista.reduce((a,r)=>a+(+r.valor||0),0);
+  const mesAtual=new Date().toISOString().slice(0,7);
+  const totalMes=lista.filter(r=>(r.data||'').startsWith(mesAtual)).reduce((a,r)=>a+(+r.valor||0),0);
+  const cats=D.categoriasRecebimento||[];
+  const esc=s=>String(s||'').replace(/"/g,'&quot;');
+  const escH=s=>String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return `
+  <div class="cards">
+    <div class="card green"><div class="card-lbl">Total Recebido</div><div class="card-val">${fmt(total)}</div><div class="card-sub">${lista.length} lançamento(s)</div></div>
+    <div class="card emerald"><div class="card-lbl">Este Mês</div><div class="card-val">${fmt(totalMes)}</div></div>
+    <div class="card cyan"><div class="card-lbl">Categorias</div><div class="card-val">${cats.length}</div></div>
+  </div>
+  <div class="form-section">
+    <h2>💵 Registrar Recebimento</h2>
+    <p style="font-size:11px;color:var(--gray);margin-bottom:10px">Valores que entraram na conta que <strong>não</strong> são de venda nem aporte (reembolsos, rendimentos, ganhos diversos). Cada lançamento vira movimentação <strong>Entrada</strong> no caixa e aparece na DRE como receita.</p>
+    <div class="inline-form" style="margin-bottom:10px">
+      <div class="if-group"><label>Data</label><input type="date" id="pgRecData" value="${_recDate||hoje()}" onchange="_recDate=this.value"></div>
+      <div class="if-group full"><label>Descrição *</label><input id="pgRecDesc" value="${esc(_recDesc)}" placeholder="Ex: reembolso fornecedor, rendimento poupança..." oninput="_recDesc=this.value"></div>
+      <div class="if-group"><label>Valor (R$) *</label><input id="pgRecValor" type="number" step="0.01" value="${_recValor||''}" placeholder="0,00" oninput="_recValor=this.value"></div>
+      <div class="if-group"><label>Categoria *</label><select id="pgRecCat" onchange="_recCat=this.value">
+        <option value="">— selecione —</option>
+        ${cats.map(c=>`<option value="${esc(c)}"${c===_recCat?' selected':''}>${escH(c)}</option>`).join('')}
+      </select></div>
+    </div>
+    <div class="actions"><button class="btn btn-success" onclick="salvarRecebimento()">💾 Salvar Recebimento</button></div>
+    <div style="margin-top:14px;padding:10px 12px;background:#f8fafc;border:1px solid var(--border);border-radius:8px">
+      <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:6px">Categorias <span style="font-weight:400;color:var(--gray)">— clique pra renomear, ✕ pra excluir</span></div>
+      <div style="display:flex;flex-wrap:wrap;gap:5px;align-items:center">
+        ${cats.map((c,i)=>`<span style="display:inline-flex;align-items:center;gap:4px;background:#fff;border:1px solid var(--border);padding:3px 8px;border-radius:14px;font-size:11px"><span onclick="renomearCategoriaRecebimento(${i})" style="cursor:pointer" title="Renomear">${escH(c)}</span><button onclick="removerCategoriaRecebimento(${i})" style="background:none;border:none;color:var(--red);cursor:pointer;font-size:11px;padding:0;line-height:1" title="Excluir categoria">✕</button></span>`).join('')}
+        <button class="btn btn-sm" onclick="addCategoriaRecebimento()" style="background:var(--blue);color:#fff;font-size:11px;padding:4px 10px">+ Nova categoria</button>
+      </div>
+    </div>
+  </div>
+  <div class="form-section">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+      <h2 style="margin:0">📋 Histórico de Recebimentos</h2>
+      <input id="pgSearchReceb" placeholder="Buscar descrição ou categoria..." value="${esc(_recSearch)}" oninput="_recSearch=this.value;renderPage()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-size:12px;max-width:260px">
+    </div>
+    <div id="recebTableScroll" style="max-height:520px;overflow-y:auto">
+    <table><thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th class="r">Valor</th><th>Ação</th></tr></thead><tbody>
+    ${filtered.length===0?`<tr><td colspan="5" style="padding:14px;text-align:center;font-size:11px;color:var(--gray)">Nenhum recebimento ${_recSearch?'encontrado para esse filtro':'lançado ainda'}.</td></tr>`:
+    filtered.map(r=>`<tr>
+      <td style="white-space:nowrap">${fmtD(r.data)}</td>
+      <td>${escH(r.desc)}</td>
+      <td><span class="badge b-estoque" style="font-size:9px">${escH(r.cat||'—')}</span></td>
+      <td class="r" style="color:var(--green);font-weight:600">${fmt(r.valor)}</td>
+      <td><button class="btn btn-sm" onclick="excluirRecebimento(${r.id})" style="background:var(--red);color:#fff;font-size:9px;padding:3px 8px" title="Excluir recebimento (reverte movimentação)">✕</button></td>
+    </tr>`).join('')}
+    </tbody>
+    <tfoot><tr><td colspan="3" style="font-weight:700">TOTAL${_recSearch?' (filtrado)':''}</td><td class="r" style="font-weight:700;color:var(--green)">${fmt(filtered.reduce((a,r)=>a+(+r.valor||0),0))}</td><td></td></tr></tfoot>
+    </table>
+    </div>
+  </div>`;
+}
+
+function salvarRecebimento(){
+  if(!PERMS.insert){toast('Sem permissão para inserir',true);return}
+  const data=document.getElementById('pgRecData').value||hoje();
+  const desc=(document.getElementById('pgRecDesc').value||'').trim();
+  const valor=+(document.getElementById('pgRecValor').value||0);
+  const cat=document.getElementById('pgRecCat').value;
+  if(!desc){toast('Preencha a descrição',true);return}
+  if(!(valor>0)){toast('Informe um valor maior que zero',true);return}
+  if(!cat){toast('Selecione uma categoria',true);return}
+  if(!D.recebimentos)D.recebimentos=[];
+  if(!D.nextRecebId)D.nextRecebId=1;
+  const rid=D.nextRecebId++;
+  const movId=nextId(D.movimentacoes);
+  D.movimentacoes.push({id:movId,data,desc:'Recebimento — '+desc,tipo:'Entrada',cat,plano:'Receita',valor,saldo:0,recebimentoId:rid});
+  D.recebimentos.push({id:rid,data,desc,valor,cat,movId});
+  recalcSaldos();saveData();
+  _recDate='';_recDesc='';_recValor='';_recCat='';
+  toast('Recebimento registrado: '+desc+' • '+fmt(valor));renderPage();
+}
+
+function excluirRecebimento(rid){
+  if(!PERMS.delete){toast('Sem permissão para excluir',true);return}
+  const r=(D.recebimentos||[]).find(x=>x.id===rid);if(!r)return;
+  if(!confirm('Excluir recebimento "'+(r.desc||'sem descrição')+'" de '+fmt(r.valor)+'?\n\nA movimentação Entrada vinculada também será removida.'))return;
+  D.movimentacoes=D.movimentacoes.filter(m=>m.id!==r.movId);
+  D.recebimentos=D.recebimentos.filter(x=>x.id!==rid);
+  recalcSaldos();saveData();renderPage();
+  toast('Recebimento removido');
+}
+
+function addCategoriaRecebimento(){
+  if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
+  const val=prompt('Nome da nova categoria de recebimento:');
+  if(!val||!val.trim())return;
+  const v=val.trim();
+  if(!D.categoriasRecebimento)D.categoriasRecebimento=[];
+  if(D.categoriasRecebimento.includes(v)){toast('Categoria já existe',true);return}
+  D.categoriasRecebimento.push(v);saveData();renderPage();
+  toast('Categoria adicionada: '+v);
+}
+
+function removerCategoriaRecebimento(i){
+  if(!PERMS.delete){toast('Sem permissão para excluir',true);return}
+  const cats=D.categoriasRecebimento||[];const nome=cats[i];if(!nome)return;
+  const usado=(D.recebimentos||[]).filter(r=>r.cat===nome).length;
+  let msg='Excluir categoria "'+nome+'"?';
+  if(usado>0)msg+='\n\nAtenção: '+usado+' recebimento(s) usam essa categoria. Os lançamentos não serão apagados, mas ficarão sem categoria.';
+  if(!confirm(msg))return;
+  cats.splice(i,1);saveData();renderPage();
+  toast('Categoria removida: '+nome);
+}
+
+function renomearCategoriaRecebimento(i){
+  if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
+  const cats=D.categoriasRecebimento||[];const atual=cats[i];if(!atual)return;
+  const nv=prompt('Renomear categoria:',atual);
+  if(!nv||!nv.trim()||nv.trim()===atual)return;
+  const novo=nv.trim();
+  if(cats.includes(novo)){toast('Já existe categoria com esse nome',true);return}
+  (D.recebimentos||[]).forEach(r=>{if(r.cat===atual)r.cat=novo});
+  (D.movimentacoes||[]).forEach(m=>{if(m.recebimentoId&&m.cat===atual)m.cat=novo});
+  saveData();renderPage();
+  toast('Categoria renomeada para: '+novo);
 }
 
 function drawCard(doc,x,y,w,h,label,value,color){
