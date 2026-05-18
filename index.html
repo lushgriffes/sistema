@@ -193,8 +193,9 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const SB = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {auth:{persistSession:true,storageKey:'lush-griffes-auth',storage:window.localStorage}});
 let currentUser = null;
 let userProfile = null;
-const PERMS = { view:false, insert:false, edit:false, delete:false };
+const PERMS = { view:false, insert:false, edit:false, delete:false, editFieldsOnly:null };
 
+function canEditField(field){if(!PERMS.edit)return false;if(!PERMS.editFieldsOnly)return true;return PERMS.editFieldsOnly.indexOf(field)>=0}
 function showLogin(){document.getElementById('loginForm').style.display='';document.getElementById('signupForm').style.display='none';document.getElementById('loginErr').style.display='none';document.getElementById('loginInfo').style.display='none'}
 function showSignup(){document.getElementById('loginForm').style.display='none';document.getElementById('signupForm').style.display='';document.getElementById('loginErr').style.display='none'}
 function loginErr(msg){const e=document.getElementById('loginErr');e.textContent=msg;e.style.display='block'}
@@ -247,14 +248,16 @@ async function initApp(user){
   }
   userProfile=prof;
   if(prof){
-    PERMS.view=prof.role==='admin'||prof.perm_view;
-    PERMS.insert=prof.role==='admin'||prof.perm_insert;
-    PERMS.edit=prof.role==='admin'||prof.perm_edit;
-    PERMS.delete=prof.role==='admin'||prof.perm_delete;
+    const _isTrack=prof.role==='tracking_only';
+    PERMS.view=prof.role==='admin'||_isTrack||prof.perm_view;
+    PERMS.insert=prof.role==='admin'||(!_isTrack&&prof.perm_insert);
+    PERMS.edit=prof.role==='admin'||_isTrack||prof.perm_edit;
+    PERMS.delete=prof.role==='admin'||(!_isTrack&&prof.perm_delete);
+    PERMS.editFieldsOnly=_isTrack?['rastreio','codFornecedor']:null;
     document.getElementById('userBadge').textContent=(prof.nome||user.email)+' ('+prof.role+')';
   } else {
     // Perfil não encontrado — dar acesso total como fallback
-    PERMS.view=true;PERMS.insert=true;PERMS.edit=true;PERMS.delete=true;
+    PERMS.view=true;PERMS.insert=true;PERMS.edit=true;PERMS.delete=true;PERMS.editFieldsOnly=null;
     document.getElementById('userBadge').textContent=user.email+' (sem perfil)';
   }
   // Carregar dados
@@ -335,7 +338,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.05.15-d';
+const APP_VERSION = 'v2026.05.15-e';
 const STORAGE_KEY = 'importadora_data';
 const DEFAULT_DATA = {
   capital: 29640.61,
@@ -873,7 +876,7 @@ function renderEstoque(m){
     <td><select onchange="mudaCat(${p.id},this.value)" style="font-size:10px;padding:2px 4px;border-radius:4px;border:1px solid #ddd">${D.categorias.map(c=>`<option${c===p.cat?' selected':''}>${c}</option>`).join('')}</select></td><td class="r"><span class="editable" onclick="editNumField(${p.id},'custo',this)" title="Clique para editar">${fmt(p.custo)}</span></td>
     <td class="r"><span class="editable" onclick="editNumField(${p.id},'precoVenda',this)" style="color:var(--green);font-weight:600">${p.precoVenda?fmt(p.precoVenda):'—'}</span></td>
     <td>${badgeS(p.status)}</td>
-    <td><div style="display:flex;gap:3px;align-items:center"><select onchange="mudaStatus(${p.id},this.value)" style="font-size:10px;padding:2px 4px;border-radius:4px;border:1px solid #ddd;flex:1;min-width:0"><option value="">Alterar...</option><option value="Em Trânsito">Em Trânsito</option><option value="Em Estoque">Em Estoque</option><option value="Reservado (Encomenda)">Reservado</option><option value="Vendido">Vendido</option></select><button onclick="abrirProdCard(${p.id})" style="background:#6b7280;color:#fff;border:none;width:24px;height:24px;border-radius:4px;font-size:11px;cursor:pointer;flex-shrink:0" title="Ver produto: custo, taxas, fotos">👁</button><button onclick="desdobrarProdutoEstoque(${p.id})" style="background:var(--blue);color:#fff;border:none;width:24px;height:24px;border-radius:4px;font-size:10px;cursor:pointer;flex-shrink:0" title="Desdobrar em N unidades">🔀</button><button onclick="excluirProdutoEstoque(${p.id})" style="background:var(--red);color:#fff;border:none;width:24px;height:24px;border-radius:4px;font-size:11px;cursor:pointer;flex-shrink:0" title="Excluir do estoque">🗑️</button></div></td></tr>`}).join('')}
+    <td><div style="display:flex;gap:3px;align-items:center">${PERMS.editFieldsOnly?'':`<select onchange="mudaStatus(${p.id},this.value)" style="font-size:10px;padding:2px 4px;border-radius:4px;border:1px solid #ddd;flex:1;min-width:0"><option value="">Alterar...</option><option value="Em Trânsito">Em Trânsito</option><option value="Em Estoque">Em Estoque</option><option value="Reservado (Encomenda)">Reservado</option><option value="Vendido">Vendido</option></select>`}<button onclick="abrirProdCard(${p.id})" style="background:#6b7280;color:#fff;border:none;width:24px;height:24px;border-radius:4px;font-size:11px;cursor:pointer;flex-shrink:0" title="Ver produto: custo, taxas, fotos">👁</button>${PERMS.editFieldsOnly?'':`<button onclick="desdobrarProdutoEstoque(${p.id})" style="background:var(--blue);color:#fff;border:none;width:24px;height:24px;border-radius:4px;font-size:10px;cursor:pointer;flex-shrink:0" title="Desdobrar em N unidades">🔀</button><button onclick="excluirProdutoEstoque(${p.id})" style="background:var(--red);color:#fff;border:none;width:24px;height:24px;border-radius:4px;font-size:11px;cursor:pointer;flex-shrink:0" title="Excluir do estoque">🗑️</button>`}</div></td></tr>`}).join('')}
   </tbody>
   <tfoot><tr><td colspan="8" style="font-weight:700">TOTAL</td><td style="font-weight:700">${fil.reduce((a,p)=>a+(p.qtd||1),0)} itens</td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,p)=>a+(p.custo||0),0))}</td><td class="r" style="font-weight:700">${fmt(fil.filter(p=>p.precoVenda).reduce((a,p)=>a+(p.precoVenda||0),0))}</td><td colspan="2"></td></tr></tfoot>
   </table></div></div>`;
@@ -923,8 +926,8 @@ function excluirProdutoEstoque(prodId){
   toast(`Produto "${p.nome}" removido do estoque`);
 }
 
-function mudaStatus(id,val){if(!val)return;const p=D.produtos.find(x=>x.id===id);if(p){p.status=val;saveData();renderPage();toast('Status atualizado: '+p.nome)}}
-function mudaCat(id,val){const p=D.produtos.find(x=>x.id===id);if(p){p.cat=val;saveData();toast('Categoria atualizada: '+p.nome)}}
+function mudaStatus(id,val){if(!val)return;if(!canEditField('status')){toast('Sem permissão para editar este campo',true);renderPage();return}const p=D.produtos.find(x=>x.id===id);if(p){p.status=val;saveData();renderPage();toast('Status atualizado: '+p.nome)}}
+function mudaCat(id,val){if(!canEditField('cat')){toast('Sem permissão para editar este campo',true);renderPage();return}const p=D.produtos.find(x=>x.id===id);if(p){p.cat=val;saveData();toast('Categoria atualizada: '+p.nome)}}
 
 function uploadImg(prodId){
   const inp=document.getElementById('imgUpload');
@@ -953,6 +956,7 @@ function uploadImg(prodId){
 }
 
 function editNumField(prodId,field,el){
+  if(!canEditField(field)){toast('Sem permissão para editar este campo',true);return}
   if(el.querySelector('input,select'))return;_editing=true;
   const p=D.produtos.find(x=>x.id===prodId);if(!p){_editing=false;return;}
   el.innerHTML=`<input class="edit-input" type="number" step="0.01" value="${p[field]||''}" onkeydown="if(event.key==='Enter')this.blur()" style="width:80px;text-align:right">`;
@@ -1012,6 +1016,7 @@ LUSH GRIFFES`;
 }
 
 function editField(prodId,field,el){
+  if(!canEditField(field)){toast('Sem permissão para editar este campo',true);return}
   if(el.querySelector('input,select'))return;_editing=true;
   const p=D.produtos.find(x=>x.id===prodId);if(!p){_editing=false;return;}
   el.innerHTML=`<input class="edit-input" value="${p[field]||''}" onkeydown="if(event.key==='Enter')this.blur()">`;
@@ -2596,7 +2601,7 @@ function _updateMovItemsTotals(movId){
 }
 
 function updateProdItemMov(prodId,movId,field,val){
-  if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
+  if(!canEditField(field)){toast('Sem permissão para editar este campo',true);return}
   const p=D.produtos.find(x=>x.id===prodId);if(!p)return;
   // Caso especial: aumentar qtd de 1 para N>1 - oferecer desdobrar
   if(field==='qtd'&&val>1&&(p.qtd||1)===1){
@@ -4345,7 +4350,7 @@ function renderUsersRows(){
   return orgUsers.map(u=>`<tr>
     <td><strong>${u.nome}</strong></td>
     <td>${u.email}</td>
-    <td><span class="badge ${u.role==='admin'?'b-entrada':'b-pendente'}">${u.role}</span></td>
+    <td>${u.role==='admin'?`<span class="badge b-entrada">admin</span>`:`<select onchange="atualizarTipoUsuario('${u.id}',this.value)" style="font-size:11px;padding:3px 6px;border-radius:5px;border:1px solid var(--border)"><option value="member"${u.role==='member'?' selected':''}>Normal</option><option value="tracking_only"${u.role==='tracking_only'?' selected':''}>Apenas Rastreio/Cód</option></select>`}</td>
     <td>${u.role==='admin'?'✅ Tudo':`<select onchange="atualizarPerm('${u.id}','perm_view',this.value)"><option value="true"${u.perm_view?' selected':''}>Sim</option><option value="false"${!u.perm_view?' selected':''}>Não</option></select>`}</td>
     <td>${u.role==='admin'?'':`<select onchange="atualizarPerm('${u.id}','perm_insert',this.value)"><option value="true"${u.perm_insert?' selected':''}>Sim</option><option value="false"${!u.perm_insert?' selected':''}>Não</option></select>`}</td>
     <td>${u.role==='admin'?'':`<select onchange="atualizarPerm('${u.id}','perm_edit',this.value)"><option value="true"${u.perm_edit?' selected':''}>Sim</option><option value="false"${!u.perm_edit?' selected':''}>Não</option></select>`}</td>
@@ -4364,6 +4369,7 @@ function renderUsuarios(){
     <div class="if-group"><label>Nome</label><input id="invNome" placeholder="Nome do usuário"></div>
     <div class="if-group"><label>Email</label><input type="email" id="invEmail" placeholder="email@exemplo.com"></div>
     <div class="if-group"><label>Senha</label><input type="text" id="invSenha" placeholder="Mínimo 6 caracteres"></div>
+    <div class="if-group"><label>Tipo de acesso</label><select id="invTipo"><option value="member" selected>Normal (permissões abaixo)</option><option value="tracking_only">Apenas Cód. Rastreio + Cód. Fornecedor</option></select></div>
     <div class="if-group"><label>Visualizar</label><select id="invView"><option value="true" selected>Sim</option><option value="false">Não</option></select></div>
     <div class="if-group"><label>Inserir</label><select id="invInsert"><option value="true">Sim</option><option value="false" selected>Não</option></select></div>
     <div class="if-group"><label>Alterar</label><select id="invEdit"><option value="true">Sim</option><option value="false" selected>Não</option></select></div>
@@ -4387,6 +4393,15 @@ async function atualizarPerm(userId,field,val){
   toast(`Permissão atualizada!`);
 }
 
+async function atualizarTipoUsuario(userId,novoRole){
+  if(!['member','tracking_only'].includes(novoRole)){toast('Tipo inválido',true);return}
+  await SB.from('profiles').update({role:novoRole}).eq('id',userId);
+  const u=orgUsers.find(x=>x.id===userId);
+  if(u)u.role=novoRole;
+  renderPage();
+  toast(novoRole==='tracking_only'?'Usuário agora só pode editar rastreio/cód. fornecedor':'Usuário voltou para permissões normais');
+}
+
 async function convidarUsuario(){
   const nome=document.getElementById('invNome').value.trim();
   const email=document.getElementById('invEmail').value.trim();
@@ -4401,9 +4416,10 @@ async function convidarUsuario(){
   const pInsert=document.getElementById('invInsert').value==='true';
   const pEdit=document.getElementById('invEdit').value==='true';
   const pDelete=document.getElementById('invDelete').value==='true';
+  const tipo=(document.getElementById('invTipo')||{}).value||'member';
   const{data,error}=await SB.auth.signUp({
     email,password:senha,
-    options:{data:{nome,org_id:userProfile.org_id,role:'member',perm_view:pView,perm_insert:pInsert,perm_edit:pEdit,perm_delete:pDelete}}
+    options:{data:{nome,org_id:userProfile.org_id,role:tipo,perm_view:pView,perm_insert:pInsert,perm_edit:pEdit,perm_delete:pDelete}}
   });
   if(error){toast('Erro: '+error.message,true);return}
   alert(`Usuário criado com sucesso!\n\nEmail: ${email}\nSenha: ${senha}\n\nEnvie esses dados ao usuário para ele fazer o primeiro login.`);
