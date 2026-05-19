@@ -295,6 +295,15 @@ async function loadDataFromSupabase(){
     // Migracao: numero de pedido de compra (PC-XXXX) para compras existentes, em ordem cronologica
     if(d.nextPedidoCompra===undefined)d.nextPedidoCompra=1;
     d.movimentacoes.filter(m=>m.cat==='Pagamento Fornecedor'&&!m.numPedido).sort((a,b)=>(a.data||'').localeCompare(b.data||'')||a.id-b.id).forEach(m=>{m.numPedido='PC-'+String(d.nextPedidoCompra).padStart(4,'0');d.nextPedidoCompra++;d.produtos.forEach(p=>{if(p.movId===m.id&&!p.numPedido)p.numPedido=m.numPedido})});
+    // Migracao: recomputar venda.recebido/saldoReceber a partir das CRs vinculadas (sincronia legado)
+    d.vendas.forEach(v=>{
+      const crs=(d.contasReceber||[]).filter(c=>c.vendaId===v.id);
+      if(crs.length===0)return;
+      const recebidoCRs=crs.filter(c=>c.status==='Recebido').reduce((a,c)=>a+(+c.valor||0),0);
+      v.recebido=Math.round(recebidoCRs*100)/100;
+      v.saldoReceber=Math.max(0,Math.round(((+v.valorVenda||0)-v.recebido)*100)/100);
+      v.status=v.saldoReceber<=0&&v.recebido>0?'Pago Total':(v.recebido>0?'Pago Parcial':'Pendente');
+    });
     // Migracao: status de entrega do pedido de compra (compras antigas ja foram entregues)
     d.movimentacoes.forEach(m=>{if(m.cat==='Pagamento Fornecedor'&&m.statusEntrega===undefined)m.statusEntrega='Entregue'});
     // Migracao: parear aporte de mercadoria (Entrada Capital Inicial + Saida Pagamento Fornecedor com mesma data/valor)
@@ -338,7 +347,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.05.15-f';
+const APP_VERSION = 'v2026.05.15-g';
 const STORAGE_KEY = 'importadora_data';
 const DEFAULT_DATA = {
   capital: 29640.61,
@@ -455,6 +464,15 @@ function loadData(){
       // Migracao: numero de pedido de compra (PC-XXXX) para compras existentes, em ordem cronologica
       if(d.nextPedidoCompra===undefined)d.nextPedidoCompra=1;
       d.movimentacoes.filter(m=>m.cat==='Pagamento Fornecedor'&&!m.numPedido).sort((a,b)=>(a.data||'').localeCompare(b.data||'')||a.id-b.id).forEach(m=>{m.numPedido='PC-'+String(d.nextPedidoCompra).padStart(4,'0');d.nextPedidoCompra++;d.produtos.forEach(p=>{if(p.movId===m.id&&!p.numPedido)p.numPedido=m.numPedido})});
+      // Migracao: recomputar venda.recebido/saldoReceber a partir das CRs vinculadas (sincronia legado)
+      d.vendas.forEach(v=>{
+        const crs=(d.contasReceber||[]).filter(c=>c.vendaId===v.id);
+        if(crs.length===0)return;
+        const recebidoCRs=crs.filter(c=>c.status==='Recebido').reduce((a,c)=>a+(+c.valor||0),0);
+        v.recebido=Math.round(recebidoCRs*100)/100;
+        v.saldoReceber=Math.max(0,Math.round(((+v.valorVenda||0)-v.recebido)*100)/100);
+        v.status=v.saldoReceber<=0&&v.recebido>0?'Pago Total':(v.recebido>0?'Pago Parcial':'Pendente');
+      });
       // Migracao: status de entrega do pedido de compra (compras antigas ja foram entregues)
       d.movimentacoes.forEach(m=>{if(m.cat==='Pagamento Fornecedor'&&m.statusEntrega===undefined)m.statusEntrega='Entregue'});
       // Migracao: parear aporte de mercadoria (Entrada Capital Inicial + Saida Pagamento Fornecedor com mesma data/valor)
@@ -3455,7 +3473,8 @@ function renderContasReceber(){
   return `
   <div class="cards">
     <div class="card orange"><div class="card-lbl">Total a Receber</div><div class="card-val">${fmt(totalPend)}</div><div class="card-sub">${pendente.length} pendentes</div></div>
-    <div class="card green"><div class="card-lbl">Recebidos</div><div class="card-val">${D.contasReceber.filter(c=>c.status==='Recebido').length}</div></div>
+    <div class="card green"><div class="card-lbl">Total Recebido</div><div class="card-val">${fmt(D.contasReceber.filter(c=>c.status==='Recebido').reduce((a,c)=>a+(+c.valor||0),0))}</div><div class="card-sub">${D.contasReceber.filter(c=>c.status==='Recebido').length} lançamento(s)</div></div>
+    <div class="card cyan"><div class="card-lbl">Total Geral</div><div class="card-val">${fmt(D.contasReceber.reduce((a,c)=>a+(+c.valor||0),0))}</div><div class="card-sub">${D.contasReceber.length} lançamento(s)</div></div>
   </div>
   <div class="box"><h3>Lançar Conta a Receber</h3>
   <div class="inline-form">
@@ -3477,14 +3496,19 @@ function renderContasReceber(){
     const badgeCl=c.status==='Recebido'?'b-recebido':'b-pendente';
     return `<tr>
       <td>${fmtD(c.vencimento)}</td><td>${c.desc}</td><td>${c.cliente||''}</td>
-      <td class="r" style="font-weight:600">${fmt(c.valor)}</td>
+      <td class="r" style="font-weight:600;color:${c.status==='Recebido'?'var(--green)':'var(--orange)'}">${fmt(c.valor)}</td>
       <td><span class="badge ${badgeCl}">${c.status}</span></td>
       <td><select onchange="mudarStatusCR(${c.id},this.value)" style="font-size:10px;padding:3px 6px;border-radius:4px;border:1px solid #ddd">
         <option value="Pendente"${c.status==='Pendente'?' selected':''}>📋 Pendente</option>
         <option value="Recebido"${c.status==='Recebido'?' selected':''}>✅ Recebido</option>
       </select>${c.status==='Recebido'?`<div style="font-size:9px;color:var(--gray);margin-top:2px">Recebido: ${fmtD(c.dataReceb)}</div>`:''}</td>
     </tr>`}).join('')}
-  </tbody></table></div></div>`;
+  </tbody>
+  <tfoot>
+    <tr style="background:#fff7ed"><td colspan="3" style="padding:8px 10px;font-weight:700;color:var(--orange)">TOTAL PENDENTE (${fil.filter(c=>c.status!=='Recebido').length})</td><td class="r" style="font-weight:700;color:var(--orange);padding:8px 10px">${fmt(fil.filter(c=>c.status!=='Recebido').reduce((a,c)=>a+(+c.valor||0),0))}</td><td colspan="2"></td></tr>
+    <tr style="background:#f0fdf4"><td colspan="3" style="padding:8px 10px;font-weight:700;color:var(--green)">TOTAL RECEBIDO (${fil.filter(c=>c.status==='Recebido').length})</td><td class="r" style="font-weight:700;color:var(--green);padding:8px 10px">${fmt(fil.filter(c=>c.status==='Recebido').reduce((a,c)=>a+(+c.valor||0),0))}</td><td colspan="2"></td></tr>
+    <tr style="background:#1e293b;color:#fff"><td colspan="3" style="padding:8px 10px;font-weight:700">TOTAL GERAL${crSearch||crStatusFilter!=='Todos'?' (filtrado)':''} (${fil.length})</td><td class="r" style="font-weight:700;padding:8px 10px">${fmt(fil.reduce((a,c)=>a+(+c.valor||0),0))}</td><td colspan="2"></td></tr>
+  </tfoot></table></div></div>`;
 }
 
 function salvarContaReceber(){
