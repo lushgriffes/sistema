@@ -347,7 +347,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.05.15-g';
+const APP_VERSION = 'v2026.05.15-h';
 const STORAGE_KEY = 'importadora_data';
 const DEFAULT_DATA = {
   capital: 29640.61,
@@ -1399,9 +1399,9 @@ function renderVendas(m){
     const _curProd=D.produtos.find(p=>p.id===v.produtoId);
     const _prodOpts=[];if(_curProd)_prodOpts.push(_curProd);disponiveis.forEach(p=>{if(!_curProd||p.id!==_curProd.id)_prodOpts.push(p)});
     return `<tr>
-      <td>${fmtD(v.data)}</td><td>${v.cliente}</td>
+      <td>${fmtD(v.data)}</td><td><input value="${(v.cliente||'').replace(/"/g,'&quot;')}" onchange="editarVenda(${v.id},'cliente',this.value)" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;min-width:100px;width:100%" title="Editar cliente / descrição"></td>
       <td><select onchange="trocarProdutoVenda(${v.id},+this.value)" style="font-size:11px;padding:3px 5px;border-radius:5px;border:1px solid var(--border);max-width:220px;cursor:pointer" title="Trocar o produto desta venda (atualiza estoque, custo e lucro)">${_curProd?'':`<option value="0" selected>⚠ ${(v.produto||'produto removido')}</option>`}${_prodOpts.map(p=>`<option value="${p.id}"${p.id===v.produtoId?' selected':''}>[${p.id}] ${p.nome}${p.num?' Nº'+p.num:''} — ${fmt(p.custo)}</option>`).join('')}</select></td>
-      <td class="r">${fmt(v.custo)}</td><td class="r">${fmt(v.valorVenda)}</td>
+      <td class="r">${fmt(v.custo)}</td><td class="r"><input type="number" step="0.01" value="${v.valorVenda||''}" onchange="editarVenda(${v.id},'valorVenda',+this.value)" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;text-align:right;width:95px;font-weight:600" title="Editar valor da venda"></td>
       <td class="r" style="color:${lucro>=0?'#22c55e':'#ef4444'};font-weight:600">${fmt(lucro)}</td>
       <td><span class="${lucro>=0?'margem-pos':'margem-neg'}">${margem}%</span></td>
       <td><span class="badge ${v.status==='Pago Total'?'b-estoque':v.status==='Pago Parcial'?'b-reserv':'b-transito'}">${v.forma||'—'}</span><div style="font-size:9px;color:var(--gray)">${v.status}</div></td>
@@ -1592,6 +1592,25 @@ function cancelarVenda(vendaId){
     recalcSaldos();saveData();
     toast(`Venda cancelada: ${v.produto} → ${v.cliente}`);renderPage();
   }
+}
+
+function editarVenda(vendaId, field, value){
+  if(!PERMS.edit){toast('Sem permissão para alterar',true);renderPage();return}
+  const v=D.vendas.find(x=>x.id===vendaId);if(!v)return;
+  if(field==='cliente'){
+    v.cliente=(value||'').trim();
+    (D.contasReceber||[]).forEach(c=>{if(c.vendaId===vendaId)c.cliente=v.cliente});
+  } else if(field==='valorVenda'){
+    const nv=+value;
+    if(!(nv>=0)){toast('Valor inválido',true);renderPage();return}
+    v.valorVenda=Math.round(nv*100)/100;
+    v.saldoReceber=Math.max(0,Math.round((v.valorVenda-(+v.recebido||0))*100)/100);
+    v.status=v.saldoReceber<=0&&(+v.recebido||0)>0?'Pago Total':((+v.recebido||0)>0?'Pago Parcial':'Pendente');
+    const crsPend=(D.contasReceber||[]).filter(c=>c.vendaId===vendaId&&c.status!=='Recebido');
+    if(crsPend.length===1)crsPend[0].valor=v.saldoReceber;
+  } else { return; }
+  saveData();renderPage();
+  toast('Venda atualizada');
 }
 
 function trocarProdutoVenda(vendaId,novoProdutoId){
