@@ -3181,33 +3181,33 @@ function toggleDespTipo(){
 }
 
 function editDespText(despId,field,el){
-  if(_editing)return;_editing=true;
-  const d=D.despesas.find(x=>x.id===despId);if(!d){_editing=false;return;}
+  if(el.querySelector('input,select'))return;
+  const d=D.despesas.find(x=>x.id===despId);if(!d)return;
   el.innerHTML=`<input class="edit-input" value="${d[field]||''}" onkeydown="if(event.key==='Enter')this.blur()">`;
   const inp=el.querySelector('input');let done=false;
-  const safety=setTimeout(()=>{if(!done){done=true;_editing=false;renderPage()}},5000);
-  inp.addEventListener('blur',function(){if(done)return;done=true;clearTimeout(safety);_editing=false;d[field]=inp.value;syncDespToMov(despId,field,inp.value);saveData();renderPage()});
+  const safety=setTimeout(()=>{if(!done){done=true;try{renderPage()}catch(e){}}},5000);
+  inp.addEventListener('blur',function(){if(done)return;done=true;clearTimeout(safety);try{d[field]=inp.value;syncDespToMov(despId,field,inp.value);saveData()}catch(e){console.error(e)}renderPage()});
   setTimeout(()=>inp.focus(),30);
 }
 function editDespSelect(despId,field,el,options){
-  if(_editing)return;_editing=true;
-  const d=D.despesas.find(x=>x.id===despId);if(!d){_editing=false;return;}
+  if(el.querySelector('input,select'))return;
+  const d=D.despesas.find(x=>x.id===despId);if(!d)return;
   const curVal=d[field]||'';
   el.innerHTML=`<select class="edit-input" style="font-size:11px;padding:2px 6px;border-radius:6px">${options.map(c=>`<option${c===curVal?' selected':''}>${c}</option>`).join('')}</select>`;
   const sel=el.querySelector('select');let done=false;
-  const safety=setTimeout(()=>{if(!done){done=true;_editing=false;renderPage()}},5000);
-  function commit(){if(done)return;done=true;clearTimeout(safety);_editing=false;d[field]=sel.value;syncDespToMov(despId,field,sel.value);saveData();renderPage()}
+  const safety=setTimeout(()=>{if(!done){done=true;try{renderPage()}catch(e){}}},5000);
+  function commit(){if(done)return;done=true;clearTimeout(safety);try{d[field]=sel.value;syncDespToMov(despId,field,sel.value);saveData()}catch(e){console.error(e)}renderPage()}
   sel.addEventListener('change',commit);sel.addEventListener('blur',()=>setTimeout(commit,150));
   setTimeout(()=>{try{sel.focus();sel.click()}catch(e){}},30);
 }
 
 function editDespData(despId,el){
-  if(_editing)return;_editing=true;
-  const d=D.despesas.find(x=>x.id===despId);if(!d){_editing=false;return;}
+  if(el.querySelector('input,select'))return;
+  const d=D.despesas.find(x=>x.id===despId);if(!d)return;
   el.innerHTML=`<input type="date" class="edit-input" value="${d.data||''}" style="width:130px">`;
   const inp=el.querySelector('input');let done=false;
-  const safety=setTimeout(()=>{if(!done){done=true;_editing=false;renderPage()}},5000);
-  inp.addEventListener('blur',function(){if(done)return;done=true;clearTimeout(safety);_editing=false;d.data=inp.value;syncDespToMov(despId,'data',inp.value);saveData();renderPage()});
+  const safety=setTimeout(()=>{if(!done){done=true;try{renderPage()}catch(e){}}},5000);
+  inp.addEventListener('blur',function(){if(done)return;done=true;clearTimeout(safety);try{d.data=inp.value;syncDespToMov(despId,'data',inp.value);saveData()}catch(e){console.error(e)}renderPage()});
   inp.addEventListener('change',function(){inp.blur()});
   setTimeout(()=>inp.focus(),30);
 }
