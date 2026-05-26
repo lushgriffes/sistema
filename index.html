@@ -2211,11 +2211,11 @@ function gerarPDFBalanco(){
   doc.setTextColor(0,0,0);y=30;
   const m=calcMetrics();const caixa=m.caixa;const estoque=m.mercE+m.mercT+m.mercR;const aReceber=m.contasR-m.mercR;const totalL1=Math.round((caixa+estoque+aReceber)*100)/100;
   const aportesLista=getAportes();const aportes=aportesLista.reduce((a,x)=>a+x.valor,0);
-  const despesas=m.despTotal;const lucro=m.lucroVendas;
+  const despesas=m.despTotalAll;const acertoLiquido=m.acertoSaida-m.acertoEntrada;const lucro=m.lucroVendas;
   const outrasReceitas=(D.recebimentos||[]).reduce((a,r)=>a+(+r.valor||0),0);
   const retiradasBal=getRetiradasTotal();
   const cpPend=D.contasPagar.filter(c=>c.status!=='Pago').reduce((a,c)=>a+(c.valor||0),0);
-  const totalL2=Math.round((aportes-despesas+lucro+outrasReceitas-cpPend-retiradasBal)*100)/100;const dif=Math.round((totalL1-totalL2)*100)/100;
+  const totalL2=Math.round((aportes-despesas+lucro+outrasReceitas-cpPend-retiradasBal-acertoLiquido)*100)/100;const dif=Math.round((totalL1-totalL2)*100)/100;
   const colW=(w-mx*2-10)/2;
   // Lado 1
   doc.setFontSize(12);doc.setFont(undefined,'bold');doc.setTextColor(59,130,246);doc.text('Onde está o dinheiro',mx,y);
@@ -2228,7 +2228,7 @@ function gerarPDFBalanco(){
     theme:'grid',margin:{left:mx,right:mx+colW+10},tableWidth:colW});
   const yAfter1=doc.lastAutoTable.finalY;
   doc.autoTable({startY:y,head:[['Item','Valor']],
-    body:[['Aportes ('+aportesLista.length+')',fmt(aportes)],['Despesas','- '+fmt(despesas)],['Lucro Vendas',fmt(lucro)]].concat(outrasReceitas>0?[['Outras Receitas ('+(D.recebimentos||[]).length+')',fmt(outrasReceitas)]]:[]).concat(retiradasBal>0?[['Retiradas de Socios','- '+fmt(retiradasBal)]]:[]).concat(cpPend>0?[['Contas a Pagar','- '+fmt(cpPend)]]:[]),
+    body:[['Aportes ('+aportesLista.length+')',fmt(aportes)],['Despesas (operacionais)','- '+fmt(m.despTotal)]].concat(m.despInvestimento>0?[['Investimentos','- '+fmt(m.despInvestimento)]]:[]).concat([['Lucro Vendas',fmt(lucro)]]).concat(outrasReceitas>0?[['Outras Receitas ('+(D.recebimentos||[]).length+')',fmt(outrasReceitas)]]:[]).concat(retiradasBal>0?[['Retiradas de Socios','- '+fmt(retiradasBal)]]:[]).concat(cpPend>0?[['Contas a Pagar','- '+fmt(cpPend)]]:[]).concat(acertoLiquido!==0?[['Acertos',acertoLiquido>0?'- '+fmt(acertoLiquido):'+ '+fmt(Math.abs(acertoLiquido))]]:[]),
     foot:[['TOTAL',fmt(totalL2)]],
     styles:{fontSize:9,cellPadding:3},headStyles:{fillColor:[34,197,94],textColor:255},footStyles:{fillColor:[34,197,94],textColor:255,fontStyle:'bold'},
     columnStyles:{0:{cellWidth:colW*0.6},1:{cellWidth:colW*0.4,halign:'right'}},
