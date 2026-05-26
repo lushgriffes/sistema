@@ -2214,7 +2214,7 @@ async function gerarPDFBalanco(){
   if(typeof html2canvas==='undefined'){toast('Carregando html2canvas...',true);return}
   const{jsPDF}=window.jspdf;if(!jsPDF){toast('Erro: jsPDF nao carregou',true);return}
   toast('Gerando PDF do Balanço...');
-  const content=document.getElementById('content');
+  const content=document.getElementById('main');
   if(!content||!content.innerHTML){toast('Erro: conteudo vazio',true);return}
   // Captura a tela como canvas em alta resolucao
   const canvas=await html2canvas(content,{scale:2,useCORS:true,backgroundColor:'#f1f5f9',logging:false,allowTaint:true});
