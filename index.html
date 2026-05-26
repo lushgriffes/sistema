@@ -671,6 +671,10 @@ function getAportesCorrigidos(){
 function getAportes(){
   const lista=[];
   D.movimentacoes.forEach(m=>{
+    if(m.cat==='Retirada Sócio'){
+      lista.push({data:m.data,desc:m.desc,valor:-m.valor,tipo:'🔻 Retirada',isRetirada:true});
+      return;
+    }
     if(m.tipo!=='Entrada')return;
     if(m.cat!=='Capital Inicial'&&m.cat!=='Aporte Sócio')return;
     const desc=m.desc.toLowerCase();
