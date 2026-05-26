@@ -664,7 +664,7 @@ function calcCorrecaoAporte(valor,dataAporte,dataRef){
 }
 
 function getAportesCorrigidos(){
-  const h=hoje();const aportes=getAportes();
+  const h=hoje();const aportes=getAportes().filter(x=>!x.isRetirada);
   return aportes.map(a=>{const c=calcCorrecaoAporte(a.valor,a.data,h);return{...a,...c}});
 }
 
@@ -703,8 +703,8 @@ function getRetiradasTotal(){
 // ═══════ DASHBOARD ═══════
 function renderDash(m){
   const aportes=getAportes();
-  const totalAportes=aportes.reduce((a,x)=>a+x.valor,0);
-  let aporteRows=aportes.map(a=>`<tr><td>${fmtD(a.data)}</td><td>${a.desc}</td><td style="font-size:11px">${a.tipo}</td><td class="r" style="font-weight:700">${fmt(a.valor)}</td></tr>`).join('');
+  const totalAportes=aportes.filter(x=>!x.isRetirada).reduce((a,x)=>a+x.valor,0);
+  let aporteRows=aportes.map(a=>`<tr style="${a.isRetirada?'color:var(--red)':''}"><td>${fmtD(a.data)}</td><td>${a.desc}</td><td style="font-size:11px">${a.tipo}</td><td class="r" style="font-weight:700;color:${a.isRetirada?'var(--red)':'inherit'}">${a.isRetirada?'- ':''}${fmt(Math.abs(a.valor))}</td></tr>`).join('');
   const cpPendente=D.contasPagar.filter(c=>c.status!=='Pago').reduce((a,c)=>a+(c.valor||0),0);
   return `
   <div class="hero"><div><div class="hero-lbl">PATRIMÔNIO LÍQUIDO</div><div class="hero-val">${fmt(m.patrimonio)}</div><div class="hero-sub">Capital: ${fmt(getCapitalTotal())} | Lucro: ${fmt(m.lucroAcum)}</div></div><div><div class="hero-pct">${m.pctCaixa}%</div><div class="hero-pct-lbl">em caixa</div></div></div>
@@ -1082,7 +1082,7 @@ function renderBalanco(){
 
   // LADO 2 — De onde veio o dinheiro
   const aportesLista=getAportes();
-  const aportes=aportesLista.reduce((a,x)=>a+x.valor,0);
+  const aportes=aportesLista.filter(x=>!x.isRetirada).reduce((a,x)=>a+x.valor,0);
   const despesas=m.despTotalAll;
   const acertoLiquido=m.acertoSaida-m.acertoEntrada;
   const lucro=m.lucroVendas;
