@@ -1290,7 +1290,8 @@ function gerarPDFDRE(){
   });
   if(!custoRows.length)body.push([{content:'—',colSpan:2,styles:{textColor:[150,150,150]}}]);
   body.push([{content:'= TOTAL CUSTO',styles:{fontStyle:'bold',fillColor:[254,242,242]}},{content:'- '+fmt(dre.totalCusto),styles:{fontStyle:'bold',fillColor:[254,242,242],halign:'right'}}]);
-  body.push([{content:'= LUCRO BRUTO',styles:{fontStyle:'bold',fillColor:[219,234,254]}},{content:fmt(dre.lucroBruto),styles:{fontStyle:'bold',fillColor:[219,234,254],halign:'right'}}]);
+  const margemBruta=dre.totalFat>0?(dre.lucroBruto/dre.totalFat*100).toFixed(1):'0';
+  body.push([{content:'= LUCRO BRUTO (margem '+margemBruta+'%)',styles:{fontStyle:'bold',fillColor:[219,234,254]}},{content:fmt(dre.lucroBruto),styles:{fontStyle:'bold',fillColor:[219,234,254],halign:'right'}}]);
   body.push([{content:'(+) OUTRAS RECEITAS (recebimentos diversos no período)',colSpan:2,styles:HEAD}]);
   recebRows.forEach(([c,v])=>{
     body.push(['    '+c,'+ '+fmt(v)]);
