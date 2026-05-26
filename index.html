@@ -1161,7 +1161,7 @@ function calcDRE(ini,fim){
   const totalFat=Math.round(Object.values(fatCat).reduce((a,b)=>a+b,0)*100)/100;
   const totalCusto=Math.round(Object.values(custoCat).reduce((a,b)=>a+b,0)*100)/100;
   const lucroBruto=Math.round((totalFat-totalCusto)*100)/100;
-  const despPeriodo=D.despesas.filter(d=>d.pago&&d.data&&d.data>=ini&&d.data<=fim);
+  const despPeriodo=D.despesas.filter(d=>d.pago&&d.data&&d.data>=ini&&d.data<=fim&&(d.tipoDespesa||'Despesa')==='Despesa');
   const despPlano={},despByPlano={};
   despPeriodo.forEach(d=>{
     const plano=d.plano||d.cat||'Outros';
