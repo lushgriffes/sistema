@@ -2211,43 +2211,39 @@ function gerarPDFContasReceber(){
 
 async function gerarPDFBalanco(){
   try{
-  if(typeof html2canvas==='undefined'){toast('Carregando biblioteca...',true);return}
-  const{jsPDF}=window.jspdf;if(!jsPDF){toast('Erro: biblioteca PDF nao carregou',true);return}
-  toast('Gerando PDF...');
-  // Pega a div do conteudo renderizado (Balanco + DRE)
+  if(typeof html2canvas==='undefined'){toast('Carregando html2canvas...',true);return}
+  const{jsPDF}=window.jspdf;if(!jsPDF){toast('Erro: jsPDF nao carregou',true);return}
+  toast('Gerando PDF do Balanço...');
   const content=document.getElementById('content');
+  if(!content||!content.innerHTML){toast('Erro: conteudo vazio',true);return}
   // Captura a tela como canvas em alta resolucao
-  const canvas=await html2canvas(content,{scale:2,useCORS:true,backgroundColor:'#f1f5f9',logging:false});
+  const canvas=await html2canvas(content,{scale:2,useCORS:true,backgroundColor:'#f1f5f9',logging:false,allowTaint:true});
+  if(!canvas||canvas.width===0){toast('Erro: canvas vazio',true);return}
   const imgData=canvas.toDataURL('image/jpeg',0.92);
   const imgW=canvas.width;const imgH=canvas.height;
-  // Criar PDF (landscape se for muito largo)
   const doc=new jsPDF('p','mm','a4');
   const pageW=doc.internal.pageSize.getWidth();const pageH=doc.internal.pageSize.getHeight();
   const mx=8;const usableW=pageW-mx*2;
-  // Calcular proporcao
   const ratio=usableW/imgW;const scaledH=imgH*ratio;
-  // Se cabe numa pagina
   if(scaledH<=pageH-10){
     doc.addImage(imgData,'JPEG',mx,5,usableW,scaledH);
   } else {
-    // Dividir em multiplas paginas
-    const pageContentH=(pageH-10)/ratio; // altura em pixels que cabe por pagina
+    const pageContentH=(pageH-10)/ratio;
     let srcY=0;let pageNum=0;
     while(srcY<imgH){
       if(pageNum>0)doc.addPage();
       const sliceH=Math.min(pageContentH,imgH-srcY);
-      // Criar canvas parcial
       const sliceCanvas=document.createElement('canvas');
-      sliceCanvas.width=imgW;sliceCanvas.height=sliceH;
+      sliceCanvas.width=imgW;sliceCanvas.height=Math.ceil(sliceH);
       const ctx=sliceCanvas.getContext('2d');
-      ctx.drawImage(canvas,0,srcY,imgW,sliceH,0,0,imgW,sliceH);
+      ctx.drawImage(canvas,0,srcY,imgW,sliceH,0,0,imgW,Math.ceil(sliceH));
       const sliceImg=sliceCanvas.toDataURL('image/jpeg',0.92);
       doc.addImage(sliceImg,'JPEG',mx,5,usableW,sliceH*ratio);
       srcY+=sliceH;pageNum++;
     }
   }
-  doc.save(`LUSH-GRIFFES-Balanco-${hoje()}.pdf`);toast('PDF Balanco gerado!');
-  }catch(e){toast('Erro ao gerar PDF: '+e.message,true);console.error(e)}
+  doc.save(`LUSH-GRIFFES-Balanco-${hoje()}.pdf`);toast('PDF Balanço gerado!');
+  }catch(e){toast('Erro PDF: '+e.message,true);console.error('PDF Balanco erro:',e)}
 }
 
 function gerarPDFAportes(){
