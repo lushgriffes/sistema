@@ -2203,12 +2203,14 @@ function gerarPDFContasReceber(){
 
 function gerarPDFBalanco(){
   try{
-  const{jsPDF}=window.jspdf;if(!jsPDF){toast('Erro: biblioteca PDF não carregou',true);return}
+  const{jsPDF}=window.jspdf;if(!jsPDF){toast('Erro: biblioteca PDF nao carregou',true);return}
+  // Helper: limpar emojis para PDF
+  const limpa=s=>String(s||'').replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}\u{20E3}\u{E0020}-\u{E007F}]/gu,'').replace(/[^\x00-\x7F\xC0-\xFFĀ-ſ]/g,'').trim();
   const doc=new jsPDF('p','mm','a4');const w=doc.internal.pageSize.getWidth();const h=doc.internal.pageSize.getHeight();const mx=15;let y=12;
   // Header
   doc.setFillColor(30,41,59);doc.rect(0,0,w,22,'F');
   doc.setFontSize(16);doc.setFont(undefined,'bold');doc.setTextColor(255,255,255);doc.text('LUSH GRIFFES',mx,13);
-  doc.setFontSize(10);doc.setFont(undefined,'normal');doc.text(`Balanço Inventário — ${fmtD(hoje())}`,w-mx,13,{align:'right'});
+  doc.setFontSize(10);doc.setFont(undefined,'normal');doc.text('Balanco Inventario - '+fmtD(hoje()),w-mx,13,{align:'right'});
   doc.setTextColor(0,0,0);y=28;
 
   // Calculos
@@ -2227,63 +2229,63 @@ function gerarPDFBalanco(){
 
   // Cards resumo (4 cards no topo)
   const cw=(w-mx*2-5*3)/4;const ch=18;
-  drawCard(doc,mx,y,cw,ch,'Caixa Disponivel',fmt(caixa),[239,246,255]);
-  drawCard(doc,mx+(cw+5),y,cw,ch,'Estoque ('+m.itE+'+'+m.itT+'+'+m.itR+')',fmt(estoque),[240,253,244]);
-  drawCard(doc,mx+(cw+5)*2,y,cw,ch,'A Receber',fmt(aReceber),[255,251,235]);
-  drawCard(doc,mx+(cw+5)*3,y,cw,ch,'Patrimonio Total',fmt(totalL1),ok?[236,253,245]:[254,242,242]);
+  drawCard(doc,mx,y,cw,ch,'CAIXA DISPONIVEL',fmt(caixa),[239,246,255]);
+  drawCard(doc,mx+(cw+5),y,cw,ch,'ESTOQUE ('+m.itE+'+'+m.itT+'+'+m.itR+')',fmt(estoque),[240,253,244]);
+  drawCard(doc,mx+(cw+5)*2,y,cw,ch,'A RECEBER',fmt(aReceber),[255,251,235]);
+  drawCard(doc,mx+(cw+5)*3,y,cw,ch,'PATRIMONIO TOTAL',fmt(totalL1),ok?[236,253,245]:[254,242,242]);
   y+=ch+8;
 
   const colW=(w-mx*2-10)/2;
   const GRN=[34,197,94],RED=[239,68,68],BLUE=[59,130,246],GRAY=[100,116,139];
 
-  // === LADO 1 — Onde está o dinheiro ===
+  // === LADO 1 - Onde esta o dinheiro ===
   doc.setFontSize(11);doc.setFont(undefined,'bold');doc.setTextColor(BLUE[0],BLUE[1],BLUE[2]);
-  doc.text('📍 Onde está o dinheiro',mx,y+3);
+  doc.text('ONDE ESTA O DINHEIRO',mx,y+3);
   doc.setTextColor(GRN[0],GRN[1],GRN[2]);
-  doc.text('📊 De onde veio o dinheiro',mx+colW+10,y+3);y+=6;
+  doc.text('DE ONDE VEIO O DINHEIRO',mx+colW+10,y+3);y+=6;
 
   // Tabela Lado 1
   const l1Body=[
-    [{content:'💰 Caixa',styles:{fontStyle:'bold'}},{content:fmt(caixa),styles:{halign:'right',fontStyle:'bold',textColor:[30,41,59]}}],
-    [{content:'📦 Estoque ('+m.itE+' estoque + '+m.itT+' trânsito + '+m.itR+' reserv.)',styles:{fillColor:[248,250,252]}},{content:fmt(estoque),styles:{halign:'right',fontStyle:'bold',fillColor:[248,250,252]}}],
-    ['📋 A Receber',{content:fmt(aReceber),styles:{halign:'right',fontStyle:'bold'}}]
+    [{content:'Caixa',styles:{fontStyle:'bold'}},{content:fmt(caixa),styles:{halign:'right',fontStyle:'bold',textColor:[30,41,59]}}],
+    [{content:'Estoque ('+m.itE+' em estoque + '+m.itT+' transito + '+m.itR+' reserv.)',styles:{fillColor:[248,250,252]}},{content:fmt(estoque),styles:{halign:'right',fontStyle:'bold',fillColor:[248,250,252]}}],
+    ['A Receber',{content:fmt(aReceber),styles:{halign:'right',fontStyle:'bold'}}]
   ];
   doc.autoTable({startY:y,body:l1Body,
     foot:[[{content:'TOTAL',styles:{fontStyle:'bold'}},{content:fmt(totalL1),styles:{halign:'right',fontStyle:'bold'}}]],
     styles:{fontSize:9,cellPadding:3.5},footStyles:{fillColor:[59,130,246],textColor:255,fontStyle:'bold'},
-    columnStyles:{0:{cellWidth:colW*0.6},1:{cellWidth:colW*0.4}},
+    columnStyles:{0:{cellWidth:colW*0.55},1:{cellWidth:colW*0.45}},
     theme:'grid',margin:{left:mx,right:mx+colW+10},tableWidth:colW});
   const yAfter1=doc.lastAutoTable.finalY;
 
   // Tabela Lado 2
   const l2Body=[];
-  l2Body.push([{content:'💼 Aportes ('+aportesLista.length+' lanç.)',styles:{fontStyle:'bold'}},{content:'+ '+fmt(aportes),styles:{halign:'right',fontStyle:'bold',textColor:GRN}}]);
-  l2Body.push([{content:'📉 Despesas (operacionais)',styles:{fillColor:[254,242,242]}},{content:'− '+fmt(m.despTotal),styles:{halign:'right',fontStyle:'bold',textColor:RED,fillColor:[254,242,242]}}]);
-  if(m.despInvestimento>0)l2Body.push([{content:'💼 Investimentos'},{content:'− '+fmt(m.despInvestimento),styles:{halign:'right',fontStyle:'bold',textColor:RED}}]);
-  l2Body.push([{content:'📈 Lucro com Vendas',styles:{fillColor:[240,253,244]}},{content:'+ '+fmt(lucro),styles:{halign:'right',fontStyle:'bold',textColor:GRN,fillColor:[240,253,244]}}]);
-  if(outrasReceitas>0)l2Body.push([{content:'💵 Outras Receitas ('+(D.recebimentos||[]).length+' lanç.)'},{content:'+ '+fmt(outrasReceitas),styles:{halign:'right',fontStyle:'bold',textColor:GRN}}]);
-  if(retiradasBal>0)l2Body.push([{content:'🔻 Retiradas de Sócios',styles:{fillColor:[254,242,242]}},{content:'− '+fmt(retiradasBal),styles:{halign:'right',fontStyle:'bold',textColor:RED,fillColor:[254,242,242]}}]);
-  if(cpPend>0)l2Body.push([{content:'🔴 Contas a Pagar'},{content:'− '+fmt(cpPend),styles:{halign:'right',fontStyle:'bold',textColor:RED}}]);
-  if(acertoLiquido!==0)l2Body.push([{content:'🔄 Acertos '+(acertoLiquido>0?'(pendente)':'(saldo +)'),styles:{fillColor:[248,250,252]}},{content:(acertoLiquido>0?'− ':'+ ')+fmt(Math.abs(acertoLiquido)),styles:{halign:'right',fontStyle:'bold',textColor:acertoLiquido>0?RED:GRN,fillColor:[248,250,252]}}]);
+  l2Body.push([{content:'Aportes ('+aportesLista.length+' lanc.)',styles:{fontStyle:'bold'}},{content:'+ '+fmt(aportes),styles:{halign:'right',fontStyle:'bold',textColor:GRN}}]);
+  l2Body.push([{content:'Despesas (operacionais)',styles:{fillColor:[254,242,242]}},{content:'- '+fmt(m.despTotal),styles:{halign:'right',fontStyle:'bold',textColor:RED,fillColor:[254,242,242]}}]);
+  if(m.despInvestimento>0)l2Body.push([{content:'Investimentos'},{content:'- '+fmt(m.despInvestimento),styles:{halign:'right',fontStyle:'bold',textColor:RED}}]);
+  l2Body.push([{content:'Lucro com Vendas',styles:{fillColor:[240,253,244]}},{content:'+ '+fmt(lucro),styles:{halign:'right',fontStyle:'bold',textColor:GRN,fillColor:[240,253,244]}}]);
+  if(outrasReceitas>0)l2Body.push([{content:'Outras Receitas ('+(D.recebimentos||[]).length+' lanc.)'},{content:'+ '+fmt(outrasReceitas),styles:{halign:'right',fontStyle:'bold',textColor:GRN}}]);
+  if(retiradasBal>0)l2Body.push([{content:'Retiradas de Socios',styles:{fillColor:[254,242,242]}},{content:'- '+fmt(retiradasBal),styles:{halign:'right',fontStyle:'bold',textColor:RED,fillColor:[254,242,242]}}]);
+  if(cpPend>0)l2Body.push([{content:'Contas a Pagar'},{content:'- '+fmt(cpPend),styles:{halign:'right',fontStyle:'bold',textColor:RED}}]);
+  if(acertoLiquido!==0)l2Body.push([{content:'Acertos '+(acertoLiquido>0?'(pendente)':'(saldo +)'),styles:{fillColor:[248,250,252]}},{content:(acertoLiquido>0?'- ':'+ ')+fmt(Math.abs(acertoLiquido)),styles:{halign:'right',fontStyle:'bold',textColor:acertoLiquido>0?RED:GRN,fillColor:[248,250,252]}}]);
 
   doc.autoTable({startY:y,body:l2Body,
     foot:[[{content:'TOTAL',styles:{fontStyle:'bold'}},{content:fmt(totalL2),styles:{halign:'right',fontStyle:'bold'}}]],
     styles:{fontSize:9,cellPadding:3.5},footStyles:{fillColor:[34,197,94],textColor:255,fontStyle:'bold'},
-    columnStyles:{0:{cellWidth:colW*0.6},1:{cellWidth:colW*0.4}},
+    columnStyles:{0:{cellWidth:colW*0.55},1:{cellWidth:colW*0.45}},
     theme:'grid',margin:{left:mx+colW+10,right:mx},tableWidth:colW});
   y=Math.max(yAfter1,doc.lastAutoTable.finalY)+12;
 
-  // Resultado do Balanço (box grande)
+  // Resultado do Balanco (box grande)
   const boxH=30;
   doc.setFillColor(ok?236:254,ok?253:242,ok?245:242);doc.roundedRect(mx,y,w-mx*2,boxH,3,3,'F');
   doc.setDrawColor(ok?34:239,ok?197:68,ok?94:68);doc.setLineWidth(0.8);doc.roundedRect(mx,y,w-mx*2,boxH,3,3,'S');doc.setLineWidth(0.2);
   doc.setFontSize(9);doc.setFont(undefined,'normal');doc.setTextColor(GRAY[0],GRAY[1],GRAY[2]);
-  doc.text('RESULTADO DO BALANÇO',w/2,y+8,{align:'center'});
-  doc.setFontSize(8);doc.setTextColor(120);doc.text(fmt(totalL1)+' − '+fmt(totalL2),w/2,y+13,{align:'center'});
+  doc.text('RESULTADO DO BALANCO',w/2,y+8,{align:'center'});
+  doc.setFontSize(8);doc.setTextColor(120);doc.text(fmt(totalL1)+' - '+fmt(totalL2),w/2,y+13,{align:'center'});
   doc.setFontSize(22);doc.setFont(undefined,'bold');doc.setTextColor(ok?34:239,ok?197:68,ok?94:68);
   doc.text(fmt(dif),w/2,y+22,{align:'center'});
   doc.setFontSize(8);doc.setFont(undefined,'normal');
-  doc.text(ok?'✅ Balanço correto':'⚠️ Diferença encontrada',w/2,y+28,{align:'center'});
+  doc.text(ok?'Balanco correto - tudo batendo':'Diferenca encontrada - verifique',w/2,y+28,{align:'center'});
   y+=boxH+10;
 
   // Detalhamento dos aportes
@@ -2291,20 +2293,20 @@ function gerarPDFBalanco(){
     doc.setFontSize(10);doc.setFont(undefined,'bold');doc.setTextColor(30,41,59);doc.text('Detalhamento dos Aportes',mx,y);y+=3;
     const aRows=aportesLista.map(a=>[
       fmtD(a.data),
-      a.desc||'—',
-      a.tipo||'—',
-      {content:(a.isRetirada?'− ':'+ ')+fmt(Math.abs(a.valor)),styles:{halign:'right',fontStyle:'bold',textColor:a.isRetirada?RED:GRN}}
+      limpa(a.desc)||'-',
+      limpa(a.tipo)||'-',
+      {content:(a.isRetirada?'- ':'+ ')+fmt(Math.abs(a.valor)),styles:{halign:'right',fontStyle:'bold',textColor:a.isRetirada?RED:GRN}}
     ]);
-    doc.autoTable({startY:y,head:[['Data','Descrição','Tipo','Valor']],body:aRows,
+    doc.autoTable({startY:y,head:[['Data','Descricao','Tipo','Valor']],body:aRows,
       styles:{fontSize:8,cellPadding:2.5},headStyles:{fillColor:[30,41,59],textColor:255},
-      columnStyles:{3:{halign:'right'}},
+      columnStyles:{0:{cellWidth:25},1:{cellWidth:'auto'},2:{cellWidth:30},3:{cellWidth:30,halign:'right'}},
       theme:'grid',margin:{left:mx,right:mx}});
     y=doc.lastAutoTable.finalY+5;
   }
 
-  // Rodapé
-  doc.setFontSize(7);doc.setFont(undefined,'italic');doc.setTextColor(150,150,150);doc.text('LUSH GRIFFES — Balanço Inventário',w/2,h-5,{align:'center'});
-  doc.save(`LUSH-GRIFFES-Balanco-${hoje()}.pdf`);toast('PDF Balanço gerado!');
+  // Rodape
+  doc.setFontSize(7);doc.setFont(undefined,'italic');doc.setTextColor(150,150,150);doc.text('LUSH GRIFFES - Balanco Inventario',w/2,h-5,{align:'center'});
+  doc.save(`LUSH-GRIFFES-Balanco-${hoje()}.pdf`);toast('PDF Balanco gerado!');
   }catch(e){toast('Erro ao gerar PDF: '+e.message,true);console.error(e)}
 }
 
