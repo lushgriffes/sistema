@@ -2213,39 +2213,16 @@ function gerarPDFBalanco(){
   try{
   const{jsPDF}=window.jspdf;if(!jsPDF){toast('Erro: biblioteca PDF nao carregou',true);return}
   const m=calcMetrics();
-  const doc=new jsPDF('p','mm','a4');const w=doc.internal.pageSize.getWidth();const h=doc.internal.pageSize.getHeight();const mx=12;let y=12;
+  const doc=new jsPDF('p','mm','a4');const w=doc.internal.pageSize.getWidth();const hPage=doc.internal.pageSize.getHeight();const mx=10;let y=12;
   // Header
   doc.setFillColor(30,41,59);doc.rect(0,0,w,22,'F');
   doc.setFontSize(16);doc.setFont(undefined,'bold');doc.setTextColor(255,255,255);doc.text('LUSH GRIFFES',mx,13);
   doc.setFontSize(10);doc.setFont(undefined,'normal');doc.text('Balanco Inventario — '+fmtD(hoje()),w-mx,13,{align:'right'});
+  doc.setFontSize(8);doc.setTextColor(200);doc.text('Verificacao patrimonial — o resultado deve ser R$ 0,00',mx,20);
   doc.setTextColor(0,0,0);y=28;
-  // Cards resumo
+  // Dados
   const caixa=m.caixa;const estoque=m.mercE+m.mercT+m.mercR;const aReceber=m.contasR-m.mercR;
   const totalLado1=Math.round((caixa+estoque+aReceber)*100)/100;
-  const cw=(w-mx*2-3*5)/4;const ch=18;
-  drawCard(doc,mx,y,cw,ch,'Caixa',fmt(caixa),caixa>=0?[236,253,245]:[254,242,242]);
-  drawCard(doc,mx+(cw+5),y,cw,ch,'Estoque',fmt(estoque),[239,246,255]);
-  drawCard(doc,mx+(cw+5)*2,y,cw,ch,'A Receber',fmt(aReceber),[255,251,235]);
-  drawCard(doc,mx+(cw+5)*3,y,cw,ch,'Total Ativos',fmt(totalLado1),[219,234,254]);
-  y+=ch+8;
-  // LADO 1 — Onde está o dinheiro
-  doc.setFontSize(12);doc.setFont(undefined,'bold');doc.setTextColor(37,99,235);doc.text('LADO 1 — Onde esta o dinheiro',mx,y);y+=2;
-  doc.autoTable({startY:y,
-    head:[['Item','Detalhe','Valor']],
-    body:[
-      ['Caixa','Saldo em conta',fmt(caixa)],
-      ['Estoque',m.itE+' em estoque + '+m.itT+' em transito + '+m.itR+' reservados',fmt(estoque)],
-      ['A Receber',fmt(m.contasR)+' total - '+fmt(m.mercR)+' custo reservados',fmt(aReceber)]
-    ],
-    foot:[['','TOTAL LADO 1',fmt(totalLado1)]],
-    styles:{fontSize:9,cellPadding:3},
-    headStyles:{fillColor:[37,99,235],textColor:255,fontStyle:'bold'},
-    footStyles:{fillColor:[219,234,254],textColor:[30,41,59],fontStyle:'bold'},
-    alternateRowStyles:{fillColor:[248,250,252]},
-    columnStyles:{0:{fontStyle:'bold',cellWidth:30},1:{cellWidth:'auto'},2:{halign:'right',cellWidth:35,fontStyle:'bold'}},
-    theme:'grid',margin:{left:mx,right:mx}});
-  y=doc.lastAutoTable.finalY+8;
-  // LADO 2 — De onde veio o dinheiro
   const aportesLista=getAportes();
   const aportesOnly=aportesLista.filter(x=>!x.isRetirada);
   const aportes=aportesOnly.reduce((a,x)=>a+x.valor,0);
@@ -2257,42 +2234,66 @@ function gerarPDFBalanco(){
   const outrasReceitas=(D.recebimentos||[]).reduce((a,r)=>a+(+r.valor||0),0);
   const cpPendente=D.contasPagar.filter(c=>c.status!=='Pago').reduce((a,c)=>a+(c.valor||0),0);
   const totalLado2=Math.round((aportes-despesas+lucro+outrasReceitas-cpPendente-retiradasBal-acertoLiquido)*100)/100;
-  doc.setFontSize(12);doc.setFont(undefined,'bold');doc.setTextColor(22,163,74);doc.text('LADO 2 — De onde veio o dinheiro',mx,y);y+=2;
-  const lado2Body=[
-    [{content:'(+) Aportes ('+aportesOnly.length+' lancamentos)',styles:{fontStyle:'bold'}},'+ '+fmt(aportes)]
-  ];
-  if(retiradasBal>0){
-    lado2Body.push([{content:'(-) Retiradas de Socios',styles:{textColor:[220,38,38]}},'- '+fmt(retiradasBal)]);
-    lado2Body.push([{content:'= Saldo Capital (aportes - retiradas)',styles:{fontStyle:'bold',fillColor:[241,245,249]}},{content:fmt(saldoCapital),styles:{fontStyle:'bold',fillColor:[241,245,249]}}]);
-  }
-  lado2Body.push([{content:'(-) Despesas operacionais',styles:{textColor:[220,38,38]}},'- '+fmt(m.despTotal)]);
-  if(m.despInvestimento>0) lado2Body.push([{content:'(-) Investimentos',styles:{textColor:[220,38,38]}},'- '+fmt(m.despInvestimento)]);
-  lado2Body.push([{content:'(+) Lucro com Vendas',styles:{textColor:[22,163,74],fontStyle:'bold'}},'+ '+fmt(lucro)]);
-  if(outrasReceitas>0) lado2Body.push([{content:'(+) Outras Receitas',styles:{textColor:[22,163,74]}},'+ '+fmt(outrasReceitas)]);
-  if(cpPendente>0) lado2Body.push([{content:'(-) Contas a Pagar',styles:{textColor:[220,38,38]}},'- '+fmt(cpPendente)]);
-  if(acertoLiquido!==0) lado2Body.push([{content:'Acertos '+(acertoLiquido>0?'(pendente retorno)':'(saldo positivo)'),styles:{textColor:acertoLiquido>0?[220,38,38]:[22,163,74]}},(acertoLiquido>0?'- ':'+ ')+fmt(Math.abs(acertoLiquido))]);
-  doc.autoTable({startY:y,
-    head:[['Item','Valor']],
-    body:lado2Body,
-    foot:[['TOTAL LADO 2',fmt(totalLado2)]],
-    styles:{fontSize:9,cellPadding:3},
-    headStyles:{fillColor:[22,163,74],textColor:255,fontStyle:'bold'},
-    footStyles:{fillColor:[220,252,231],textColor:[30,41,59],fontStyle:'bold'},
-    alternateRowStyles:{fillColor:[248,250,252]},
-    columnStyles:{0:{cellWidth:'auto'},1:{halign:'right',cellWidth:40,fontStyle:'bold'}},
-    theme:'grid',margin:{left:mx,right:mx}});
-  y=doc.lastAutoTable.finalY+8;
-  // Resultado
   const diferenca=Math.round((totalLado1-totalLado2)*100)/100;
   const ok=Math.abs(diferenca)<0.02;
+  // Layout lado a lado
+  const colW=(w-mx*2-6)/2; // largura de cada coluna
+  const leftX=mx;const rightX=mx+colW+6;
+  // ═══ LADO 1 — Onde esta o dinheiro ═══
+  // Barra azul no topo
+  doc.setFillColor(37,99,235);doc.rect(leftX,y,colW,6,'F');
+  doc.setFontSize(9);doc.setFont(undefined,'bold');doc.setTextColor(255);doc.text('Onde esta o dinheiro',leftX+3,y+4.2);
+  const lado1Y=y+8;
+  doc.autoTable({startY:lado1Y,
+    body:[
+      [{content:'Caixa',styles:{fontStyle:'bold'}},fmt(caixa)],
+      [{content:'Estoque ('+m.itE+' estoque + '+m.itT+' transito + '+m.itR+' reserv.)',styles:{fontSize:7}},fmt(estoque)],
+      [{content:'A Receber ('+fmt(m.contasR)+' - '+fmt(m.mercR)+' reserv.)',styles:{fontSize:7}},fmt(aReceber)]
+    ],
+    foot:[['TOTAL',fmt(totalLado1)]],
+    styles:{fontSize:9,cellPadding:3},
+    footStyles:{fillColor:[37,99,235],textColor:255,fontStyle:'bold'},
+    alternateRowStyles:{fillColor:[248,250,252]},
+    columnStyles:{0:{cellWidth:colW-32},1:{halign:'right',cellWidth:30,fontStyle:'bold'}},
+    theme:'grid',tableWidth:colW,margin:{left:leftX,right:w-leftX-colW}});
+  const lado1End=doc.lastAutoTable.finalY;
+  // ═══ LADO 2 — De onde veio o dinheiro ═══
+  doc.setFillColor(22,163,74);doc.rect(rightX,y,colW,6,'F');
+  doc.setFontSize(9);doc.setFont(undefined,'bold');doc.setTextColor(255);doc.text('De onde veio o dinheiro',rightX+3,y+4.2);
+  const lado2Body=[];
+  lado2Body.push([{content:'Aportes ('+aportesOnly.length+' lanc.)',styles:{fontStyle:'bold'}},'+ '+fmt(aportes)]);
+  if(retiradasBal>0){
+    lado2Body.push([{content:'Retiradas de Socios',styles:{textColor:[220,38,38]}},'- '+fmt(retiradasBal)]);
+    lado2Body.push([{content:'Saldo Capital',styles:{fontStyle:'bold',fillColor:[241,245,249],fontSize:8}},{content:fmt(saldoCapital),styles:{fontStyle:'bold',fillColor:[241,245,249]}}]);
+  }
+  lado2Body.push([{content:'Despesas (operacionais)',styles:{textColor:[220,38,38]}},'- '+fmt(m.despTotal)]);
+  if(m.despInvestimento>0) lado2Body.push([{content:'Investimentos',styles:{textColor:[220,38,38]}},'- '+fmt(m.despInvestimento)]);
+  lado2Body.push([{content:'Lucro com Vendas',styles:{textColor:[22,163,74],fontStyle:'bold'}},'+ '+fmt(lucro)]);
+  if(outrasReceitas>0) lado2Body.push([{content:'Outras Receitas',styles:{textColor:[22,163,74]}},'+ '+fmt(outrasReceitas)]);
+  if(cpPendente>0) lado2Body.push([{content:'Contas a Pagar',styles:{textColor:[220,38,38]}},'- '+fmt(cpPendente)]);
+  if(acertoLiquido!==0) lado2Body.push([{content:'Acertos '+(acertoLiquido>0?'(pendente retorno)':'(saldo positivo)'),styles:{textColor:acertoLiquido>0?[220,38,38]:[22,163,74]}},(acertoLiquido>0?'- ':'+ ')+fmt(Math.abs(acertoLiquido))]);
+  doc.autoTable({startY:lado1Y,
+    body:lado2Body,
+    foot:[['TOTAL',fmt(totalLado2)]],
+    styles:{fontSize:9,cellPadding:3},
+    footStyles:{fillColor:[22,163,74],textColor:255,fontStyle:'bold'},
+    alternateRowStyles:{fillColor:[248,250,252]},
+    columnStyles:{0:{cellWidth:colW-32},1:{halign:'right',cellWidth:30,fontStyle:'bold'}},
+    theme:'grid',tableWidth:colW,margin:{left:rightX,right:w-rightX-colW}});
+  const lado2End=doc.lastAutoTable.finalY;
+  // ═══ RESULTADO ═══
+  y=Math.max(lado1End,lado2End)+8;
   const resColor=ok?[22,163,74]:[220,38,38];const resBg=ok?[220,252,231]:[254,226,226];
-  doc.autoTable({startY:y,
-    body:[[{content:'RESULTADO DO BALANCO',styles:{fontStyle:'bold',fontSize:11}},{content:fmt(totalLado1)+' - '+fmt(totalLado2)+' = '+fmt(diferenca),styles:{fontStyle:'bold',fontSize:12,halign:'right'}}],
-           [{content:ok?'Balanco correto — todas as movimentacoes estao batendo':'Diferenca encontrada — verifique as movimentacoes',colSpan:2,styles:{halign:'center',fontSize:9,textColor:resColor}}]],
-    styles:{cellPadding:5,fillColor:resBg,textColor:resColor},
-    theme:'plain',margin:{left:mx,right:mx}});
+  // Caixa de resultado centralizada
+  const boxW=w-mx*2;const boxH=28;
+  doc.setFillColor(resBg[0],resBg[1],resBg[2]);doc.roundedRect(mx,y,boxW,boxH,3,3,'F');
+  doc.setDrawColor(resColor[0],resColor[1],resColor[2]);doc.setLineWidth(0.8);doc.roundedRect(mx,y,boxW,boxH,3,3,'S');
+  doc.setFontSize(8);doc.setFont(undefined,'bold');doc.setTextColor(100);doc.text('RESULTADO DO BALANCO',w/2,y+6,{align:'center'});
+  doc.setFontSize(9);doc.setFont(undefined,'normal');doc.setTextColor(80);doc.text(fmt(totalLado1)+' - '+fmt(totalLado2),w/2,y+12,{align:'center'});
+  doc.setFontSize(18);doc.setFont(undefined,'bold');doc.setTextColor(resColor[0],resColor[1],resColor[2]);doc.text(fmt(diferenca),w/2,y+21,{align:'center'});
+  doc.setFontSize(7);doc.text(ok?'Balanco correto — todas as movimentacoes estao batendo':'Diferenca encontrada — verifique as movimentacoes',w/2,y+26,{align:'center'});
   // Rodapé
-  const pageCount=doc.internal.getNumberOfPages();for(let i=1;i<=pageCount;i++){doc.setPage(i);doc.setFontSize(7);doc.setFont(undefined,'italic');doc.setTextColor(150);doc.text('LUSH GRIFFES — Pagina '+i+'/'+pageCount,w/2,h-5,{align:'center'})}
+  const pageCount=doc.internal.getNumberOfPages();for(let i=1;i<=pageCount;i++){doc.setPage(i);doc.setFontSize(7);doc.setFont(undefined,'italic');doc.setTextColor(150);doc.text('LUSH GRIFFES — Pagina '+i+'/'+pageCount,w/2,hPage-5,{align:'center'})}
   doc.save('LUSH-GRIFFES-Balanco-'+hoje()+'.pdf');toast('PDF Balanco gerado!');
   }catch(e){toast('Erro ao gerar PDF: '+e.message,true);console.error('PDF Balanco:',e)}
 }
