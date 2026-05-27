@@ -2292,6 +2292,34 @@ function gerarPDFBalanco(){
   doc.setFontSize(9);doc.setFont(undefined,'normal');doc.setTextColor(80);doc.text(fmt(totalLado1)+' - '+fmt(totalLado2),w/2,y+12,{align:'center'});
   doc.setFontSize(18);doc.setFont(undefined,'bold');doc.setTextColor(resColor[0],resColor[1],resColor[2]);doc.text(fmt(diferenca),w/2,y+21,{align:'center'});
   doc.setFontSize(7);doc.text(ok?'Balanco correto — todas as movimentacoes estao batendo':'Diferenca encontrada — verifique as movimentacoes',w/2,y+26,{align:'center'});
+  // ═══ DETALHAMENTO DE APORTES E RETIRADAS ═══
+  y+=10;
+  if(y>hPage-40){doc.addPage();y=15;}
+  doc.setFontSize(11);doc.setFont(undefined,'bold');doc.setTextColor(30,41,59);doc.text('Detalhamento de Aportes e Retiradas',mx,y);y+=2;
+  const limpa=s=>(s||'').replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE00}-\u{FE0F}\u{200D}]/gu,'').trim();
+  const aportesDetBody=aportesOnly.map(a=>[fmtD(a.data),a.desc,limpa(a.tipo),{content:fmt(a.valor),styles:{textColor:[22,163,74]}}]);
+  const retiradasLista=getRetiradas();
+  const retiradasDetBody=retiradasLista.map(r=>[fmtD(r.data),r.desc,'Retirada',{content:'- '+fmt(r.valor),styles:{textColor:[220,38,38]}}]);
+  const allBody=[...aportesDetBody,...retiradasDetBody];
+  if(retiradasDetBody.length>0&&aportesDetBody.length>0){
+    // Add separator row
+    aportesDetBody.push([{content:'Subtotal Aportes ('+aportesOnly.length+')',colSpan:3,styles:{fontStyle:'bold',fillColor:[236,253,245]}},{content:fmt(aportes),styles:{fontStyle:'bold',fillColor:[236,253,245],textColor:[22,163,74]}}]);
+  }
+  const detBody=[...aportesDetBody,...retiradasDetBody];
+  const footVal=retiradasBal>0?'Saldo: '+fmt(saldoCapital):'Total: '+fmt(aportes);
+  doc.autoTable({startY:y,
+    head:[['Data','Descricao','Tipo','Valor']],
+    body:detBody,
+    foot:retiradasBal>0?[
+      [{content:'Subtotal Retiradas ('+retiradasLista.length+')',colSpan:3,styles:{textColor:[220,38,38]}},{content:'- '+fmt(retiradasBal),styles:{textColor:[220,38,38]}}],
+      [{content:'SALDO CAPITAL (Aportes - Retiradas)',colSpan:3,styles:{fontStyle:'bold'}},{content:fmt(saldoCapital),styles:{fontStyle:'bold',textColor:saldoCapital>=0?[22,163,74]:[220,38,38]}}]
+    ]:[['','','Total',fmt(aportes)]],
+    styles:{fontSize:8,cellPadding:3},
+    headStyles:{fillColor:[30,41,59],textColor:255,fontStyle:'bold'},
+    footStyles:{fillColor:[241,245,249],textColor:[30,41,59],fontStyle:'bold'},
+    alternateRowStyles:{fillColor:[248,250,252]},
+    columnStyles:{0:{cellWidth:22},1:{cellWidth:'auto'},2:{cellWidth:28,halign:'center'},3:{cellWidth:28,halign:'right',fontStyle:'bold'}},
+    theme:'grid',margin:{left:mx,right:mx}});
   // Rodapé
   const pageCount=doc.internal.getNumberOfPages();for(let i=1;i<=pageCount;i++){doc.setPage(i);doc.setFontSize(7);doc.setFont(undefined,'italic');doc.setTextColor(150);doc.text('LUSH GRIFFES — Pagina '+i+'/'+pageCount,w/2,hPage-5,{align:'center'})}
   doc.save('LUSH-GRIFFES-Balanco-'+hoje()+'.pdf');toast('PDF Balanco gerado!');
