@@ -355,7 +355,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.05.15-k';
+const APP_VERSION = 'v2026.05.15-l';
 const STORAGE_KEY = 'importadora_data';
 const DEFAULT_DATA = {
   capital: 29640.61,
@@ -1138,7 +1138,7 @@ function renderBalanco(){
             ${m.despInvestimento>0?`<tr><td style="padding:8px 12px">💼 Investimentos <span style="font-size:10px;color:var(--gray)">(não impacta resultado)</span></td><td class="r" style="font-weight:600;padding:8px 12px;font-size:15px;color:var(--red)">− ${fmt(m.despInvestimento)}</td></tr>`:''}
             <tr style="background:#f8fafc"><td style="padding:8px 12px">📈 Lucro com Vendas</td><td class="r" style="font-weight:600;padding:8px 12px;font-size:15px;color:var(--green)">+ ${fmt(lucro)}</td></tr>
             ${outrasReceitas>0?`<tr><td style="padding:8px 12px">💵 Outras Receitas <span style="font-size:10px;color:var(--gray)">(${(D.recebimentos||[]).length} lançamento(s))</span></td><td class="r" style="font-weight:600;padding:8px 12px;font-size:15px;color:var(--green)">+ ${fmt(outrasReceitas)}</td></tr>`:''}
-            ${cpCompraPendente>0?`<tr style="background:#f0f9ff"><td style="padding:8px 12px">💳 Crédito de Fornecedores <span style="font-size:10px;color:var(--gray)">(compras a prazo pendentes)</span></td><td class="r" style="font-weight:600;padding:8px 12px;font-size:15px;color:var(--blue)">+ ${fmt(cpCompraPendente)}</td></tr>`:''}
+            ${cpCompraPendente>0?`<tr style="background:#f0f9ff"><td style="padding:8px 12px">📦 Compras a Prazo a Pagar <span style="font-size:10px;color:var(--gray)" title="Mercadoria já recebida que ainda não foi paga — o fornecedor financiou seu estoque">(dívida com fornecedor)</span></td><td class="r" style="font-weight:600;padding:8px 12px;font-size:15px;color:var(--blue)">+ ${fmt(cpCompraPendente)}</td></tr>`:''}
             ${cpPendenteDespesa>0?`<tr><td style="padding:8px 12px">🔴 Contas a Pagar <span style="font-size:10px;color:var(--gray)">(despesas)</span></td><td class="r" style="font-weight:600;padding:8px 12px;font-size:15px;color:var(--red)">− ${fmt(cpPendenteDespesa)}</td></tr>`:''}
             ${acertoLiquido!==0?`<tr style="background:#f8fafc"><td style="padding:8px 12px">🔄 Acertos ${acertoLiquido>0?'(pendente retorno)':'(saldo positivo)'}</td><td class="r" style="font-weight:600;padding:8px 12px;font-size:15px;color:${acertoLiquido>0?'var(--red)':'var(--green)'}">${acertoLiquido>0?'− ':'+ '}${fmt(Math.abs(acertoLiquido))}</td></tr>`:''}
           </tbody>
@@ -2283,7 +2283,7 @@ function gerarPDFBalanco(){
   if(m.despInvestimento>0) lado2Body.push([{content:'Investimentos',styles:{textColor:[220,38,38]}},'- '+fmt(m.despInvestimento)]);
   lado2Body.push([{content:'Lucro com Vendas',styles:{textColor:[22,163,74],fontStyle:'bold'}},'+ '+fmt(lucro)]);
   if(outrasReceitas>0) lado2Body.push([{content:'Outras Receitas',styles:{textColor:[22,163,74]}},'+ '+fmt(outrasReceitas)]);
-  if(cpCompraPendente>0) lado2Body.push([{content:'Credito de Fornecedores (compras a prazo)',styles:{textColor:[37,99,235]}},'+ '+fmt(cpCompraPendente)]);
+  if(cpCompraPendente>0) lado2Body.push([{content:'Compras a Prazo a Pagar (divida com fornecedor)',styles:{textColor:[37,99,235]}},'+ '+fmt(cpCompraPendente)]);
   if(cpPendenteDespesa>0) lado2Body.push([{content:'Contas a Pagar (despesas)',styles:{textColor:[220,38,38]}},'- '+fmt(cpPendenteDespesa)]);
   if(acertoLiquido!==0) lado2Body.push([{content:'Acertos '+(acertoLiquido>0?'(pendente retorno)':'(saldo positivo)'),styles:{textColor:acertoLiquido>0?[220,38,38]:[22,163,74]}},(acertoLiquido>0?'- ':'+ ')+fmt(Math.abs(acertoLiquido))]);
   doc.autoTable({startY:lado1Y,
