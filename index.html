@@ -355,7 +355,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.05.15-l';
+const APP_VERSION = 'v2026.05.15-m';
 const STORAGE_KEY = 'importadora_data';
 const DEFAULT_DATA = {
   capital: 29640.61,
@@ -543,7 +543,7 @@ function calcMetrics(){
     else if(p.status==='Reservado (Encomenda)'){mercR+=c;itR+=q}
     catTot[p.cat]=(catTot[p.cat]||0)+c;
   });
-  D.movimentacoes.forEach(m=>{if(m.tipo==='Entrada')caixa+=m.valor;else caixa-=m.valor});
+  D.movimentacoes.forEach(m=>{if(m.aPagar)return;if(m.tipo==='Entrada')caixa+=m.valor;else caixa-=m.valor});
   D.vendas.forEach(v=>contasR+=(v.saldoReceber||0));
   const despTotal=D.despesas.filter(d=>(d.tipoDespesa||'Despesa')==='Despesa').reduce((a,d)=>a+(d.valor||0),0);
   const despInvestimento=D.despesas.filter(d=>d.tipoDespesa==='Investimento').reduce((a,d)=>a+(d.valor||0),0);
