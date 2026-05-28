@@ -1078,17 +1078,17 @@ function editField(prodId,field,el){
 function renderBalanco(){
   const m=calcMetrics();
 
+  // Contas a Pagar pendentes (separadas por origem)
+  const cpPendenteDespesa=D.contasPagar.filter(c=>c.status!=='Pago'&&(c.origem||'despesa')!=='compra').reduce((a,c)=>a+(c.valor||0),0);
+  const cpCompraPendente=D.contasPagar.filter(c=>c.status!=='Pago'&&c.origem==='compra').reduce((a,c)=>a+(c.valor||0),0);
+  const cpPendente=cpPendenteDespesa+cpCompraPendente;
+
   // LADO 1 — Onde está o dinheiro
   const caixa=m.caixa;
   const estoque=m.mercE+m.mercT+m.mercR; // Em Estoque + Em Trânsito + Reservado
   // A Receber: saldo a receber das vendas menos o custo dos produtos reservados (encomendas)
   const aReceber=m.contasR-m.mercR;
   const totalLado1=Math.round((caixa+estoque+aReceber-cpPendente)*100)/100;
-
-  // Contas a Pagar pendentes (separadas por origem)
-  const cpPendenteDespesa=D.contasPagar.filter(c=>c.status!=='Pago'&&(c.origem||'despesa')!=='compra').reduce((a,c)=>a+(c.valor||0),0);
-  const cpCompraPendente=D.contasPagar.filter(c=>c.status!=='Pago'&&c.origem==='compra').reduce((a,c)=>a+(c.valor||0),0);
-  const cpPendente=cpPendenteDespesa+cpCompraPendente;
 
   // LADO 2 — De onde veio o dinheiro
   const aportesLista=getAportes();
