@@ -355,7 +355,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.05.15-p';
+const APP_VERSION = 'v2026.05.15-q';
 const STORAGE_KEY = 'importadora_data';
 const DEFAULT_DATA = {
   capital: 29640.61,
@@ -1491,15 +1491,36 @@ function _vendaCartInfo(idx){
   return `Custo: ${fmt(custo)} • Lucro: ${fmt(lucro)} • Margem: ${margem}%`;
 }
 
+function _vendaCartItemsHtml(){
+  const disponiveis=D.produtos.filter(p=>p.status!=='Vendido');
+  return _vendaCart.map((it,i)=>`
+      <div style="display:grid;grid-template-columns:1fr 110px 1.3fr 34px;gap:6px;margin-bottom:6px;align-items:center">
+        <select id="pgVendaCartProd_${i}" onchange="vendaCartUpdate(${i},'produtoId',+this.value)" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">
+          <option value="0">— selecione o produto —</option>
+          ${disponiveis.map(p=>`<option value="${p.id}"${p.id===it.produtoId?' selected':''}>[${p.id}] ${p.nome} ${p.num?'Nº'+p.num:''} — custo ${fmt(p.custo)}</option>`).join('')}
+        </select>
+        <input id="pgVendaCartValor_${i}" type="number" step="0.01" value="${it.valorVenda||''}" onchange="vendaCartUpdate(${i},'valorVenda',+this.value)" placeholder="Preço R$" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;text-align:right">
+        <span id="vendaCartInfo_${i}" style="font-size:10px;color:var(--gray)">${_vendaCartInfo(i)}</span>
+        <button onclick="removeVendaCartItem(${i})" style="background:var(--red);color:#fff;border:none;width:30px;height:30px;border-radius:6px;font-size:13px;cursor:pointer" title="Remover item">✕</button>
+      </div>`).join('');
+}
+
+function _refreshVendaCart(){
+  const wrap=document.getElementById('vendaCartWrap');
+  if(wrap)wrap.innerHTML=_vendaCartItemsHtml();
+  const totEl=document.getElementById('vendaCartTotal');
+  if(totEl)totEl.textContent=fmt(_vendaCart.reduce((a,it)=>a+(+it.valorVenda||0),0));
+}
+
 function addVendaCartItem(){
   _vendaCart.push({produtoId:0,valorVenda:0});
-  renderPage();
+  _refreshVendaCart();
 }
 
 function removeVendaCartItem(idx){
   _vendaCart.splice(idx,1);
   if(_vendaCart.length===0)_vendaCart.push({produtoId:0,valorVenda:0});
-  renderPage();
+  _refreshVendaCart();
 }
 
 function vendaCartUpdate(idx,field,val){
