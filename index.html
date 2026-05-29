@@ -355,7 +355,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.05.15-o';
+const APP_VERSION = 'v2026.05.15-p';
 const STORAGE_KEY = 'importadora_data';
 const DEFAULT_DATA = {
   capital: 29640.61,
@@ -2424,11 +2424,15 @@ function syncDespToMov(despId,field,val){
 }
 
 // ═══════ MOVIMENTAÇÕES ═══════
-let movSearch='',movTipo='Todos',movCat='Todos',movPlano='Todos';
+let movSearch='',movTipo='Todos',movCat='Todos',movPlano='Todos',movMostrarAPagar=false;
 function renderMov(){
-  const ent=D.movimentacoes.filter(m=>m.tipo==='Entrada').reduce((a,m)=>a+(m.valor||0),0);
-  const sai=D.movimentacoes.filter(m=>m.tipo==='Saída').reduce((a,m)=>a+(m.valor||0),0);
+  // Totalizadores: pular movs com aPagar:true (compras a prazo nao mexem caixa)
+  const ent=D.movimentacoes.filter(m=>m.tipo==='Entrada'&&!m.aPagar).reduce((a,m)=>a+(m.valor||0),0);
+  const sai=D.movimentacoes.filter(m=>m.tipo==='Saída'&&!m.aPagar).reduce((a,m)=>a+(m.valor||0),0);
+  const nAPagar=D.movimentacoes.filter(m=>m.aPagar).length;
   let sorted=[...D.movimentacoes].sort((a,b)=>{const d=a.data.localeCompare(b.data);return d!==0?d:a.id-b.id});
+  // Por padrao, esconder movs com aPagar:true (aparecem em Contas a Pagar)
+  if(!movMostrarAPagar)sorted=sorted.filter(m=>!m.aPagar);
   const allCats=['Todos',...new Set(D.movimentacoes.map(m=>m.cat).filter(Boolean))];
   const allPlanos=['Todos',...new Set(D.movimentacoes.map(m=>m.plano).filter(Boolean))];
   if(movTipo!=='Todos')sorted=sorted.filter(m=>m.tipo===movTipo);
@@ -2447,13 +2451,14 @@ function renderMov(){
     <div class="f-group"><label>Tipo:</label><select onchange="movTipo=this.value;renderPage()"><option${movTipo==='Todos'?' selected':''}>Todos</option><option${movTipo==='Entrada'?' selected':''}>Entrada</option><option${movTipo==='Saída'?' selected':''}>Saída</option></select></div>
     <div class="f-group"><label>Categoria:</label><select onchange="movCat=this.value;renderPage()">${allCats.map(c=>`<option${c===movCat?' selected':''}>${c}</option>`).join('')}</select></div>
     <div class="f-group"><label>Plano:</label><select onchange="movPlano=this.value;renderPage()">${allPlanos.map(c=>`<option${c===movPlano?' selected':''}>${c}</option>`).join('')}</select></div>
-    <span class="f-clear" onclick="movSearch='';movTipo='Todos';movCat='Todos';movPlano='Todos';renderPage()">Limpar filtros</span>
+    <div class="f-group"><label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-weight:400;font-size:11px" title="Mostrar compras A Pagar (que nao mexem o caixa)"><input type="checkbox" ${movMostrarAPagar?'checked':''} onchange="movMostrarAPagar=this.checked;renderPage()"> Mostrar ${nAPagar} compra(s) A Pagar</label></div>
+    <span class="f-clear" onclick="movSearch='';movTipo='Todos';movCat='Todos';movPlano='Todos';movMostrarAPagar=false;renderPage()">Limpar filtros</span>
   </div>
   <div style="text-align:right;margin-bottom:10px"><button class="btn btn-sm" onclick="gerarPDFMov()" style="background:var(--dark);color:#fff">📄 Baixar PDF Movimentações</button></div>
   <div class="box"><h3>Extrato (${sorted.length} registros)</h3><div id="movTableScroll" style="max-height:600px;overflow-y:auto">
   <table><thead><tr><th>ID</th><th>Data</th><th>Descrição</th><th>Tipo</th><th>Categoria</th><th>Plano de Contas</th><th class="r">Valor</th><th class="r">Saldo</th><th>Ação</th></tr></thead><tbody>
-  ${sorted.map(m=>`<tr>
-    <td>${m.id}</td><td>${fmtD(m.data)}</td>
+  ${sorted.map(m=>`<tr${m.aPagar?' style="background:#fef3c7;opacity:.85"':''}>
+    <td>${m.id}${m.aPagar?' <span style="font-size:9px;background:#fde68a;color:#92400e;padding:1px 4px;border-radius:4px;margin-left:2px" title="Compra A Pagar - nao mexe o caixa">⏳</span>':''}</td><td>${fmtD(m.data)}</td>
     <td><span class="editable" onclick="abrirMovDetalhes(${m.id})" title="Clique para ver/editar detalhes, itens e comprovante">${m.desc}${(()=>{const _cm=getCompraMovId(m);if(!_cm)return'';const _n=D.produtos.filter(p=>p.movId===_cm).length;return _n>0?` <span style="font-size:9px;background:#dbeafe;color:#1e40af;padding:1px 5px;border-radius:8px;margin-left:2px;font-weight:600" title="${_n} produto(s) vinculado(s)">📦 ${_n}</span>`:''})()}${(m.comprovantes&&m.comprovantes.length)?` <span style="font-size:9px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:8px;margin-left:2px;font-weight:600" title="${m.comprovantes.length} comprovante(s) anexado(s)">📎 ${m.comprovantes.length}</span>`:''}</span></td>
     <td><span class="badge ${m.tipo==='Entrada'?'b-entrada':'b-saida'}">${m.tipo}</span></td>
     <td><span class="editable" onclick="editMovSelect(${m.id},'cat',this,['Capital Inicial','Pagamento Fornecedor','Recebimento Venda','Sinal Encomenda','Despesa Operacional','Custo Produto (Frete/Taxa)','Aporte Sócio','Retirada Sócio','Acerto','Outros'])">${m.cat||''}</span></td>
