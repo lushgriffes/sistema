@@ -355,7 +355,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.05.15-n';
+const APP_VERSION = 'v2026.05.15-o';
 const STORAGE_KEY = 'importadora_data';
 const DEFAULT_DATA = {
   capital: 29640.61,
@@ -2468,12 +2468,34 @@ function renderMov(){
 function excluirMov(movId){
   if(!PERMS.delete){toast('Sem permissão para excluir',true);return}
   const m=D.movimentacoes.find(x=>x.id===movId);if(!m)return;
-  if(!confirm(`Excluir movimentação?\n\n"${m.desc}"\n${m.tipo}: ${fmt(m.valor)}\n\nIsso vai recalcular todos os saldos e refletir no Dashboard.`))return;
+  const isCompra=m.cat==='Pagamento Fornecedor';
+  const prodsLinked=isCompra?D.produtos.filter(p=>p.movId===movId):[];
+  const vendidosLinked=prodsLinked.filter(p=>p.status==='Vendido');
+  let msg=`Excluir movimentação?\n\n"${m.desc}"\n${m.tipo}: ${fmt(m.valor)}`;
+  if(prodsLinked.length>0){
+    msg+=`\n\n⚠ Esta compra tem ${prodsLinked.length} produto(s) vinculado(s) ao estoque — eles serão REMOVIDOS também.`;
+    if(vendidosLinked.length>0)msg+=`\n\n⚠⚠ CUIDADO: ${vendidosLinked.length} produto(s) já estão VENDIDOS. Excluir vai deixar essas vendas sem produto.`;
+  }
+  msg+='\n\nIsso vai recalcular todos os saldos.';
+  if(!confirm(msg))return;
   // Se tem despesa vinculada, remover também
   if(m.despId){D.despesas=D.despesas.filter(d=>d.id!==m.despId)}
-  // Se veio de conta a pagar, voltar pra Pendente
+  // Conta a pagar vinculada: depende da origem
   const cp=D.contasPagar.find(c=>c.movIdEstorno===movId);
-  if(cp){cp.status='Pendente';cp.dataPgto='';cp.movIdEstorno=0;if(cp.despIdEstorno&&m.despId){cp.despIdEstorno=0}}
+  if(cp){
+    if(cp.origem==='compra'){
+      // CP criada PELA compra a prazo - excluir junto
+      D.contasPagar=D.contasPagar.filter(x=>x.id!==cp.id);
+    } else {
+      // CP de despesa que foi paga (criou a mov) - reverter pra pendente
+      cp.status='Pendente';cp.dataPgto='';cp.movIdEstorno=0;if(cp.despIdEstorno&&m.despId){cp.despIdEstorno=0}
+    }
+  }
+  // Se for uma compra, remover produtos vinculados ao estoque
+  if(isCompra&&prodsLinked.length>0){
+    const idsParaRemover=prodsLinked.map(p=>p.id);
+    D.produtos=D.produtos.filter(p=>!idsParaRemover.includes(p.id));
+  }
   // Se veio de conta a receber, voltar pra Pendente + reverter venda
   const cr=D.contasReceber.find(c=>c.movIdEstorno===movId);
   if(cr){
@@ -2614,6 +2636,11 @@ function renderMovDetalhesModal(movId){
           <button class="btn btn-sm" onclick="toggleEntregaPedido(${m.id})" style="background:${_e?'var(--orange)':'var(--green)'};color:#fff;white-space:nowrap">${_e?'↩ Marcar como pendente':'✅ Marcar como entregue'}</button>
         </div>`;})():''}
 
+        ${m.cat==='Pagamento Fornecedor'?(function(){var _p=!(m.aPagar||m.statusPagamento==='A Pagar');return `<div style="margin-bottom:14px;padding:10px 12px;background:${_p?'#d1fae5':'#fee2e2'};border:1px solid ${_p?'#6ee7b7':'#fca5a5'};border-radius:8px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+          <div style="min-width:160px"><div style="font-size:12px;font-weight:700;color:${_p?'#065f46':'#991b1b'}">${_p?'✅ Pago à vista':'🕒 A Pagar (não baixou do caixa)'}</div><div style="font-size:10px;color:var(--gray);margin-top:2px">${_p?'A compra já baixou do caixa.':'Vai pra Contas a Pagar até ser quitada. Caixa não foi mexido.'}</div></div>
+          <button class="btn btn-sm" onclick="togglePagamentoCompra(${m.id})" style="background:${_p?'#dc2626':'var(--green)'};color:#fff;white-space:nowrap">${_p?'↩ Marcar como A Pagar':'💰 Marcar como Pago'}</button>
+        </div>`;})():''}
+
         ${isTaxa?`
         <div style="margin-bottom:14px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;flex-wrap:wrap;gap:6px">
@@ -2711,6 +2738,7 @@ function renderMovDetalhesModal(movId){
 
         <div class="actions" style="margin-top:14px">
           ${m.numPedido?`<button class="btn btn-secondary" onclick="gerarPDFPedido(${m.id})">📄 Baixar PDF do Pedido</button>`:''}
+          ${m.cat==='Pagamento Fornecedor'?`<button class="btn btn-sm" onclick="fecharMovDetalhes();setTimeout(()=>excluirMov(${m.id}),50)" style="background:var(--red);color:#fff" title="Excluir compra (remove produtos vinculados e CP)">🗑️ Excluir Compra</button>`:''}
           <button class="btn btn-primary" onclick="fecharMovDetalhes()">✓ Concluir</button>
         </div>
       </div>
@@ -3943,23 +3971,25 @@ function renderHistoricoCompras(){
     <h2>📋 Histórico de Compras <span style="font-size:12px;font-weight:400;color:var(--gray)">(${compras.length} compras • cada uma com seu Nº de Pedido)</span></h2>
     <p style="font-size:11px;color:var(--gray);margin-bottom:12px">Toda compra gera um Pedido de Compra (PC-XXXX) que segue o produto até o estoque e a movimentação — rastreabilidade de ponta a ponta. Clique numa compra para ver os produtos.</p>
     <div style="max-height:420px;overflow-y:auto;overflow-x:auto">
-    <table style="min-width:820px"><thead><tr><th>Nº Pedido</th><th>Data</th><th>Fornecedor</th><th>Descrição</th><th>Entrega</th><th style="text-align:right">Produtos</th><th style="text-align:right">Valor</th><th>PDF</th></tr></thead><tbody>
-    ${compras.length===0?'<tr><td colspan="8" style="font-size:11px;color:var(--gray);padding:12px">Nenhuma compra registrada ainda.</td></tr>':
+    <table style="min-width:900px"><thead><tr><th>Nº Pedido</th><th>Data</th><th>Fornecedor</th><th>Descrição</th><th>Entrega</th><th>Pagamento</th><th style="text-align:right">Produtos</th><th style="text-align:right">Valor</th><th>PDF</th></tr></thead><tbody>
+    ${compras.length===0?'<tr><td colspan="9" style="font-size:11px;color:var(--gray);padding:12px">Nenhuma compra registrada ainda.</td></tr>':
     compras.map(m=>{
       const nProds=D.produtos.filter(p=>p.movId===m.id).length;
       const _ent=(m.statusEntrega||'Entregue')==='Entregue';
+      const _pago=!(m.aPagar||m.statusPagamento==='A Pagar');
       return `<tr>
         <td><span onclick="abrirMovDetalhes(${m.id})" style="font-weight:700;color:var(--blue);font-size:12px;white-space:nowrap;cursor:pointer;text-decoration:underline" title="Abrir pedido completo">${m.numPedido||'—'}</span></td>
         <td style="white-space:nowrap">${fmtD(m.data)}</td>
         <td style="font-weight:600">${m.fornecedor||'—'}</td>
         <td><span class="editable" onclick="abrirMovDetalhes(${m.id})" title="Ver produtos desta compra">${m.desc||'—'}</span></td>
         <td><span onclick="toggleEntregaPedido(${m.id})" title="Clique para alternar entrega" style="font-size:9px;padding:2px 6px;border-radius:6px;background:${_ent?'#d1fae5':'#fef3c7'};color:${_ent?'#065f46':'#92400e'};font-weight:600;white-space:nowrap;cursor:pointer">${_ent?'✅ Entregue':'🚚 Pendente'}</span></td>
+        <td><span onclick="togglePagamentoCompra(${m.id})" title="Clique para alternar pagamento" style="font-size:9px;padding:2px 6px;border-radius:6px;background:${_pago?'#d1fae5':'#fee2e2'};color:${_pago?'#065f46':'#991b1b'};font-weight:600;white-space:nowrap;cursor:pointer">${_pago?'✅ Pago':'🕒 A Pagar'}</span></td>
         <td class="r">${nProds}</td>
         <td class="r" style="font-weight:600;color:var(--red)">${fmt(m.valor)}</td>
         <td><button class="btn btn-sm" onclick="gerarPDFPedido(${m.id})" style="background:var(--dark);color:#fff;font-size:9px;padding:3px 8px" title="Baixar PDF deste pedido">📄</button></td>
       </tr>`;
     }).join('')}
-    </tbody><tfoot><tr><td colspan="5" style="font-weight:700">TOTAL EM COMPRAS (${compras.length})</td><td class="r" style="font-weight:700">${compras.reduce((a,m)=>a+D.produtos.filter(p=>p.movId===m.id).length,0)}</td><td class="r" style="font-weight:700;color:var(--red)">${fmt(totalCompras)}</td><td></td></tr></tfoot></table>
+    </tbody><tfoot><tr><td colspan="6" style="font-weight:700">TOTAL EM COMPRAS (${compras.length})</td><td class="r" style="font-weight:700">${compras.reduce((a,m)=>a+D.produtos.filter(p=>p.movId===m.id).length,0)}</td><td class="r" style="font-weight:700;color:var(--red)">${fmt(totalCompras)}</td><td></td></tr></tfoot></table>
     </div>
   </div>`;
 }
@@ -4027,6 +4057,38 @@ function salvarCompra(){
   }
   recalcSaldos();saveData();compraItems=[{nome:'',cat:'Tênis',custo:0,qtd:1,num:'',imgs:[]}];_compraForn='';
   toast(`Compra ${_numPedido} registrada! ${valid.reduce((a,i)=>a+(i.qtd||1),0)} produtos — Total: ${fmt(total)}${aPagar?' • A PAGAR (vai pra Contas a Pagar)':''}`);showTab(2);
+}
+
+function togglePagamentoCompra(movId){
+  if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
+  const m=D.movimentacoes.find(x=>x.id===movId);if(!m||m.cat!=='Pagamento Fornecedor')return;
+  const isAPagar=!!(m.aPagar||m.statusPagamento==='A Pagar');
+  if(isAPagar){
+    if(!confirm(`Marcar compra como PAGA agora?\n\n• ${m.desc}\n• Valor: ${fmt(m.valor)}\n• O caixa vai baixar ${fmt(m.valor)} hoje\n• A Conta a Pagar vinculada (se houver) será marcada como Paga`))return;
+    m.aPagar=false;m.statusPagamento='Pago';
+    const cp=D.contasPagar.find(c=>c.movIdEstorno===movId&&c.origem==='compra');
+    if(cp){cp.status='Pago';cp.dataPgto=hoje();}
+    recalcSaldos();saveData();
+    const ov=document.getElementById('movDetalhesOverlay');
+    if(ov)refreshMovModal(movId);else renderPage();
+    toast('Compra paga — caixa atualizado');
+  } else {
+    const venc=prompt('Vencimento da Conta a Pagar (AAAA-MM-DD):',m.data||hoje());
+    if(!venc)return;
+    if(!confirm(`Marcar compra como A PAGAR?\n\n• ${m.desc}\n• Valor: ${fmt(m.valor)}\n• O caixa volta a ter ${fmt(m.valor)} (compra deixa de baixar do caixa)\n• Cria Conta a Pagar com vencimento ${venc}`))return;
+    m.aPagar=true;m.statusPagamento='A Pagar';
+    // Verifica se ja existe CP vinculada - se sim, reabre como pendente; senao, cria
+    const cpExistente=D.contasPagar.find(c=>c.movIdEstorno===movId&&c.origem==='compra');
+    if(cpExistente){
+      cpExistente.status='Pendente';cpExistente.dataPgto='';cpExistente.vencimento=venc;
+    } else {
+      D.contasPagar.push({id:nextId(D.contasPagar),desc:`Compra ${m.numPedido||''} — ${m.fornecedor||''}`,valor:m.valor,vencimento:venc,cat:'Fornecedor',plano:'Mercadoria',status:'Pendente',dataPgto:'',obs:'',origem:'compra',movIdEstorno:movId,numPedido:m.numPedido||''});
+    }
+    recalcSaldos();saveData();
+    const ov=document.getElementById('movDetalhesOverlay');
+    if(ov)refreshMovModal(movId);else renderPage();
+    toast('Compra agora está A Pagar — CP gerada');
+  }
 }
 
 function toggleEntregaPedido(movId){
