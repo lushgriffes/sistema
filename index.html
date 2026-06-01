@@ -302,6 +302,21 @@ async function loadDataFromSupabase(){
     (d.contasPagar||[]).forEach(c=>{if(!c.origem)c.origem='despesa'});
     // Migracao: aPagar default false nas movimentacoes existentes
     d.movimentacoes.forEach(m=>{if(m.aPagar===undefined)m.aPagar=false;if(m.statusPagamento===undefined&&m.cat==='Pagamento Fornecedor')m.statusPagamento='Pago'});
+    // Migracao auto-cura: garantir CP para toda compra A Pagar (origem='compra')
+    d.movimentacoes.filter(m=>m.cat==='Pagamento Fornecedor'&&m.aPagar).forEach(m=>{
+      let cp=(d.contasPagar||[]).find(c=>c.movIdEstorno===m.id&&c.origem==='compra');
+      if(!cp){
+        // CP nao existe - criar
+        const novoId=(d.contasPagar||[]).reduce((mx,c)=>Math.max(mx,c.id||0),0)+1;
+        if(!d.contasPagar)d.contasPagar=[];
+        d.contasPagar.push({id:novoId,desc:`Compra ${m.numPedido||''} — ${m.fornecedor||''}`,valor:+m.valor||0,vencimento:m.data||'',cat:'Fornecedor',plano:'Mercadoria',status:'Pendente',dataPgto:'',obs:'',origem:'compra',movIdEstorno:m.id,numPedido:m.numPedido||''});
+      } else {
+        // CP existe - sincronizar valor + status
+        if(Math.abs((+cp.valor||0)-(+m.valor||0))>0.01)cp.valor=+m.valor||0;
+        if(cp.status==='Pago'){cp.status='Pendente';cp.dataPgto='';}
+        if(!cp.numPedido&&m.numPedido)cp.numPedido=m.numPedido;
+      }
+    });
     // Migracao: recomputar venda.recebido/saldoReceber a partir das CRs vinculadas (sincronia legado)
     d.vendas.forEach(v=>{
       const crs=(d.contasReceber||[]).filter(c=>c.vendaId===v.id);
@@ -355,7 +370,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.05.16-b';
+const APP_VERSION = 'v2026.05.16-c';
 const STORAGE_KEY = 'importadora_data';
 const DEFAULT_DATA = {
   capital: 29640.61,
@@ -479,6 +494,21 @@ function loadData(){
       (d.contasPagar||[]).forEach(c=>{if(!c.origem)c.origem='despesa'});
       // Migracao: aPagar default false nas movimentacoes existentes
       d.movimentacoes.forEach(m=>{if(m.aPagar===undefined)m.aPagar=false;if(m.statusPagamento===undefined&&m.cat==='Pagamento Fornecedor')m.statusPagamento='Pago'});
+      // Migracao auto-cura: garantir CP para toda compra A Pagar (origem='compra')
+      d.movimentacoes.filter(m=>m.cat==='Pagamento Fornecedor'&&m.aPagar).forEach(m=>{
+        let cp=(d.contasPagar||[]).find(c=>c.movIdEstorno===m.id&&c.origem==='compra');
+        if(!cp){
+            // CP nao existe - criar
+            const novoId=(d.contasPagar||[]).reduce((mx,c)=>Math.max(mx,c.id||0),0)+1;
+            if(!d.contasPagar)d.contasPagar=[];
+            d.contasPagar.push({id:novoId,desc:`Compra ${m.numPedido||''} — ${m.fornecedor||''}`,valor:+m.valor||0,vencimento:m.data||'',cat:'Fornecedor',plano:'Mercadoria',status:'Pendente',dataPgto:'',obs:'',origem:'compra',movIdEstorno:m.id,numPedido:m.numPedido||''});
+        } else {
+            // CP existe - sincronizar valor + status
+            if(Math.abs((+cp.valor||0)-(+m.valor||0))>0.01)cp.valor=+m.valor||0;
+            if(cp.status==='Pago'){cp.status='Pendente';cp.dataPgto='';}
+            if(!cp.numPedido&&m.numPedido)cp.numPedido=m.numPedido;
+        }
+      });
       // Migracao: recomputar venda.recebido/saldoReceber a partir das CRs vinculadas (sincronia legado)
       d.vendas.forEach(v=>{
         const crs=(d.contasReceber||[]).filter(c=>c.vendaId===v.id);
@@ -4115,7 +4145,7 @@ function togglePagamentoCompra(movId){
     // Verifica se ja existe CP vinculada - se sim, reabre como pendente; senao, cria
     const cpExistente=D.contasPagar.find(c=>c.movIdEstorno===movId&&c.origem==='compra');
     if(cpExistente){
-      cpExistente.status='Pendente';cpExistente.dataPgto='';cpExistente.vencimento=venc;
+      cpExistente.status='Pendente';cpExistente.dataPgto='';cpExistente.vencimento=venc;cpExistente.valor=m.valor;
     } else {
       D.contasPagar.push({id:nextId(D.contasPagar),desc:`Compra ${m.numPedido||''} — ${m.fornecedor||''}`,valor:m.valor,vencimento:venc,cat:'Fornecedor',plano:'Mercadoria',status:'Pendente',dataPgto:'',obs:'',origem:'compra',movIdEstorno:movId,numPedido:m.numPedido||''});
     }
