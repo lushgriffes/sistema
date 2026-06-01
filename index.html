@@ -355,7 +355,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.05.15-q';
+const APP_VERSION = 'v2026.05.16-a';
 const STORAGE_KEY = 'importadora_data';
 const DEFAULT_DATA = {
   capital: 29640.61,
@@ -2764,6 +2764,7 @@ function renderMovDetalhesModal(movId){
 
         <div class="actions" style="margin-top:14px">
           ${m.numPedido?`<button class="btn btn-secondary" onclick="gerarPDFPedido(${m.id})">📄 Baixar PDF do Pedido</button>`:''}
+          ${m.cat==='Pagamento Fornecedor'?`<button class="btn btn-sm" onclick="editarValorCompra(${m.id})" style="background:var(--orange);color:#fff" title="Alterar valor da compra (ex: desconto negociado)">💰 Alterar valor</button>`:''}
           ${m.cat==='Pagamento Fornecedor'?`<button class="btn btn-sm" onclick="fecharMovDetalhes();setTimeout(()=>excluirMov(${m.id}),50)" style="background:var(--red);color:#fff" title="Excluir compra (remove produtos vinculados e CP)">🗑️ Excluir Compra</button>`:''}
           <button class="btn btn-primary" onclick="fecharMovDetalhes()">✓ Concluir</button>
         </div>
@@ -4115,6 +4116,47 @@ function togglePagamentoCompra(movId){
     if(ov)refreshMovModal(movId);else renderPage();
     toast('Compra agora está A Pagar — CP gerada');
   }
+}
+
+function editarValorCompra(movId){
+  if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
+  const m=D.movimentacoes.find(x=>x.id===movId);if(!m||m.cat!=='Pagamento Fornecedor')return;
+  const isAPagar=!!(m.aPagar||m.statusPagamento==='A Pagar');
+  if(!isAPagar){
+    if(!confirm(`Esta compra está marcada como PAGA. Alterar o valor agora vai afetar o caixa retroativamente.\n\nTem certeza?`))return;
+  }
+  const novo=prompt(`Valor atual: ${fmt(m.valor)}\n\nNovo valor da compra:`,(+m.valor||0).toFixed(2));
+  if(novo===null)return;
+  const nv=+String(novo).replace(',','.');
+  if(!(nv>=0)||isNaN(nv)){toast('Valor inválido',true);return}
+  const valorAntigo=Math.round((+m.valor||0)*100)/100;
+  const valorNovo=Math.round(nv*100)/100;
+  if(Math.abs(valorNovo-valorAntigo)<0.01){toast('Valor não mudou',true);return}
+  const diferenca=Math.round((valorNovo-valorAntigo)*100)/100;
+  const prods=D.produtos.filter(p=>p.movId===movId);
+  let redistribuir=false;
+  if(prods.length>0&&valorAntigo>0){
+    const sinal=diferenca>=0?'acréscimo de':'desconto de';
+    redistribuir=confirm(`Diferença: ${sinal} ${fmt(Math.abs(diferenca))}\n\nDeseja DISTRIBUIR proporcionalmente nos custos dos ${prods.length} produto(s) vinculados?\n\n• OK = Sim — custos dos produtos mudam (recomendado para desconto no fechamento)\n• Cancelar = Não — só ajusta o valor da compra; custos dos produtos ficam iguais`);
+  }
+  m.valor=valorNovo;
+  // Atualizar CP vinculada (compra a prazo)
+  const cp=D.contasPagar.find(c=>c.movIdEstorno===movId&&c.origem==='compra');
+  if(cp)cp.valor=valorNovo;
+  if(redistribuir&&prods.length>0&&valorAntigo>0){
+    const ratio=valorNovo/valorAntigo;
+    prods.forEach(p=>{
+      const custoAntigo=+p.custo||0;
+      const custoNovo=Math.round(custoAntigo*ratio*100)/100;
+      const delta=Math.round((custoNovo-custoAntigo)*100)/100;
+      if(typeof _aplicarDeltaCustoProduto==='function')_aplicarDeltaCustoProduto(p.id,delta);
+      else p.custo=custoNovo;
+    });
+  }
+  recalcSaldos();saveData();
+  const ov=document.getElementById('movDetalhesOverlay');
+  if(ov)refreshMovModal(movId);else renderPage();
+  toast(`Valor da compra: ${fmt(valorAntigo)} → ${fmt(valorNovo)}${redistribuir?' (custos redistribuídos)':''}`);
 }
 
 function toggleEntregaPedido(movId){
