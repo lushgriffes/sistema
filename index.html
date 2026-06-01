@@ -278,6 +278,7 @@ async function loadDataFromSupabase(){
     if(!d.categoriasMov||!d.categoriasMov.length)d.categoriasMov=(DEFAULT_DATA.categoriasMov||["Capital Inicial","Pagamento Fornecedor","Recebimento Venda","Sinal Encomenda","Despesa Operacional","Custo Produto (Frete/Taxa)","Aporte Sócio","Outros"]);
     if(!d.categoriasDespesa||!d.categoriasDespesa.length)d.categoriasDespesa=(DEFAULT_DATA.categoriasDespesa||["Transporte","Embalagem","Ferramenta","Comunicação","Alimentação","Comissão","Fornecedor","Outros"]);
     if(d.categoriasMov&&!d.categoriasMov.includes('Retirada Sócio'))d.categoriasMov.push('Retirada Sócio');
+    if(d.categoriasMov&&!d.categoriasMov.includes('Devolução de Venda'))d.categoriasMov.push('Devolução de Venda');
     if(!d.recebimentos)d.recebimentos=[];
     if(!d.categoriasRecebimento||!d.categoriasRecebimento.length)d.categoriasRecebimento=(DEFAULT_DATA.categoriasRecebimento||["Reembolso","Rendimento Financeiro","Empréstimo Recebido","Outras Receitas"]);
     if(!d.nextRecebId)d.nextRecebId=(d.recebimentos.reduce((m,r)=>Math.max(m,r.id||0),0)+1);
@@ -370,7 +371,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.05.16-d';
+const APP_VERSION = 'v2026.05.16-e';
 const STORAGE_KEY = 'importadora_data';
 const DEFAULT_DATA = {
   capital: 29640.61,
@@ -441,7 +442,7 @@ const DEFAULT_DATA = {
   nextFornId: 5,
   categorias: ["Tênis","Bolsa","Relógio","Chinelo","Óculos","Outro"],
   planoContas: ["Logística","Material","Equipamento","Fiscal/Tributário","Tecnologia","Marketing","Comissão","Alimentação","Investimento","Receita","Acerto","Outros"],
-  categoriasMov: ["Capital Inicial","Pagamento Fornecedor","Recebimento Venda","Sinal Encomenda","Despesa Operacional","Custo Produto (Frete/Taxa)","Aporte Sócio","Retirada Sócio","Acerto","Outros"],
+  categoriasMov: ["Capital Inicial","Pagamento Fornecedor","Recebimento Venda","Devolução de Venda","Sinal Encomenda","Despesa Operacional","Custo Produto (Frete/Taxa)","Aporte Sócio","Retirada Sócio","Acerto","Outros"],
   categoriasDespesa: ["Transporte","Embalagem","Ferramenta","Comunicação","Alimentação","Comissão","Fornecedor","Outros"],
   taxaSelic: 14.75,
   spreadAportes: 3,
@@ -468,6 +469,7 @@ function loadData(){
       if(!d.categoriasMov||!d.categoriasMov.length)d.categoriasMov=(DEFAULT_DATA.categoriasMov||["Capital Inicial","Pagamento Fornecedor","Recebimento Venda","Sinal Encomenda","Despesa Operacional","Custo Produto (Frete/Taxa)","Aporte Sócio","Outros"]);
       if(!d.categoriasDespesa||!d.categoriasDespesa.length)d.categoriasDespesa=(DEFAULT_DATA.categoriasDespesa||["Transporte","Embalagem","Ferramenta","Comunicação","Alimentação","Comissão","Fornecedor","Outros"]);
       if(d.categoriasMov&&!d.categoriasMov.includes('Retirada Sócio'))d.categoriasMov.push('Retirada Sócio');
+      if(d.categoriasMov&&!d.categoriasMov.includes('Devolução de Venda'))d.categoriasMov.push('Devolução de Venda');
       if(!d.recebimentos)d.recebimentos=[];
       if(!d.categoriasRecebimento||!d.categoriasRecebimento.length)d.categoriasRecebimento=(DEFAULT_DATA.categoriasRecebimento||["Reembolso","Rendimento Financeiro","Empréstimo Recebido","Outras Receitas"]);
       if(!d.nextRecebId)d.nextRecebId=(d.recebimentos.reduce((m,r)=>Math.max(m,r.id||0),0)+1);
@@ -1634,58 +1636,33 @@ function salvarVenda(){
 function cancelarVenda(vendaId){
   if(!PERMS.delete){toast('Sem permissão para excluir',true);return}
   const v=D.vendas.find(x=>x.id===vendaId);if(!v)return;
-  const jaRecebido=v.recebido||0;
-
-  let msgReceb='';
-  let opcoes='';
+  const jaRecebido=+v.recebido||0;
   if(jaRecebido>0){
-    msgReceb=`\n\n⚠️ Já foi recebido ${fmt(jaRecebido)} desta venda.`;
-    opcoes='\n\nO que fazer com o valor recebido?\n• OK = Estornar (devolver ao cliente, remove das movimentações)\n• Cancelar = Manter como crédito do cliente';
-  }
-
-  if(jaRecebido>0){
-    // Primeiro pergunta se quer cancelar
-    if(!confirm(`Cancelar a venda?\n\n${v.produto} → ${v.cliente}\nValor: ${fmt(v.valorVenda)}${msgReceb}\n\nIsso vai devolver o produto ao estoque e remover contas a receber.`))return;
-
-    // Depois pergunta sobre o valor recebido
-    const estornar=confirm(`O cliente já pagou ${fmt(jaRecebido)}.\n\nDeseja ESTORNAR (remover das movimentações)?\n\n• OK = Estornar (devolver valor ao cliente)\n• Cancelar = Manter como crédito do cliente`);
-
-    // Devolver produto
+    // Já recebeu valor — precisa registrar a devolucao no caixa
+    if(!confirm(`Cancelar a venda?\n\n${v.produto} → ${v.cliente}\nValor: ${fmt(v.valorVenda)}\nJá recebido: ${fmt(jaRecebido)}\n\n• Produto volta para o estoque\n• Cria uma SAÍDA de ${fmt(jaRecebido)} (devolução) no caixa\n• Remove contas a receber pendentes`))return;
+    const dataInp=prompt(`Qual a DATA da devolução de ${fmt(jaRecebido)}? (DD/MM/AAAA)`,fmtD(hoje()));
+    if(!dataInp)return;
+    const dataDevol=parseDataBR(dataInp);
+    if(!dataDevol){toast('Data inválida (use DD/MM/AAAA)',true);return}
+    // Criar movimentacao de Saida (devolucao)
+    D.movimentacoes.push({id:nextId(D.movimentacoes),data:dataDevol,desc:`Devolução venda cancelada — ${v.cliente} — ${v.produto}`,tipo:'Saída',cat:'Devolução de Venda',plano:'Receita',valor:jaRecebido,saldo:0});
+    // Devolver produto ao estoque
     const prod=D.produtos.find(p=>p.id===v.produtoId);
     if(prod)prod.status='Em Estoque';
-
-    if(estornar){
-      // Remover movimentações de recebimento
-      const crsVenda=D.contasReceber.filter(c=>c.vendaId===vendaId);
-      crsVenda.forEach(c=>{
-        if(c.movIdEstorno)D.movimentacoes=D.movimentacoes.filter(m=>m.id!==c.movIdEstorno);
-      });
-      const descPadrao=`Recebimento Venda — ${v.cliente} — ${v.produto}`;
-      D.movimentacoes=D.movimentacoes.filter(m=>!(m.desc===descPadrao&&m.tipo==='Entrada'));
-      // Remover por padrão de parcela também
-      D.movimentacoes=D.movimentacoes.filter(m=>!(m.desc.includes(`— ${v.cliente} —`)&&m.desc.includes('Recebimento')&&m.tipo==='Entrada'));
-      toast(`Venda cancelada e ${fmt(jaRecebido)} estornado`);
-    } else {
-      // Manter como crédito — registrar movimentação de crédito
-      D.movimentacoes.push({id:nextId(D.movimentacoes),data:hoje(),desc:`Crédito cliente ${v.cliente} — cancelamento ${v.produto}`,tipo:'Saída',cat:'Crédito Cliente',plano:'Receita',valor:0,saldo:0});
-      toast(`Venda cancelada. ${fmt(jaRecebido)} mantido como crédito de ${v.cliente}`);
-    }
-
-    // Remover contas a receber e venda
+    // Remover contas a receber pendentes e a venda
     D.contasReceber=D.contasReceber.filter(c=>c.vendaId!==vendaId);
     D.vendas=D.vendas.filter(x=>x.id!==vendaId);
     recalcSaldos();saveData();renderPage();
-
+    toast(`Venda cancelada. Devolução de ${fmt(jaRecebido)} em ${fmtD(dataDevol)} registrada.`);
   } else {
-    // Sem recebimentos — cancelamento simples
-    if(!confirm(`Cancelar a venda?\n\n${v.produto} → ${v.cliente}\nValor: ${fmt(v.valorVenda)}\n\nIsso vai:\n• Devolver o produto ao estoque\n• Remover contas a receber relacionadas`))return;
-
+    // Sem valor recebido — cancelamento simples
+    if(!confirm(`Cancelar a venda?\n\n${v.produto} → ${v.cliente}\nValor: ${fmt(v.valorVenda)}\n\n• Produto volta para o estoque\n• Remove contas a receber pendentes\n• Sem movimentação no caixa (nada foi recebido)`))return;
     const prod=D.produtos.find(p=>p.id===v.produtoId);
     if(prod)prod.status='Em Estoque';
     D.contasReceber=D.contasReceber.filter(c=>c.vendaId!==vendaId);
     D.vendas=D.vendas.filter(x=>x.id!==vendaId);
-    recalcSaldos();saveData();
-    toast(`Venda cancelada: ${v.produto} → ${v.cliente}`);renderPage();
+    recalcSaldos();saveData();renderPage();
+    toast(`Venda cancelada — produto devolvido ao estoque`);
   }
 }
 
