@@ -355,7 +355,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.05.16-a';
+const APP_VERSION = 'v2026.05.16-b';
 const STORAGE_KEY = 'importadora_data';
 const DEFAULT_DATA = {
   capital: 29640.61,
@@ -2969,7 +2969,10 @@ function sincronizarValorMov(movId){
   m.valor=total;
   // Se for aporte mercadoria, atualizar tambem o par
   if(m.aportePairId){const _p=D.movimentacoes.find(x=>x.id===m.aportePairId);if(_p)_p.valor=total}
-  recalcSaldos();saveData();refreshMovModal(movId);toast('Valor sincronizado');
+  // Se for compra a prazo, atualizar a CP vinculada (origem='compra')
+  const _cp=D.contasPagar.find(c=>c.movIdEstorno===compraMovId&&c.origem==='compra'&&c.status!=='Pago');
+  if(_cp){_cp.valor=total;}
+  recalcSaldos();saveData();refreshMovModal(movId);toast(_cp?'Valor sincronizado (compra + CP)':'Valor sincronizado');
 }
 
 function uploadComprovanteMov(movId){
@@ -3715,7 +3718,7 @@ function renderContasPagar(){
     const statusDisplay=c.status==='Pago'?'Pago':(vencida?'Vencido':'Pendente');
     const badgeCl=c.status==='Pago'?'b-pago':(vencida?'b-vencido':'b-pendente');
     return `<tr${vencida?' style="background:#fff5f5"':''}>
-      <td>${fmtD(c.vencimento)}</td><td>${c.desc}</td><td>${c.cat||''}</td><td>${c.plano||''}</td>
+      <td>${fmtD(c.vencimento)}</td><td>${c.origem==='compra'&&c.movIdEstorno?`<span onclick="abrirMovDetalhes(${c.movIdEstorno})" style="color:var(--blue);cursor:pointer;text-decoration:underline" title="Abrir pedido completo com produtos">${c.desc}</span>${c.numPedido?` <span style="font-size:9px;background:#dbeafe;color:#1e40af;padding:1px 5px;border-radius:8px;margin-left:2px;font-weight:600">${c.numPedido}</span>`:''}`:c.desc}</td><td>${c.cat||''}</td><td>${c.plano||''}</td>
       <td class="r" style="font-weight:600">${fmt(c.valor)}</td>
       <td><span class="badge ${badgeCl}">${statusDisplay}</span></td>
       <td><select onchange="mudarStatusCP(${c.id},this.value)" style="font-size:10px;padding:3px 6px;border-radius:4px;border:1px solid #ddd">
@@ -3742,11 +3745,14 @@ function mudarStatusCP(cpId,newStatus){
   // === Caso especial: CP de compra a prazo (origem='compra') ===
   if(c.origem==='compra'){
     if(newStatus==='Pago'&&c.status!=='Pago'){
-      c.status='Pago';c.dataPgto=hoje();
+      const dataPgto=prompt(`Pagar a compra:\n${c.desc}\nValor: ${fmt(c.valor)}\n\nQual a DATA do pagamento? (AAAA-MM-DD)`, hoje());
+      if(!dataPgto){renderPage();return}
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(dataPgto)){toast('Data inválida (use AAAA-MM-DD)',true);renderPage();return}
+      c.status='Pago';c.dataPgto=dataPgto;
       const mv=D.movimentacoes.find(x=>x.id===c.movIdEstorno);
       if(mv){mv.aPagar=false;mv.statusPagamento='Pago';mv.data=c.dataPgto;}
       recalcSaldos();saveData();renderPage();
-      toast(`Compra paga: ${c.desc} — ${fmt(c.valor)} (baixou do caixa)`);return;
+      toast(`Compra paga em ${fmtD(dataPgto)}: ${c.desc} — ${fmt(c.valor)}`);return;
     } else if(newStatus==='Pendente'&&c.status==='Pago'){
       c.status='Pendente';c.dataPgto='';
       const mv=D.movimentacoes.find(x=>x.id===c.movIdEstorno);
@@ -4091,14 +4097,16 @@ function togglePagamentoCompra(movId){
   const m=D.movimentacoes.find(x=>x.id===movId);if(!m||m.cat!=='Pagamento Fornecedor')return;
   const isAPagar=!!(m.aPagar||m.statusPagamento==='A Pagar');
   if(isAPagar){
-    if(!confirm(`Marcar compra como PAGA agora?\n\n• ${m.desc}\n• Valor: ${fmt(m.valor)}\n• O caixa vai baixar ${fmt(m.valor)} hoje\n• A Conta a Pagar vinculada (se houver) será marcada como Paga`))return;
-    m.aPagar=false;m.statusPagamento='Pago';
+    const dataPgto=prompt(`Marcar compra como PAGA\n\n• ${m.desc}\n• Valor: ${fmt(m.valor)}\n\nQual a DATA do pagamento? (AAAA-MM-DD)`, hoje());
+    if(!dataPgto)return;
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(dataPgto)){toast('Data inválida (use AAAA-MM-DD)',true);return}
+    m.aPagar=false;m.statusPagamento='Pago';m.data=dataPgto;
     const cp=D.contasPagar.find(c=>c.movIdEstorno===movId&&c.origem==='compra');
-    if(cp){cp.status='Pago';cp.dataPgto=hoje();}
+    if(cp){cp.status='Pago';cp.dataPgto=dataPgto;}
     recalcSaldos();saveData();
     const ov=document.getElementById('movDetalhesOverlay');
     if(ov)refreshMovModal(movId);else renderPage();
-    toast('Compra paga — caixa atualizado');
+    toast(`Compra paga em ${fmtD(dataPgto)} — caixa atualizado`);
   } else {
     const venc=prompt('Vencimento da Conta a Pagar (AAAA-MM-DD):',m.data||hoje());
     if(!venc)return;
