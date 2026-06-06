@@ -5453,20 +5453,25 @@ function renderUsersRows(){
 }
 // ═══════ REVISÃO DE MOVIMENTAÇÕES ═══════
 const _FABRICATED_IDS=new Set([19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69]);
-if(!window._rvState)window._rvState={approved:new Set(),removed:new Set(),editId:null,filter:'fab'};
+// IDs totalmente inventados — pre-marcados para remoção
+const _JUNK_IDS=new Set([24,37,43,54,60,61,64,65,66]);
+if(!window._rvState){
+  window._rvState={approved:new Set(),removed:new Set(_JUNK_IDS),editId:null,filter:'fab'};
+}
 
 function _rvNote(m){
   if(!_FABRICATED_IDS.has(m.id))return '';
-  if(m.id===24)return '⚠️ R$7,22 inventado p/ fechar A Receber';
-  if(m.id===37)return '⚠️ Frete inventado p/ justificar custo bolsa';
-  if(m.id===59)return '⚠️ Valor do PDF, data inventada';
-  if(m.id===69)return '⚠️ Valor do PDF, data inventada';
-  if(m.cat==='Recebimento Venda')return '⚠️ Valor da venda, data inventada';
-  if(m.cat==='Capital Inicial')return '📋 Valor do PDF. Conferir data';
-  if(m.cat==='Pagamento Fornecedor')return '⚠️ Compra criada por mim. Conferir tudo';
-  if(m.cat==='Despesa Operacional'||m.cat==='Custo Produto (Frete/Taxa)')return '⚠️ Valor e data inventados';
-  if(m.cat==='Retirada Sócio')return '⚠️ Valor do PDF, data inventada';
-  return '⚠️ Criada na reconstrução';
+  if(_JUNK_IDS.has(m.id)){
+    if(m.id===24)return '🗑️ R$7,22 INVENTADO p/ fechar A Receber';
+    if(m.id===37)return '🗑️ Frete INVENTADO p/ justificar custo bolsa';
+    return '🗑️ Despesa inventada — valor e data são chute';
+  }
+  if(m.cat==='Recebimento Venda')return '✅ Valor correto (da venda). Conferir DATA';
+  if(m.cat==='Capital Inicial')return '✅ Valor do PDF. Conferir DATA';
+  if(m.cat==='Pagamento Fornecedor')return '✅ Valor do produto. Conferir DATA';
+  if(m.cat==='Retirada Sócio')return '✅ Valor do PDF. Conferir DATA';
+  if(m.id===59)return '✅ Valor do PDF. Conferir DATA';
+  return '⚠️ Conferir valor e data';
 }
 
 function rvApprove(id){window._rvState.approved.add(id);window._rvState.removed.delete(id);renderPage()}
