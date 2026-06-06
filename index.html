@@ -1321,127 +1321,150 @@ function renderBalanco(){
 // ═══════ DIAGNOSTICO DO BALANCO ═══════
 function diagnosticarBalanco(){
   const m=calcMetrics();
-  // === LADO 1: recalcular cada componente ===
-  let caixaEntradas=0,caixaSaidas=0;
-  const entradaPorCat={},saidaPorCat={};
-  D.movimentacoes.forEach(mv=>{
-    if(mv.aPagar)return;
-    const cat=mv.cat||'Sem categoria';
-    if(mv.tipo==='Entrada'){caixaEntradas+=mv.valor;entradaPorCat[cat]=(entradaPorCat[cat]||0)+mv.valor}
-    else{caixaSaidas+=mv.valor;saidaPorCat[cat]=(saidaPorCat[cat]||0)+mv.valor}
-  });
-  const caixa=Math.round((caixaEntradas-caixaSaidas)*100)/100;
-
-  // Estoque por status
-  let estoqueE=0,estoqueT=0,estoqueR=0;
-  D.produtos.forEach(p=>{
-    const c=(p.custo||0)*(p.qtd||1);
-    if(p.status==='Em Estoque')estoqueE+=c;
-    else if(p.status==='Em Trânsito')estoqueT+=c;
-    else if(p.status==='Reservado (Encomenda)')estoqueR+=c;
-  });
-  const estoque=estoqueE+estoqueT+estoqueR;
-  const contasR=D.vendas.reduce((a,v)=>a+(v.saldoReceber||0),0);
-  const aReceber=contasR-estoqueR;
-  const cpPend=D.contasPagar.filter(c=>c.status!=='Pago').reduce((a,c)=>a+(c.valor||0),0);
-  const totalL1=Math.round((caixa+estoque+aReceber-cpPend)*100)/100;
-
-  // === LADO 2: recalcular ===
-  const aportesTotal=D.movimentacoes.filter(mv=>mv.tipo==='Entrada'&&(mv.cat==='Capital Inicial'||mv.cat==='Aporte Sócio')).reduce((a,mv)=>a+(mv.valor||0),0);
-  const retiradas=D.movimentacoes.filter(mv=>mv.tipo==='Saída'&&mv.cat==='Retirada Sócio').reduce((a,mv)=>a+(mv.valor||0),0);
-  const despOp=D.despesas.filter(d=>(d.tipoDespesa||'Despesa')==='Despesa').reduce((a,d)=>a+(d.valor||0),0);
-  const despInv=D.despesas.filter(d=>d.tipoDespesa==='Investimento').reduce((a,d)=>a+(d.valor||0),0);
-  const despAll=D.despesas.filter(d=>d.tipoDespesa!=='Acerto+'&&d.tipoDespesa!=='Acerto-').reduce((a,d)=>a+(d.valor||0),0);
-  const acertoS=D.despesas.filter(d=>d.tipoDespesa==='Acerto-').reduce((a,d)=>a+(d.valor||0),0);
-  const acertoE=D.despesas.filter(d=>d.tipoDespesa==='Acerto+').reduce((a,d)=>a+(d.valor||0),0);
-  const lucro=D.vendas.reduce((a,v)=>a+((v.valorVenda||0)-(v.custo||0)),0);
+  const cpPendente=D.contasPagar.filter(c=>c.status!=='Pago').reduce((a,c)=>a+(c.valor||0),0);
+  const aportesOnly=getAportes().filter(x=>!x.isRetirada);
+  const aportes=aportesOnly.reduce((a,x)=>a+x.valor,0);
+  const retiradasBal=getRetiradasTotal();
+  const lucro=m.lucroVendas;
   const outrasRec=(D.recebimentos||[]).reduce((a,r)=>a+(+r.valor||0),0);
-  const totalL2=Math.round((aportesTotal-despAll+lucro+outrasRec-retiradas-(acertoS-acertoE))*100)/100;
+  const acertoLiq=m.acertoSaida-m.acertoEntrada;
+
+  const totalL1=Math.round((m.caixa+m.mercE+m.mercT+m.mercR+(m.contasR-m.mercR)-cpPendente)*100)/100;
+  const totalL2=Math.round((aportes-m.despTotalAll+lucro+outrasRec-retiradasBal-acertoLiq)*100)/100;
   const diff=Math.round((totalL1-totalL2)*100)/100;
 
-  // === CRUZAMENTOS para achar a diferença ===
-  // 1. Pagamento Fornecedor (Saídas) vs Total de produtos no estoque+vendidos
-  const totalComprasSaida=D.movimentacoes.filter(mv=>!mv.aPagar&&mv.tipo==='Saída'&&mv.cat==='Pagamento Fornecedor').reduce((a,mv)=>a+(mv.valor||0),0);
-  const totalProdutosCusto=D.produtos.reduce((a,p)=>a+((p.custo||0)*(p.qtd||1)),0);
-  const diffCompras=Math.round((totalComprasSaida-totalProdutosCusto)*100)/100;
+  // ═══ RASTREAR CADA MOVIMENTAÇÃO: onde ela está contabilizada? ═══
+  const problemas=[];
+  let somaDescobertas=0;
 
-  // 2. Despesas nas movimentações vs despesas na lista
-  const despMovSaida=D.movimentacoes.filter(mv=>!mv.aPagar&&mv.tipo==='Saída'&&mv.cat==='Despesa Operacional').reduce((a,mv)=>a+(mv.valor||0),0);
+  D.movimentacoes.filter(mv=>!mv.aPagar).forEach(mv=>{
+    const cat=mv.cat||'';
+    const tipo=mv.tipo;
+    const val=+(mv.valor||0);
+
+    if(tipo==='Entrada'){
+      // Entradas que estão no Lado 2: Capital Inicial, Aporte Sócio
+      if(cat==='Capital Inicial'||cat==='Aporte Sócio') return; // OK — contado como aporte
+      // Entradas que são neutras (aumentam caixa L1, mas reduzem A Receber L1): Recebimento Venda, Sinal Encomenda
+      if(cat==='Recebimento Venda'||cat==='Sinal Encomenda') return; // OK — net 0 no L1
+      // Entradas de Acerto
+      if(cat==='Acerto') return; // OK — contado via acertoLiq
+      // Devolução de Venda — saída especial
+      if(cat==='Devolução de Venda') return;
+      // QUALQUER OUTRA ENTRADA: aumenta caixa L1 mas NÃO está no L2
+      // A menos que esteja em recebimentos (Outras Receitas)
+      const temReceb=(D.recebimentos||[]).some(r=>r.movId===mv.id);
+      if(!temReceb){
+        problemas.push({mv,motivo:`Entrada "${cat}" não é aporte nem recebimento de venda — aumenta caixa sem reflexo no Lado 2`,impacto:+val});
+        somaDescobertas+=val;
+      }
+    } else { // Saída
+      if(cat==='Retirada Sócio') return; // OK — contado como retirada
+      if(cat==='Acerto') return; // OK — contado via acertoLiq
+      if(cat==='Pagamento Fornecedor'){
+        // Deveria ter produtos correspondentes no estoque
+        // Se os produtos existem, net 0 no L1 (caixa desce, estoque sobe)
+        return; // OK — verificaremos separado
+      }
+      if(cat==='Custo Produto (Frete/Taxa)'){
+        // Deveria ter aumentado o custo de um produto
+        return; // OK — verificaremos separado
+      }
+      if(cat==='Despesa Operacional'){
+        // Deve ter uma despesa correspondente na lista
+        const temDesp=D.despesas.some(d=>d.id===mv.despId);
+        if(!temDesp&&mv.despId){
+          problemas.push({mv,motivo:`Saída "Despesa Operacional" com despId=${mv.despId} — despesa não encontrada na lista`,impacto:-val});
+          somaDescobertas-=val;
+        }
+        return;
+      }
+      if(cat==='Devolução de Venda') return;
+      // QUALQUER OUTRA SAÍDA: reduz caixa L1 mas não está no L2
+      const temDesp=D.despesas.some(d=>d.id===mv.despId);
+      if(!temDesp){
+        problemas.push({mv,motivo:`Saída "${cat}" — reduz caixa sem reflexo no Lado 2 (não é despesa, compra, retirada)`,impacto:-val});
+        somaDescobertas-=val;
+      }
+    }
+  });
+
+  // Verificar: Compras pagas (Mov Saída Pagamento Fornecedor) vs custo dos produtos
+  const comprasMov=D.movimentacoes.filter(mv=>!mv.aPagar&&mv.tipo==='Saída'&&mv.cat==='Pagamento Fornecedor');
+  const totalComprasPagas=comprasMov.reduce((a,mv)=>a+(mv.valor||0),0);
+  // Custo total de TODOS produtos (incluindo vendidos) - usar custo sem multiplicar por qtd, igual calcMetrics
+  const totalProdCusto=D.produtos.reduce((a,p)=>a+(p.custo||0),0);
+  // Custo de produtos Frete/Taxa
+  const totalFreteTaxa=D.movimentacoes.filter(mv=>!mv.aPagar&&mv.tipo==='Saída'&&mv.cat==='Custo Produto (Frete/Taxa)').reduce((a,mv)=>a+(mv.valor||0),0);
+  const diffCompras=Math.round((totalComprasPagas+totalFreteTaxa-totalProdCusto)*100)/100;
+
+  // Verificar: Despesas Movimentações vs Lista Despesas
+  const despMovTotal=D.movimentacoes.filter(mv=>!mv.aPagar&&mv.tipo==='Saída'&&mv.cat==='Despesa Operacional').reduce((a,mv)=>a+(mv.valor||0),0);
   const despListaTotal=D.despesas.reduce((a,d)=>a+(d.valor||0),0);
-  const diffDesp=Math.round((despMovSaida-despListaTotal)*100)/100;
+  const diffDesp=Math.round((despMovTotal-despListaTotal)*100)/100;
 
-  // 3. Recebimentos de Venda (Entradas) vs total recebido em vendas
-  const recebMovEntrada=D.movimentacoes.filter(mv=>!mv.aPagar&&mv.tipo==='Entrada'&&(mv.cat==='Recebimento Venda'||mv.cat==='Sinal Encomenda')).reduce((a,mv)=>a+(mv.valor||0),0);
+  // Verificar: Recebimentos Vendas (Mov Entrada) vs Recebido nas Vendas
+  const recebMov=D.movimentacoes.filter(mv=>!mv.aPagar&&mv.tipo==='Entrada'&&(mv.cat==='Recebimento Venda'||mv.cat==='Sinal Encomenda')).reduce((a,mv)=>a+(mv.valor||0),0);
   const recebVendas=D.vendas.reduce((a,v)=>a+(v.recebido||0),0);
-  const diffReceb=Math.round((recebMovEntrada-recebVendas)*100)/100;
+  const diffReceb=Math.round((recebMov-recebVendas)*100)/100;
 
-  // 4. Movimentações não classificadas (categorias que não são aporte, compra, despesa, venda, retirada, acerto)
-  const catsConhecidas=['Capital Inicial','Aporte Sócio','Pagamento Fornecedor','Despesa Operacional','Recebimento Venda','Sinal Encomenda','Retirada Sócio','Acerto','Custo Produto (Frete/Taxa)','Devolução de Venda'];
-  const movsOrfas=D.movimentacoes.filter(mv=>!mv.aPagar&&!catsConhecidas.includes(mv.cat));
-  const totalOrfaEntrada=movsOrfas.filter(mv=>mv.tipo==='Entrada').reduce((a,mv)=>a+(mv.valor||0),0);
-  const totalOrfaSaida=movsOrfas.filter(mv=>mv.tipo==='Saída').reduce((a,mv)=>a+(mv.valor||0),0);
-
-  // 5. Custo Produto (Frete/Taxa) — deveria aumentar custo do produto (já está no estoque)
-  const custoProdMov=D.movimentacoes.filter(mv=>!mv.aPagar&&mv.tipo==='Saída'&&mv.cat==='Custo Produto (Frete/Taxa)').reduce((a,mv)=>a+(mv.valor||0),0);
-
-  // 6. Devolução de Venda
-  const devolucaoMov=D.movimentacoes.filter(mv=>!mv.aPagar&&mv.cat==='Devolução de Venda');
-  const devolucaoTotal=devolucaoMov.reduce((a,mv)=>a+(mv.valor||0),0);
-
-  // Build report
+  // ═══ MONTAR RELATÓRIO ═══
   let html=`<div class="box" style="border:3px solid var(--orange);margin-top:16px" id="diagnosticoBalanco">
-    <h3 style="color:var(--orange);margin-bottom:12px">🔍 Diagnóstico do Balanço — Diferença: ${fmt(diff)}</h3>
-    <table style="font-size:12px">
-    <thead><tr><th>Verificação</th><th style="text-align:right">Lado 1</th><th style="text-align:right">Lado 2</th><th style="text-align:right">Diferença</th></tr></thead>
+    <h3 style="color:var(--orange);margin-bottom:16px">🔍 Diagnóstico — Diferença: <span style="color:var(--red)">${fmt(diff)}</span></h3>
+
+    <h4 style="font-size:12px;margin-bottom:8px">🔄 Cruzamentos</h4>
+    <table style="font-size:12px;margin-bottom:16px">
+    <thead><tr><th>Verificação</th><th style="text-align:right">Movimentações</th><th style="text-align:right">Sistema</th><th style="text-align:right">Diferença</th></tr></thead>
     <tbody>
-    <tr style="font-weight:700;background:#f0f9ff"><td>TOTAIS GERAIS</td><td class="r">${fmt(totalL1)}</td><td class="r">${fmt(totalL2)}</td><td class="r" style="color:${Math.abs(diff)<0.02?'var(--green)':'var(--red)'}">${fmt(diff)}</td></tr>
-    <tr><td colspan="4" style="padding:12px 8px 4px;font-weight:700;color:var(--blue)">📍 LADO 1 — Detalhamento</td></tr>
-    <tr><td style="padding-left:20px">💰 Caixa (Entradas: ${fmt(caixaEntradas)} − Saídas: ${fmt(caixaSaidas)})</td><td class="r">${fmt(caixa)}</td><td></td><td></td></tr>
-    <tr><td style="padding-left:20px">📦 Estoque (E:${fmt(estoqueE)} + T:${fmt(estoqueT)} + R:${fmt(estoqueR)})</td><td class="r">${fmt(estoque)}</td><td></td><td></td></tr>
-    <tr><td style="padding-left:20px">📋 A Receber (${fmt(contasR)} − ${fmt(estoqueR)} reservados)</td><td class="r">${fmt(aReceber)}</td><td></td><td></td></tr>
-    ${cpPend>0?`<tr><td style="padding-left:20px">🔴 Contas a Pagar</td><td class="r" style="color:var(--red)">− ${fmt(cpPend)}</td><td></td><td></td></tr>`:''}
-
-    <tr><td colspan="4" style="padding:12px 8px 4px;font-weight:700;color:var(--green)">📊 LADO 2 — Detalhamento</td></tr>
-    <tr><td style="padding-left:20px">💼 Aportes</td><td></td><td class="r">${fmt(aportesTotal)}</td><td></td></tr>
-    <tr><td style="padding-left:20px">🔻 Retiradas</td><td></td><td class="r" style="color:var(--red)">− ${fmt(retiradas)}</td><td></td></tr>
-    <tr><td style="padding-left:20px">📉 Despesas (op:${fmt(despOp)} + inv:${fmt(despInv)})</td><td></td><td class="r" style="color:var(--red)">− ${fmt(despAll)}</td><td></td></tr>
-    <tr><td style="padding-left:20px">📈 Lucro Vendas</td><td></td><td class="r">${fmt(lucro)}</td><td></td></tr>
-    ${outrasRec>0?`<tr><td style="padding-left:20px">💵 Outras Receitas</td><td></td><td class="r">${fmt(outrasRec)}</td><td></td></tr>`:''}
-
-    <tr><td colspan="4" style="padding:12px 8px 4px;font-weight:700;color:var(--orange)">🔄 CRUZAMENTOS (onde pode estar o problema)</td></tr>
-    <tr style="${Math.abs(diffCompras)>0.02?'background:#fef2f2;font-weight:600':''}"><td style="padding-left:20px">Compras (Mov Saída) vs Custo Total Produtos</td><td class="r">${fmt(totalComprasSaida)}</td><td class="r">${fmt(totalProdutosCusto)}</td><td class="r" style="color:${Math.abs(diffCompras)<0.02?'var(--green)':'var(--red)'}"><strong>${fmt(diffCompras)}</strong></td></tr>
-    <tr style="${Math.abs(diffDesp)>0.02?'background:#fef2f2;font-weight:600':''}"><td style="padding-left:20px">Despesas (Mov Saída) vs Lista Despesas</td><td class="r">${fmt(despMovSaida)}</td><td class="r">${fmt(despListaTotal)}</td><td class="r" style="color:${Math.abs(diffDesp)<0.02?'var(--green)':'var(--red)'}"><strong>${fmt(diffDesp)}</strong></td></tr>
-    <tr style="${Math.abs(diffReceb)>0.02?'background:#fef2f2;font-weight:600':''}"><td style="padding-left:20px">Recebimentos (Mov Entrada) vs Recebido Vendas</td><td class="r">${fmt(recebMovEntrada)}</td><td class="r">${fmt(recebVendas)}</td><td class="r" style="color:${Math.abs(diffReceb)<0.02?'var(--green)':'var(--red)'}"><strong>${fmt(diffReceb)}</strong></td></tr>
-    ${custoProdMov>0?`<tr><td style="padding-left:20px">Custo Produto / Frete / Taxa (Saídas)</td><td class="r">${fmt(custoProdMov)}</td><td class="r">—</td><td class="r" style="color:var(--orange)">Deve estar embutido no custo dos produtos</td></tr>`:''}
-    ${devolucaoTotal>0?`<tr><td style="padding-left:20px">Devoluções de Venda</td><td class="r">${fmt(devolucaoTotal)}</td><td class="r">—</td><td></td></tr>`:''}
-    ${movsOrfas.length>0?`<tr style="background:#fef2f2;font-weight:600"><td style="padding-left:20px">⚠️ Movimentações não classificadas (${movsOrfas.length})</td><td class="r">E: ${fmt(totalOrfaEntrada)}</td><td class="r">S: ${fmt(totalOrfaSaida)}</td><td class="r" style="color:var(--red)">${fmt(totalOrfaEntrada-totalOrfaSaida)}</td></tr>`:''}
+    <tr style="${Math.abs(diffCompras)>0.02?'background:#fef2f2;font-weight:600':''}">
+      <td>Compras pagas + Frete/Taxa vs Custo total dos produtos</td>
+      <td class="r">${fmt(totalComprasPagas+totalFreteTaxa)}</td>
+      <td class="r">${fmt(totalProdCusto)}</td>
+      <td class="r" style="color:${Math.abs(diffCompras)<0.02?'var(--green)':'var(--red)'}"><strong>${fmt(diffCompras)}</strong></td>
+    </tr>
+    <tr style="${Math.abs(diffDesp)>0.02?'background:#fef2f2;font-weight:600':''}">
+      <td>Despesas (movimentações Saída) vs Lista de despesas</td>
+      <td class="r">${fmt(despMovTotal)}</td>
+      <td class="r">${fmt(despListaTotal)}</td>
+      <td class="r" style="color:${Math.abs(diffDesp)<0.02?'var(--green)':'var(--red)'}"><strong>${fmt(diffDesp)}</strong></td>
+    </tr>
+    <tr style="${Math.abs(diffReceb)>0.02?'background:#fef2f2;font-weight:600':''}">
+      <td>Recebimentos (movimentações Entrada) vs Recebido nas vendas</td>
+      <td class="r">${fmt(recebMov)}</td>
+      <td class="r">${fmt(recebVendas)}</td>
+      <td class="r" style="color:${Math.abs(diffReceb)<0.02?'var(--green)':'var(--red)'}"><strong>${fmt(diffReceb)}</strong></td>
+    </tr>
     </tbody></table>`;
 
-  // Detalhar movimentações por categoria
-  html+=`<div style="margin-top:16px"><h4 style="font-size:12px;color:var(--dark2);margin-bottom:8px">📋 Movimentações por Categoria (excluindo aPagar)</h4>
-    <table style="font-size:11px"><thead><tr><th>Categoria</th><th style="text-align:right">Entradas</th><th style="text-align:right">Saídas</th></tr></thead><tbody>`;
+  // Problemas encontrados
+  if(problemas.length>0){
+    html+=`<h4 style="font-size:12px;color:var(--red);margin-bottom:8px">⚠️ Movimentações Problemáticas (${problemas.length})</h4>
+    <p style="font-size:11px;color:var(--gray);margin-bottom:8px">Estas movimentações afetam o Caixa (Lado 1) mas não estão contabilizadas no Lado 2. Soma do impacto: <strong style="color:var(--red)">${fmt(somaDescobertas)}</strong></p>
+    <table style="font-size:11px"><thead><tr><th>Data</th><th>Descrição</th><th>Tipo</th><th>Cat</th><th style="text-align:right">Valor</th><th>Motivo</th></tr></thead><tbody>`;
+    problemas.forEach(p=>{
+      html+=`<tr style="background:#fef2f2"><td>${fmtD(p.mv.data)}</td><td>${p.mv.desc}</td><td>${p.mv.tipo}</td><td>${p.mv.cat||'—'}</td><td class="r">${fmt(p.mv.valor)}</td><td style="font-size:10px;color:var(--red)">${p.motivo}</td></tr>`;
+    });
+    html+=`</tbody></table>`;
+  } else {
+    html+=`<p style="font-size:11px;color:var(--green);margin:8px 0">✅ Nenhuma movimentação órfã encontrada.</p>`;
+  }
+
+  // Resumo por categoria
+  const entradaPorCat={},saidaPorCat={};
+  D.movimentacoes.filter(mv=>!mv.aPagar).forEach(mv=>{
+    const cat=mv.cat||'Sem categoria';
+    if(mv.tipo==='Entrada')entradaPorCat[cat]=(entradaPorCat[cat]||0)+mv.valor;
+    else saidaPorCat[cat]=(saidaPorCat[cat]||0)+mv.valor;
+  });
+  html+=`<details style="margin-top:16px"><summary style="cursor:pointer;font-size:12px;font-weight:600;color:var(--dark2)">📋 Movimentações por Categoria (clique para expandir)</summary>
+    <table style="font-size:11px;margin-top:8px"><thead><tr><th>Categoria</th><th style="text-align:right">Entradas</th><th style="text-align:right">Saídas</th></tr></thead><tbody>`;
   const allCats=new Set([...Object.keys(entradaPorCat),...Object.keys(saidaPorCat)]);
   [...allCats].sort().forEach(cat=>{
     html+=`<tr><td>${cat}</td><td class="r" style="color:var(--green)">${entradaPorCat[cat]?fmt(entradaPorCat[cat]):'—'}</td><td class="r" style="color:var(--red)">${saidaPorCat[cat]?fmt(saidaPorCat[cat]):'—'}</td></tr>`;
   });
-  html+=`<tr style="font-weight:700;background:#f8fafc"><td>TOTAL</td><td class="r" style="color:var(--green)">${fmt(caixaEntradas)}</td><td class="r" style="color:var(--red)">${fmt(caixaSaidas)}</td></tr>`;
-  html+=`</tbody></table></div>`;
+  html+=`</tbody></table></details>`;
+  html+=`</div>`;
 
-  // Listar movimentações órfãs se houver
-  if(movsOrfas.length>0){
-    html+=`<div style="margin-top:12px"><h4 style="font-size:12px;color:var(--red);margin-bottom:8px">⚠️ Movimentações Não Classificadas</h4>
-    <table style="font-size:11px"><thead><tr><th>Data</th><th>Descrição</th><th>Tipo</th><th>Categoria</th><th style="text-align:right">Valor</th></tr></thead><tbody>`;
-    movsOrfas.forEach(mv=>{
-      html+=`<tr><td>${fmtD(mv.data)}</td><td>${mv.desc}</td><td>${mv.tipo}</td><td>${mv.cat||'—'}</td><td class="r">${fmt(mv.valor)}</td></tr>`;
-    });
-    html+=`</tbody></table></div>`;
-  }
-
-  html+=`<div style="margin-top:16px;padding:12px;background:#fef3c7;border-radius:8px;font-size:11px;color:#92400e">
-    <strong>💡 Dica:</strong> A linha com diferença destacada em vermelho indica onde está o problema. Se "Compras vs Custo Produtos" está negativo, significa que as saídas de compras excedem o custo total dos produtos no sistema (algum produto pode ter sido removido ou ter custo incorreto). Se "Despesas Mov vs Lista" está diferente, há movimentações de despesa sem entrada na lista de despesas (ou vice-versa).
-  </div></div>`;
-
-  // Inserir abaixo do resultado
   const existente=document.getElementById('diagnosticoBalanco');
   if(existente)existente.remove();
   const resultBox=document.querySelector('.form-section .box[style*="text-align:center"]');
