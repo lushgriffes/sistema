@@ -266,6 +266,8 @@ async function initApp(user){
   document.getElementById('loginScreen').style.display='none';
   document.getElementById('appWrap').style.display='';
   buildNav();renderPage();
+  // Backup diario automatico na nuvem (roda em background apos carregar)
+  verificarBackupDiario().catch(e=>console.warn('Erro backup diario:',e));
 }
 
 async function loadDataFromSupabase(){
@@ -344,14 +346,11 @@ async function loadDataFromSupabase(){
     d.vendas.forEach(v=>{if(v.produtoId===undefined)v.produtoId=0;if(v.saldoReceber===undefined)v.saldoReceber=(v.valorVenda||0)-(v.recebido||0)});
     D=d;
   } else {
-    // Primeira vez: usar dados padrão e salvar
+    // PROTECAO: Supabase nao tem dados — usar estrutura vazia, mas NUNCA salvar automaticamente no Supabase.
+    // Isso evita sobrescrever dados que podem existir em outro org_id ou que ainda nao carregaram.
+    console.warn('Supabase sem dados para org_id:', userProfile.org_id, '— usando estrutura vazia local');
     D=JSON.parse(JSON.stringify(DEFAULT_DATA));
-    D.vendas.forEach(v=>{
-      if((v.saldoReceber||0)>0){
-        D.contasReceber.push({id:D.contasReceber.length+1,desc:`Venda — ${v.cliente} — ${v.produto}`,valor:v.saldoReceber,vencimento:v.data,cliente:v.cliente,vendaId:v.id,status:'Pendente',dataReceb:'',obs:''});
-      }
-    });
-    await saveDataToSupabase();
+    toast('Nenhum dado encontrado na nuvem. Sistema iniciado vazio.', true);
   }
 }
 
@@ -440,6 +439,101 @@ async function saveDataToSupabase(){
   _lastKnownUpdatedAt=agora;
 }
 
+// ═══ BACKUP DIÁRIO AUTOMÁTICO NA NUVEM ═══
+const BACKUP_PREFIX='backup_';
+const MAX_CLOUD_BACKUPS=30;
+
+async function verificarBackupDiario(){
+  if(!userProfile)return;
+  try{
+    const hj=new Date().toISOString().split('T')[0];
+    const backupId=BACKUP_PREFIX+hj+'_'+userProfile.org_id;
+    // Verificar se ja fez backup hoje
+    const{data:existe}=await SB.from('app_data').select('org_id').eq('org_id',backupId).single();
+    if(existe){console.log('Backup diário já existe para hoje:',hj);return}
+    // Nao fez — salvar backup automatico
+    await salvarBackupNuvem(hj);
+    console.log('Backup diário salvo automaticamente:',hj);
+    // Limpar backups antigos (manter apenas os ultimos MAX_CLOUD_BACKUPS dias)
+    await limparBackupsAntigosNuvem();
+  }catch(e){console.warn('Erro no backup diário:',e)}
+}
+
+async function salvarBackupNuvem(dataStr){
+  if(!userProfile)return;
+  const hj=dataStr||new Date().toISOString().split('T')[0];
+  const backupId=BACKUP_PREFIX+hj+'_'+userProfile.org_id;
+  const snapshot={
+    _backupDate:hj,
+    _backupTimestamp:new Date().toISOString(),
+    _produtos:D.produtos.length,
+    _movimentacoes:D.movimentacoes.length,
+    _vendas:D.vendas.length,
+    _despesas:D.despesas.length,
+    ...JSON.parse(JSON.stringify(D))
+  };
+  await SB.from('app_data').upsert({org_id:backupId,data:snapshot,updated_at:new Date().toISOString()},{onConflict:'org_id'});
+  toast('Backup na nuvem salvo: '+hj);
+}
+
+async function listarBackupsNuvem(){
+  if(!userProfile)return[];
+  try{
+    const prefix=BACKUP_PREFIX;
+    const suffix='_'+userProfile.org_id;
+    const{data,error}=await SB.from('app_data').select('org_id,data,updated_at').like('org_id',prefix+'%'+suffix).order('updated_at',{ascending:false});
+    if(error||!data)return[];
+    return data.map(row=>({
+      org_id:row.org_id,
+      data_backup:row.data?._backupDate||'',
+      timestamp:row.data?._backupTimestamp||row.updated_at,
+      produtos:row.data?._produtos||0,
+      movimentacoes:row.data?._movimentacoes||0,
+      vendas:row.data?._vendas||0,
+      despesas:row.data?._despesas||0,
+    }));
+  }catch(e){console.warn('Erro ao listar backups nuvem:',e);return[]}
+}
+
+async function restaurarBackupNuvem(orgIdBackup){
+  if(!userProfile)return;
+  if(!confirm('RESTAURAR BACKUP DA NUVEM?\n\nIsso vai SUBSTITUIR todos os dados atuais pelos dados do backup.\n\nTem certeza?'))return;
+  try{
+    // Primeiro, salvar backup do estado ATUAL antes de restaurar
+    const agora=new Date().toISOString().split('T')[0]+'-pre-restore';
+    await salvarBackupNuvem(agora);
+    // Carregar backup
+    const{data,error}=await SB.from('app_data').select('data').eq('org_id',orgIdBackup).single();
+    if(error||!data||!data.data){toast('Erro ao carregar backup',true);return}
+    const restored=data.data;
+    // Remover campos internos do backup
+    delete restored._backupDate;
+    delete restored._backupTimestamp;
+    delete restored._produtos;
+    delete restored._movimentacoes;
+    delete restored._vendas;
+    delete restored._despesas;
+    D=restored;
+    saveData();
+    renderPage();
+    toast('Backup restaurado com sucesso!');
+  }catch(e){toast('Erro ao restaurar: '+e.message,true)}
+}
+
+async function limparBackupsAntigosNuvem(){
+  if(!userProfile)return;
+  try{
+    const backups=await listarBackupsNuvem();
+    if(backups.length<=MAX_CLOUD_BACKUPS)return;
+    // Remover os mais antigos
+    const paraRemover=backups.slice(MAX_CLOUD_BACKUPS);
+    for(const b of paraRemover){
+      await SB.from('app_data').delete().eq('org_id',b.org_id);
+    }
+    console.log(`Removidos ${paraRemover.length} backups antigos da nuvem`);
+  }catch(e){console.warn('Erro ao limpar backups antigos:',e)}
+}
+
 // Check session on load — com persistência local do token
 SB.auth.getSession().then(({data:{session}})=>{
   if(session&&session.user){initApp(session.user)}
@@ -455,73 +549,19 @@ SB.auth.onAuthStateChange((event,session)=>{
 // ═══════ DATA LAYER ═══════
 const APP_VERSION = 'v2026.05.16-e';
 const STORAGE_KEY = 'importadora_data';
+// ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
+// REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
+// Os dados reais estão SOMENTE no Supabase. Isso evita sobrescrita acidental.
 const DEFAULT_DATA = {
-  capital: 29640.61,
-  produtos: [
-    {id:1,nome:"Tênis Nike Dunk P&B",marca:"Nike Dunk",cat:"Tênis",custo:375,qtd:1,status:"Em Trânsito",num:"38",img:"",obs:"Fornecedor: Pedro Dilly"},
-    {id:2,nome:"Tênis Nike Preto",marca:"Nike",cat:"Tênis",custo:400,qtd:1,status:"Em Trânsito",num:"40",img:"",obs:"Fornecedor: Pedro Dilly"},
-    {id:3,nome:"Tênis ON Preto",marca:"ON",cat:"Tênis",custo:350,qtd:1,status:"Em Trânsito",num:"42",img:"",obs:"Fornecedor: Pedro Dilly"},
-    {id:4,nome:"Tênis ON Cinza/Verde",marca:"ON",cat:"Tênis",custo:375,qtd:1,status:"Em Trânsito",num:"38",img:"",obs:"Encomenda - Cliente Henrique. Fornecedor: Pedro Dilly",vendaValor:700,cliente:"Henrique"},
-    {id:5,nome:"Tênis Adidas ZR Vermelho",marca:"Adidas ZR",cat:"Tênis",custo:420,qtd:1,status:"Em Trânsito",num:"",img:"",obs:"Encomenda - Cliente Marcovani. Fornecedor: Pedro Dilly",vendaValor:900,cliente:"Marcovani"},
-    {id:6,nome:"Chinelo Preto",marca:"Chinelo",cat:"Chinelo",custo:335,qtd:1,status:"Em Trânsito",num:"42",img:"",obs:"Fornecedor: Pedro Dilly"},
-    {id:7,nome:"Chinelo Cinza",marca:"Chinelo",cat:"Chinelo",custo:335,qtd:1,status:"Em Trânsito",num:"40",img:"",obs:"Fornecedor: Pedro Dilly"},
-    {id:8,nome:"Air Jordan Travis Scott",marca:"Jordan",cat:"Tênis",custo:380,qtd:1,status:"Reservado (Encomenda)",num:"",img:"",obs:"Fornecedor: Amin Rank. Cliente: Marcovani",vendaValor:780,cliente:"Marcovani"},
-    {id:9,nome:"Bolsa LV Marrom Safari",marca:"Louis Vuitton",cat:"Bolsa",custo:450,qtd:1,status:"Reservado (Encomenda)",num:"",img:"",obs:"Fornecedor: Chen. Cliente: Claudia",vendaValor:1000,cliente:"Claudia"},
-    ...Array.from({length:10},(_,i)=>({id:10+i,nome:["Relógio Bvlgari","Relógio Tag Heuer","Relógio Breitling","Relógio Hublot","Relógio Invicta","Relógio Emp. Armani","Relógio Curren","Relógio Panerai","Relógio Relock","Relógio Omega"][i],marca:["Bvlgari","Tag Heuer","Breitling","Hublot","Invicta","Empório Armani","Curren","Panerai","Relock","Omega"][i],cat:"Relógio",custo:[2000,800,600,400,800,200,200,200,200,200][i],qtd:[10,4,3,2,4,1,1,1,1,1][i],status:"Em Estoque",num:"",img:"",obs:"Aporte sócio Natal"})),
-    {id:20,nome:"Relógio Zhowe",marca:"Zhowe",cat:"Relógio",custo:200,qtd:1,status:"Em Estoque",num:"",img:"",obs:"Aporte sócio Natal"},
-    {id:21,nome:"Relógio Lacoste",marca:"Lacoste",cat:"Relógio",custo:200,qtd:1,status:"Em Estoque",num:"",img:"",obs:"Aporte sócio Natal"},
-    ...["ON #1","ON #2","ON #3","ON #4","ON #5","ON #6","ON #7","ON #8","ON #9"].map((n,i)=>({id:22+i,nome:"Tênis "+n,marca:"ON",cat:"Tênis",custo:350,qtd:1,status:"Em Estoque",num:"",img:"",obs:"Fornecedor: China 25"})),
-    {id:31,nome:"Tênis Nike #1",marca:"Nike",cat:"Tênis",custo:450,qtd:1,status:"Em Estoque",num:"",img:"",obs:"Fornecedor: China 25"},
-    {id:32,nome:"Tênis Nike #2",marca:"Nike",cat:"Tênis",custo:450,qtd:1,status:"Em Estoque",num:"",img:"",obs:"Fornecedor: China 25"},
-    {id:33,nome:"Tênis Nike #3",marca:"Nike",cat:"Tênis",custo:400,qtd:1,status:"Em Estoque",num:"",img:"",obs:"Fornecedor: China 25"},
-    {id:34,nome:"Tênis Dunk #1",marca:"Nike Dunk",cat:"Tênis",custo:350,qtd:1,status:"Em Estoque",num:"",img:"",obs:"Fornecedor: China 25"},
-    {id:35,nome:"Tênis Nike Alphafly #1",marca:"Nike Alphafly",cat:"Tênis",custo:300,qtd:1,status:"Em Estoque",num:"",img:"",obs:"Fornecedor: China 25"},
-    ...["Pegasus #1","Pegasus #2","Pegasus #3","Pegasus #4"].map((n,i)=>({id:36+i,nome:"Tênis Nike "+n,marca:"Nike Pegasus",cat:"Tênis",custo:350,qtd:1,status:"Em Estoque",num:"",img:"",obs:"Fornecedor: China 25"})),
-    {id:40,nome:"Tênis Nike Vomero #1",marca:"Nike Vomero",cat:"Tênis",custo:450,qtd:1,status:"Em Estoque",num:"",img:"",obs:"Fornecedor: China 25"},
-    {id:41,nome:"Tênis Nike Vomero #2",marca:"Nike Vomero",cat:"Tênis",custo:450,qtd:1,status:"Em Estoque",num:"",img:"",obs:"Fornecedor: China 25"},
-    ...["Adizero4 #1","Adizero4 #2","Adizero4 #3","Adizero4 #4"].map((n,i)=>({id:42+i,nome:"Tênis Adidas "+n,marca:"Adidas Adizero4",cat:"Tênis",custo:280,qtd:1,status:"Em Estoque",num:"",img:"",obs:"Fornecedor: China 25"})),
-    {id:46,nome:"Tênis Adidas Adizero5 #1",marca:"Adidas Adizero5",cat:"Tênis",custo:330,qtd:1,status:"Em Estoque",num:"",img:"",obs:"Fornecedor: China 25"},
-    ...["Óculos #1","Óculos #2","Óculos #3","Óculos #4"].map((n,i)=>({id:47+i,nome:n,marca:"",cat:"Óculos",custo:235,qtd:1,status:"Reservado (Encomenda)",num:"",img:"",obs:"Encomenda cliente Rogério",cliente:"Rogério"})),
-  ],
-  movimentacoes: [
-    {id:1,data:"2026-04-03",desc:"Capital Inicial",tipo:"Entrada",cat:"Capital Inicial",plano:"Investimento",valor:4000,saldo:4000},
-    {id:2,data:"2026-04-03",desc:"Pagamento Lote 1 - 7 itens (tênis e chinelos)",tipo:"Saída",cat:"Pagamento Fornecedor",plano:"Mercadoria",valor:2590,saldo:1410},
-    {id:3,data:"2026-04-04",desc:"Pagamento - Encomenda Marcovani (Jordan)",tipo:"Saída",cat:"Pagamento Fornecedor",plano:"Mercadoria",valor:380,saldo:1030},
-    {id:4,data:"2026-04-07",desc:"Pagamento - Bolsa LV Marrom Safari (Claudia)",tipo:"Saída",cat:"Pagamento Fornecedor",plano:"Mercadoria",valor:450,saldo:580},
-    {id:5,data:"2026-04-20",desc:"Aporte Sócio Natal - Mercadoria (30 relógios)",tipo:"Entrada",cat:"Capital Inicial",plano:"Investimento",valor:6000,saldo:6580},
-    {id:6,data:"2026-04-20",desc:"Compra Relógios (via aporte Natal - sem fluxo bancário)",tipo:"Saída",cat:"Pagamento Fornecedor",plano:"Mercadoria",valor:6000,saldo:580},
-    {id:7,data:"2026-04-20",desc:"Aporte Sócio Natal - iPhone 17 Pro Max",tipo:"Entrada",cat:"Capital Inicial",plano:"Investimento",valor:9480,saldo:10060},
-    {id:8,data:"2026-04-20",desc:"Compra iPhone 17 Pro Max (via aporte Natal)",tipo:"Saída",cat:"Despesa Operacional",plano:"Investimento",valor:9480,saldo:580,despId:1},
-    {id:9,data:"2026-04-21",desc:"Aporte Sócio Natal - Depósito em Conta Corrente",tipo:"Entrada",cat:"Capital Inicial",plano:"Investimento",valor:10000,saldo:10580},
-    {id:10,data:"2026-04-21",desc:"Despesa - Estacionamento Renan Ida 25",tipo:"Saída",cat:"Despesa Operacional",plano:"Logística",valor:50,saldo:10530,despId:2},
-    {id:11,data:"2026-04-21",desc:"Despesa - Sacolas Nike",tipo:"Saída",cat:"Despesa Operacional",plano:"Material",valor:50,saldo:10480,despId:3},
-    {id:12,data:"2026-04-21",desc:"Despesa - Modeladores de Tênis",tipo:"Saída",cat:"Despesa Operacional",plano:"Material",valor:200,saldo:10280,despId:4},
-    {id:13,data:"2026-04-21",desc:"Pagamento Lote Tênis China 25 (25 itens)",tipo:"Saída",cat:"Pagamento Fornecedor",plano:"Mercadoria",valor:8850,saldo:1430},
-    {id:14,data:"2026-04-21",desc:"Aporte Sócio Natal - Luz de Anel 12 POL",tipo:"Entrada",cat:"Capital Inicial",plano:"Investimento",valor:160.61,saldo:1590.61},
-    {id:15,data:"2026-04-21",desc:"Compra Luz de Anel 12 POL (Aporte Natal)",tipo:"Saída",cat:"Despesa Operacional",plano:"Equipamento",valor:160.61,saldo:1430,despId:5},
-    {id:16,data:"2026-04-22",desc:"Despesa - Taxa Abertura CNPJ",tipo:"Saída",cat:"Despesa Operacional",plano:"Fiscal/Tributário",valor:218.99,saldo:1211.01,despId:6},
-    {id:17,data:"2026-04-23",desc:"Despesa - Registro Domínio",tipo:"Saída",cat:"Despesa Operacional",plano:"Tecnologia",valor:112,saldo:1099.01,despId:7},
-    {id:18,data:"2026-04-25",desc:"Pagamento 4 Óculos - Encomenda Rogério",tipo:"Saída",cat:"Pagamento Fornecedor",plano:"Mercadoria",valor:940,saldo:159.01},
-  ],
-  despesas: [
-    {id:1,data:"2026-04-12",nome:"iPhone (Aporte Natal)",cat:"Outros",valor:9480,pago:true,plano:"Investimento"},
-    {id:2,data:"2026-04-18",nome:"Estacionamento Renan Ida 25",cat:"Transporte",valor:50,pago:true,plano:"Logística"},
-    {id:3,data:"2026-04-18",nome:"Sacolas Nike",cat:"Embalagem",valor:50,pago:true,plano:"Material"},
-    {id:4,data:"2026-04-18",nome:"Modeladores de Tênis",cat:"Ferramenta",valor:200,pago:true,plano:"Material"},
-    {id:5,data:"2026-04-21",nome:"Luz de Anel 12 POL",cat:"Ferramenta",valor:160.61,pago:true,plano:"Equipamento",obs:"Aporte sócio Natal"},
-    {id:6,data:"2026-04-22",nome:"Taxa Abertura CNPJ",cat:"Outros",valor:218.99,pago:true,plano:"Fiscal/Tributário"},
-    {id:7,data:"2026-04-23",nome:"Registro Domínio",cat:"Ferramenta",valor:112,pago:true,plano:"Tecnologia"},
-  ],
-  vendas: [
-    {id:1,data:"2026-04-10",cliente:"Henrique",produto:"Tênis ON Cinza/Verde",produtoId:4,custo:375,valorVenda:700,recebido:0,saldoReceber:700,status:"Pendente",forma:""},
-    {id:2,data:"2026-04-10",cliente:"Marcovani",produto:"Adidas ZR Vermelho",produtoId:5,custo:420,valorVenda:900,recebido:0,saldoReceber:900,status:"Pendente",forma:""},
-    {id:3,data:"2026-04-10",cliente:"Marcovani",produto:"Air Jordan Travis Scott",produtoId:8,custo:380,valorVenda:780,recebido:0,saldoReceber:780,status:"Pendente",forma:""},
-    {id:4,data:"2026-04-10",cliente:"Claudia",produto:"Bolsa LV Marrom Safari",produtoId:9,custo:450,valorVenda:1000,recebido:0,saldoReceber:1000,status:"Pendente",forma:""},
-  ],
+  capital: 0,
+  produtos: [],
+  movimentacoes: [],
+  despesas: [],
+  vendas: [],
   contasPagar: [],
   contasReceber: [],
-  fornecedores: [{id:1,nome:"Pedro Dilly",telefone:"",endereco:"",itens:""},{id:2,nome:"Amin Rank",telefone:"",endereco:"",itens:""},{id:3,nome:"Chen",telefone:"",endereco:"",itens:""},{id:4,nome:"China 25",telefone:"",endereco:"",itens:""}],
-  nextFornId: 5,
+  fornecedores: [],
+  nextFornId: 1,
   categorias: ["Tênis","Bolsa","Relógio","Chinelo","Óculos","Outro"],
   planoContas: ["Logística","Material","Equipamento","Fiscal/Tributário","Tecnologia","Marketing","Comissão","Alimentação","Investimento","Receita","Acerto","Outros"],
   categoriasMov: ["Capital Inicial","Pagamento Fornecedor","Recebimento Venda","Devolução de Venda","Sinal Encomenda","Despesa Operacional","Custo Produto (Frete/Taxa)","Aporte Sócio","Retirada Sócio","Acerto","Outros"],
@@ -534,7 +574,7 @@ const DEFAULT_DATA = {
     {data:"2024-11-06",taxa:11.25},{data:"2024-12-11",taxa:12.25},
     {data:"2025-01-29",taxa:13.25},{data:"2025-03-19",taxa:14.25},{data:"2025-05-07",taxa:14.75}
   ],
-  nextProdId: 51,
+  nextProdId: 1,
   nextPedidoCompra: 1,
   anotacoes: [],
   recebimentos: [],
@@ -4817,15 +4857,16 @@ function renderConfig(){
 
     <div class="box">
       <h3>💾 Dados do Sistema</h3>
-      <p style="font-size:11px;color:var(--gray);margin-bottom:10px">Os dados são armazenados na nuvem (Supabase). Backups automáticos são salvos localmente a cada alteração.</p>
+      <p style="font-size:11px;color:var(--gray);margin-bottom:10px">Os dados são armazenados na nuvem (Supabase). Backups automáticos são salvos localmente a cada alteração e diariamente na nuvem.</p>
       <div style="display:flex;flex-direction:column;gap:8px">
         <div style="display:flex;gap:8px;flex-wrap:wrap">
           <button class="btn btn-primary btn-sm" onclick="exportarDados()">📥 Exportar JSON</button>
           <button class="btn btn-secondary btn-sm" onclick="document.getElementById('importFile').click()">📤 Importar JSON</button>
-          <button class="btn btn-sm" onclick="salvarBackupLocal();toast('Backup manual salvo!')" style="background:var(--cyan);color:#fff">📸 Backup Agora</button>
+          <button class="btn btn-sm" onclick="salvarBackupLocal();toast('Backup manual salvo!')" style="background:var(--cyan);color:#fff">📸 Backup Local</button>
+          <button class="btn btn-sm" onclick="salvarBackupNuvem();carregarListaBackupsNuvem()" style="background:var(--purple);color:#fff">☁️ Backup Nuvem Agora</button>
         </div>
         <div style="background:#d1fae5;border-radius:8px;padding:10px;font-size:11px;color:#065f46">
-          ☁️ <strong>Nuvem:</strong> Supabase | <strong>Local:</strong> ${listarBackups().length} backups automáticos salvos neste navegador
+          ☁️ <strong>Nuvem:</strong> Backup diário automático (últimos 30 dias) | <strong>Local:</strong> ${listarBackups().length} backups neste navegador
         </div>
       </div>
     </div>
@@ -4839,6 +4880,16 @@ function renderConfig(){
           if(!bks.length)return '<tr><td colspan="7" style="text-align:center;color:var(--gray);padding:20px">Nenhum backup salvo ainda. Backups são criados automaticamente a cada salvamento.</td></tr>';
           return bks.map((b,i)=>'<tr><td style="font-size:11px">'+new Date(b.timestamp).toLocaleString('pt-BR')+'</td><td class="r">'+b.produtos+'</td><td class="r">'+b.movimentacoes+'</td><td class="r">'+b.vendas+'</td><td class="r">'+b.despesas+'</td><td class="r" style="font-size:10px">'+b.tamanho+'</td><td><button class="btn btn-sm" onclick="restaurarBackup('+i+')" style="background:var(--green);color:#fff;font-size:10px;padding:2px 8px">Restaurar</button></td></tr>').join('');
         })()}</tbody></table>
+      </div>
+    </div>
+
+    <div class="box" style="border-left:4px solid var(--purple)">
+      <h3>☁️ Backups na Nuvem (Diários Automáticos)</h3>
+      <p style="font-size:11px;color:var(--gray);margin-bottom:10px">Backup automático salvo na nuvem todo dia ao fazer login. Últimos ${MAX_CLOUD_BACKUPS} dias mantidos. Funciona em qualquer computador.</p>
+      <div id="cloudBackupsList" style="max-height:300px;overflow-y:auto">
+        <div style="text-align:center;padding:20px;color:var(--gray);font-size:12px">
+          <button class="btn btn-sm" onclick="carregarListaBackupsNuvem()" style="background:var(--purple);color:#fff">Carregar backups da nuvem</button>
+        </div>
       </div>
     </div>
   </div>
@@ -5197,6 +5248,35 @@ async function resetarSenhaUsuario(userId,nome){
   toast(`Senha de ${nome} atualizada com sucesso!`);
 }
 
+// ═══ UI: Listar backups nuvem na Config ═══
+async function carregarListaBackupsNuvem(){
+  const container=document.getElementById('cloudBackupsList');
+  if(!container)return;
+  container.innerHTML='<div style="text-align:center;padding:20px;color:var(--gray);font-size:12px">Carregando...</div>';
+  const backups=await listarBackupsNuvem();
+  if(!backups.length){
+    container.innerHTML='<div style="text-align:center;padding:20px;color:var(--gray);font-size:12px">Nenhum backup na nuvem ainda. O primeiro será salvo automaticamente amanhã no login.</div>';
+    return;
+  }
+  let html='<table><thead><tr><th>Data</th><th>Hora</th><th>Produtos</th><th>Mov.</th><th>Vendas</th><th>Desp.</th><th>Ação</th></tr></thead><tbody>';
+  backups.forEach(b=>{
+    const dt=b.timestamp?new Date(b.timestamp):null;
+    const dataStr=b.data_backup||'—';
+    const horaStr=dt?dt.toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'—';
+    html+=`<tr>
+      <td style="font-size:11px;font-weight:600">${dataStr}</td>
+      <td style="font-size:11px">${horaStr}</td>
+      <td class="r">${b.produtos}</td>
+      <td class="r">${b.movimentacoes}</td>
+      <td class="r">${b.vendas}</td>
+      <td class="r">${b.despesas}</td>
+      <td><button class="btn btn-sm" onclick="restaurarBackupNuvem('${b.org_id}')" style="background:var(--purple);color:#fff;font-size:10px;padding:2px 8px">Restaurar</button></td>
+    </tr>`;
+  });
+  html+='</tbody></table>';
+  container.innerHTML=html;
+}
+
 // ═══════ EXPORT / IMPORT ═══════
 function exportData(){
   const blob=new Blob([JSON.stringify(D,null,2)],{type:'application/json'});
@@ -5207,7 +5287,22 @@ function importData(e){
   const file=e.target.files[0];if(!file)return;
   const reader=new FileReader();
   reader.onload=function(ev){
-    try{const data=JSON.parse(ev.target.result);if(data.produtos&&data.movimentacoes){D=data;if(!D.planoContas)D.planoContas=DEFAULT_DATA.planoContas;if(!D.contasPagar)D.contasPagar=[];if(!D.contasReceber)D.contasReceber=[];saveData();renderPage();toast('Dados importados!')}else{toast('Arquivo inválido',true)}}catch(err){toast('Erro: '+err.message,true)}
+    try{
+      const data=JSON.parse(ev.target.result);
+      if(!data.produtos||!data.movimentacoes){toast('Arquivo inválido',true);return}
+      // PROTECAO: confirmar antes de importar
+      const info=`IMPORTAR DADOS?\n\nArquivo: ${file.name}\nProdutos: ${data.produtos.length}\nMovimentações: ${data.movimentacoes.length}\nVendas: ${(data.vendas||[]).length}\nDespesas: ${(data.despesas||[]).length}\n\nISTO VAI SUBSTITUIR TODOS OS DADOS ATUAIS.\nUm backup será salvo automaticamente antes.`;
+      if(!confirm(info))return;
+      // Salvar backup do estado atual antes de importar
+      salvarBackupLocal();
+      if(userProfile)salvarBackupNuvem(new Date().toISOString().split('T')[0]+'-pre-import').catch(e=>console.warn(e));
+      D=data;
+      if(!D.planoContas)D.planoContas=DEFAULT_DATA.planoContas;
+      if(!D.contasPagar)D.contasPagar=[];
+      if(!D.contasReceber)D.contasReceber=[];
+      saveData();renderPage();
+      toast('Dados importados com sucesso!');
+    }catch(err){toast('Erro: '+err.message,true)}
   };reader.readAsText(file);e.target.value='';
 }
 
