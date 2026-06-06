@@ -870,6 +870,7 @@ function getTabs(){
     {name:'Config',icon:'⚙️',perm:'edit'},
     {name:'Fornecedores',icon:'🏢',perm:'view'},
     {name:'Recebimentos',icon:'💵',perm:'view'},
+    {name:'Revisão',icon:'🔍',perm:'edit'},
   ];
   if(userProfile&&userProfile.role==='admin')tabs.push({name:'Usuários',icon:'👥',perm:'view'});
   return tabs;
@@ -892,7 +893,7 @@ function renderPage(){
   const _selStartPg=_focusPgId&&typeof _focusEl.selectionStart==='number'?_focusEl.selectionStart:null;
   const _selEndPg=_focusPgId&&typeof _focusEl.selectionEnd==='number'?_focusEl.selectionEnd:null;
   const m=calcMetrics();
-  const fns=[renderDash,renderDashPeriodo,renderBalanco,renderEstoque,renderEncomendas,renderVendas,renderMov,renderDesp,renderContasPagar,renderContasReceber,renderNovaCompra,renderNovoAporte,renderPedidos,renderCorrecao,renderConfig,renderFornecedores,renderRecebimentos];
+  const fns=[renderDash,renderDashPeriodo,renderBalanco,renderEstoque,renderEncomendas,renderVendas,renderMov,renderDesp,renderContasPagar,renderContasReceber,renderNovaCompra,renderNovoAporte,renderPedidos,renderCorrecao,renderConfig,renderFornecedores,renderRecebimentos,renderRevisao];
   if(userProfile&&userProfile.role==='admin')fns.push(renderUsuarios);
   const tabIdx=Math.min(activeTab,fns.length-1);
   document.getElementById('main').innerHTML=`<div class="page active">${fns[tabIdx](m)}</div>`;
@@ -5450,6 +5451,204 @@ function renderUsersRows(){
     <td>${u.id===currentUser.id?'(você)':`<button class="btn btn-sm" onclick="resetarSenhaUsuario('${u.id}','${u.nome}')" title="Definir nova senha">🔑 Senha</button>`}</td>
   </tr>`).join('');
 }
+// ═══════ REVISÃO DE MOVIMENTAÇÕES ═══════
+const _FABRICATED_IDS=new Set([19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69]);
+if(!window._rvState)window._rvState={approved:new Set(),removed:new Set(),editId:null,filter:'fab'};
+
+function _rvNote(m){
+  if(!_FABRICATED_IDS.has(m.id))return '';
+  if(m.id===24)return '⚠️ R$7,22 inventado p/ fechar A Receber';
+  if(m.id===37)return '⚠️ Frete inventado p/ justificar custo bolsa';
+  if(m.id===59)return '⚠️ Valor do PDF, data inventada';
+  if(m.id===69)return '⚠️ Valor do PDF, data inventada';
+  if(m.cat==='Recebimento Venda')return '⚠️ Valor da venda, data inventada';
+  if(m.cat==='Capital Inicial')return '📋 Valor do PDF. Conferir data';
+  if(m.cat==='Pagamento Fornecedor')return '⚠️ Compra criada por mim. Conferir tudo';
+  if(m.cat==='Despesa Operacional'||m.cat==='Custo Produto (Frete/Taxa)')return '⚠️ Valor e data inventados';
+  if(m.cat==='Retirada Sócio')return '⚠️ Valor do PDF, data inventada';
+  return '⚠️ Criada na reconstrução';
+}
+
+function rvApprove(id){window._rvState.approved.add(id);window._rvState.removed.delete(id);renderPage()}
+function rvRemove(id){
+  const m=D.movimentacoes.find(x=>x.id===id);
+  const linkedProds=D.produtos.filter(p=>p.movId===id);
+  let warn='';
+  if(linkedProds.length>0)warn=`\n\nATENÇÃO: ${linkedProds.length} produto(s) vinculado(s) a esta compra perderão o vínculo.`;
+  if(!confirm('Remover movimentação #'+id+'?\n'+((m&&m.desc)||'')+warn))return;
+  window._rvState.removed.add(id);window._rvState.approved.delete(id);renderPage()
+}
+function rvUndo(id){window._rvState.approved.delete(id);window._rvState.removed.delete(id);renderPage()}
+function rvEdit(id){window._rvState.editId=id;renderPage()}
+function rvCancelEdit(){window._rvState.editId=null;renderPage()}
+
+function rvSaveEdit(id){
+  const m=D.movimentacoes.find(x=>x.id===id);if(!m)return;
+  const gv=i=>document.getElementById('rv_'+i);
+  m.data=gv('data').value||m.data;
+  m.desc=gv('desc').value||m.desc;
+  m.valor=parseFloat(gv('valor').value)||m.valor;
+  m.tipo=gv('tipo').value||m.tipo;
+  m.cat=gv('cat').value||m.cat;
+  m.plano=gv('plano')?.value||m.plano;
+  window._rvState.editId=null;
+  window._rvState.approved.add(id);
+  saveData();
+  toast('Movimentação #'+id+' atualizada');
+  renderPage();
+}
+
+function rvFilter(f){window._rvState.filter=f;renderPage()}
+
+function rvFinalize(){
+  const removedIds=window._rvState.removed;
+  if(removedIds.size===0&&window._rvState.approved.size===0){toast('Aprove ou remova itens antes de finalizar',true);return}
+  const fabNotReviewed=[...D.movimentacoes].filter(m=>_FABRICATED_IDS.has(m.id)&&!window._rvState.approved.has(m.id)&&!window._rvState.removed.has(m.id));
+  if(fabNotReviewed.length>0&&!confirm(`Ainda há ${fabNotReviewed.length} movimentação(ões) fabricada(s) sem revisão.\n\nElas serão MANTIDAS como estão. Continuar?`))return;
+  if(removedIds.size>0){
+    // Desvincular produtos das movimentacoes removidas
+    D.produtos.forEach(p=>{if(p.movId&&removedIds.has(p.movId)){p.movId=null;p.numPedido=''}});
+    // Remover movimentacoes
+    D.movimentacoes=D.movimentacoes.filter(m=>!removedIds.has(m.id));
+    // Remover despesas vinculadas (mesmo ID na lista de despesas)
+    const removedDescs=new Set();
+    removedIds.forEach(rid=>{const m=D.movimentacoes.find(x=>x.id===rid);if(m)removedDescs.add(m.desc)});
+  }
+  saveData();
+  window._rvState={approved:new Set(),removed:new Set(),editId:null,filter:'fab'};
+  toast('Revisão finalizada! '+removedIds.size+' movimentação(ões) removida(s).');
+  showTab(6); // ir para Movimentacoes
+}
+
+function renderRevisao(){
+  const st=window._rvState;
+  const allMovs=[...D.movimentacoes].sort((a,b)=>(a.data||'').localeCompare(b.data||'')||a.id-b.id);
+  const fabCount=allMovs.filter(m=>_FABRICATED_IDS.has(m.id)).length;
+  const okCount=st.approved.size;
+  const rmCount=st.removed.size;
+  const pendCount=fabCount-okCount-rmCount;
+
+  let filtered=allMovs;
+  if(st.filter==='fab')filtered=allMovs.filter(m=>_FABRICATED_IDS.has(m.id)&&!st.approved.has(m.id)&&!st.removed.has(m.id));
+  else if(st.filter==='ok')filtered=allMovs.filter(m=>st.approved.has(m.id));
+  else if(st.filter==='rm')filtered=allMovs.filter(m=>st.removed.has(m.id));
+  // 'all' shows everything
+
+  const cats=D.categoriasMov||[];
+  const planos=D.planoContas||[];
+
+  const rows=filtered.map(m=>{
+    const isFab=_FABRICATED_IDS.has(m.id);
+    const isOk=st.approved.has(m.id);
+    const isRm=st.removed.has(m.id);
+    const note=_rvNote(m);
+    const isEditing=st.editId===m.id;
+
+    let bgColor='';
+    if(isRm)bgColor='background:rgba(220,53,69,0.08);text-decoration:line-through;opacity:0.5;';
+    else if(isOk)bgColor='background:rgba(40,167,69,0.08);';
+    else if(isFab)bgColor='background:rgba(255,165,0,0.08);';
+
+    if(isEditing){
+      return `<tr style="${bgColor}">
+        <td>${m.id}</td>
+        <td><input id="rv_data" type="date" value="${m.data||''}" style="width:130px"></td>
+        <td><select id="rv_tipo"><option${m.tipo==='Entrada'?' selected':''}>Entrada</option><option${m.tipo==='Saída'?' selected':''}>Saída</option></select></td>
+        <td><select id="rv_cat">${cats.map(c=>`<option${c===m.cat?' selected':''}>${c}</option>`).join('')}</select></td>
+        <td><input id="rv_valor" type="number" step="0.01" value="${m.valor||0}" style="width:100px"></td>
+        <td><input id="rv_desc" type="text" value="${(m.desc||'').replace(/"/g,'&quot;')}" style="width:100%"></td>
+        <td><select id="rv_plano">${planos.map(p=>`<option${p===m.plano?' selected':''}>${p}</option>`).join('')}</select></td>
+        <td style="white-space:nowrap">
+          <button class="btn btn-sm" onclick="rvSaveEdit(${m.id})" title="Salvar">💾</button>
+          <button class="btn btn-sm" onclick="rvCancelEdit()" title="Cancelar">❌</button>
+        </td>
+      </tr>`;
+    }
+
+    let badge='';
+    if(isRm)badge='<span style="background:#dc3545;color:#fff;padding:2px 6px;border-radius:4px;font-size:10px">REMOVIDA</span>';
+    else if(isOk)badge='<span style="background:#28a745;color:#fff;padding:2px 6px;border-radius:4px;font-size:10px">OK ✅</span>';
+    else if(isFab)badge='<span style="background:#fd7e14;color:#fff;padding:2px 6px;border-radius:4px;font-size:10px">FABRICADA</span>';
+    else badge='<span style="background:#17a2b8;color:#fff;padding:2px 6px;border-radius:4px;font-size:10px">ORIGINAL</span>';
+
+    let actions='';
+    if(isRm){
+      actions=`<button class="btn btn-sm" onclick="rvUndo(${m.id})" title="Desfazer remoção">↩️</button>`;
+    } else if(isOk){
+      actions=`<button class="btn btn-sm" onclick="rvUndo(${m.id})" title="Desfazer aprovação">↩️</button>`;
+    } else if(isFab){
+      actions=`<button class="btn btn-sm" onclick="rvApprove(${m.id})" title="Manter esta">✅</button>
+        <button class="btn btn-sm" onclick="rvEdit(${m.id})" title="Editar">✏️</button>
+        <button class="btn btn-sm" onclick="rvRemove(${m.id})" title="Remover">🗑️</button>`;
+    } else {
+      actions='<span style="color:#17a2b8;font-size:11px">Original</span>';
+    }
+
+    return `<tr style="${bgColor}">
+      <td>${m.id}</td>
+      <td>${fmtD(m.data)}</td>
+      <td style="color:${m.tipo==='Entrada'?'var(--green)':'var(--red)'}">${m.tipo}</td>
+      <td style="font-size:11px">${m.cat||''}</td>
+      <td style="text-align:right;font-weight:500">${fmt(m.valor)}</td>
+      <td style="font-size:12px">${m.desc||''}</td>
+      <td>${badge}${note?'<br><span style="font-size:10px;color:#888">'+note+'</span>':''}</td>
+      <td style="white-space:nowrap">${actions}</td>
+    </tr>`;
+  }).join('');
+
+  return `
+  <div class="form-section">
+    <h2>🔍 Revisão de Movimentações</h2>
+    <p style="font-size:13px;color:var(--gray);margin-bottom:16px">
+      As movimentações destacadas em <span style="background:rgba(255,165,0,0.2);padding:2px 8px;border-radius:4px">laranja</span> foram criadas por mim durante a reconstrução dos dados.
+      Revise cada uma: <strong>✅ OK</strong> para manter, <strong>✏️</strong> para editar, <strong>🗑️</strong> para remover.
+    </p>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px">
+      <div style="background:${pendCount>0?'#fd7e14':'#28a745'};color:#fff;padding:8px 16px;border-radius:8px;text-align:center;min-width:100px">
+        <div style="font-size:22px;font-weight:700">${pendCount}</div>
+        <div style="font-size:11px">Pendentes</div>
+      </div>
+      <div style="background:#28a745;color:#fff;padding:8px 16px;border-radius:8px;text-align:center;min-width:100px">
+        <div style="font-size:22px;font-weight:700">${okCount}</div>
+        <div style="font-size:11px">Aprovadas</div>
+      </div>
+      <div style="background:#dc3545;color:#fff;padding:8px 16px;border-radius:8px;text-align:center;min-width:100px">
+        <div style="font-size:22px;font-weight:700">${rmCount}</div>
+        <div style="font-size:11px">Removidas</div>
+      </div>
+      <div style="background:#17a2b8;color:#fff;padding:8px 16px;border-radius:8px;text-align:center;min-width:100px">
+        <div style="font-size:22px;font-weight:700">${allMovs.length-fabCount}</div>
+        <div style="font-size:11px">Originais</div>
+      </div>
+    </div>
+
+    <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+      <button class="btn btn-sm${st.filter==='fab'?' btn-primary':''}" onclick="rvFilter('fab')">🟠 Pendentes (${pendCount})</button>
+      <button class="btn btn-sm${st.filter==='ok'?' btn-primary':''}" onclick="rvFilter('ok')">✅ Aprovadas (${okCount})</button>
+      <button class="btn btn-sm${st.filter==='rm'?' btn-primary':''}" onclick="rvFilter('rm')">🗑️ Removidas (${rmCount})</button>
+      <button class="btn btn-sm${st.filter==='all'?' btn-primary':''}" onclick="rvFilter('all')">📋 Todas (${allMovs.length})</button>
+    </div>
+
+    <div style="overflow-x:auto">
+    <table class="table" style="font-size:12px">
+      <thead><tr>
+        <th>ID</th><th>Data</th><th>Tipo</th><th>Categoria</th><th style="text-align:right">Valor</th><th>Descrição</th><th>Status</th><th>Ações</th>
+      </tr></thead>
+      <tbody>${rows||'<tr><td colspan="8" style="text-align:center;padding:20px;color:var(--gray)">Nenhuma movimentação neste filtro</td></tr>'}</tbody>
+    </table>
+    </div>
+
+    <div style="margin-top:20px;padding:16px;background:rgba(40,167,69,0.05);border:1px solid rgba(40,167,69,0.3);border-radius:8px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+      <div>
+        <strong>Quando terminar a revisão:</strong><br>
+        <span style="font-size:12px;color:var(--gray)">As removidas serão excluídas definitivamente. As aprovadas e não revisadas serão mantidas.</span>
+      </div>
+      <button class="btn btn-primary" onclick="rvFinalize()" style="padding:10px 24px;font-size:14px">✅ Finalizar Revisão</button>
+    </div>
+  </div>`;
+}
+
 function renderUsuarios(){
   loadOrgUsers();
   return `
