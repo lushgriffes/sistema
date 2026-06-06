@@ -854,6 +854,7 @@ function recalcSaldos(){
 function getTabs(){
   const tabs=[
     {name:'Dashboard',icon:'📊',perm:'view'},
+    {name:'⚠️ Revisão',icon:'🔍',perm:'view'},
     {name:'Período',icon:'📅',perm:'view'},
     {name:'Balanço',icon:'⚖️',perm:'view'},
     {name:'Estoque',icon:'📦',perm:'view'},
@@ -870,7 +871,6 @@ function getTabs(){
     {name:'Config',icon:'⚙️',perm:'edit'},
     {name:'Fornecedores',icon:'🏢',perm:'view'},
     {name:'Recebimentos',icon:'💵',perm:'view'},
-    {name:'Revisão',icon:'🔍',perm:'edit'},
   ];
   if(userProfile&&userProfile.role==='admin')tabs.push({name:'Usuários',icon:'👥',perm:'view'});
   return tabs;
@@ -893,15 +893,15 @@ function renderPage(){
   const _selStartPg=_focusPgId&&typeof _focusEl.selectionStart==='number'?_focusEl.selectionStart:null;
   const _selEndPg=_focusPgId&&typeof _focusEl.selectionEnd==='number'?_focusEl.selectionEnd:null;
   const m=calcMetrics();
-  const fns=[renderDash,renderDashPeriodo,renderBalanco,renderEstoque,renderEncomendas,renderVendas,renderMov,renderDesp,renderContasPagar,renderContasReceber,renderNovaCompra,renderNovoAporte,renderPedidos,renderCorrecao,renderConfig,renderFornecedores,renderRecebimentos,renderRevisao];
+  const fns=[renderDash,renderRevisao,renderDashPeriodo,renderBalanco,renderEstoque,renderEncomendas,renderVendas,renderMov,renderDesp,renderContasPagar,renderContasReceber,renderNovaCompra,renderNovoAporte,renderPedidos,renderCorrecao,renderConfig,renderFornecedores,renderRecebimentos];
   if(userProfile&&userProfile.role==='admin')fns.push(renderUsuarios);
   const tabIdx=Math.min(activeTab,fns.length-1);
   document.getElementById('main').innerHTML=`<div class="page active">${fns[tabIdx](m)}</div>`;
   const _syncInfo=_lastKnownUpdatedAt?` | Sync: ${new Date(_lastKnownUpdatedAt).toLocaleString('pt-BR')}`:'';
   document.getElementById('hdr-sub').textContent=`Patrimônio: ${fmt(m.patrimonio)} | Caixa: ${fmt(m.caixa)} | ${D.produtos.length} produtos | ${new Date().toLocaleDateString('pt-BR')} | ${APP_VERSION}${_syncInfo}`;
   if(tabIdx===0)initCharts(m);
-  if(tabIdx===1)initPeriodoCharts();
-  if(tabIdx===13)initSelicChart();
+  if(tabIdx===2)initPeriodoCharts();
+  if(tabIdx===14)initSelicChart();
   // Restaurar scroll apos render (window + containers internos)
   window.scrollTo(0,_winY);
   Object.keys(_scrollSaves).forEach(id=>{const el=document.getElementById(id);if(el)el.scrollTop=_scrollSaves[id]});
@@ -5517,7 +5517,7 @@ function rvFinalize(){
   saveData();
   window._rvState={approved:new Set(),removed:new Set(),editId:null,filter:'fab'};
   toast('Revisão finalizada! '+removedIds.size+' movimentação(ões) removida(s).');
-  showTab(6); // ir para Movimentacoes
+  showTab(7); // ir para Movimentacoes
 }
 
 function renderRevisao(){
