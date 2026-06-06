@@ -1437,8 +1437,10 @@ function renderVendas(m){
     <div class="if-group full"><label>Endereço do cliente</label><input id="vEndereco" placeholder="Endereço de entrega / cobrança"></div>
     <div class="if-group"><label>Data</label><input type="date" id="vData" value="${hoje()}"></div>
     <div class="if-group"><label>Forma</label><select id="vForma" onchange="toggleParcelas()"><option>PIX</option><option>Dinheiro</option><option>Cartão</option><option>Parcelado</option><option>Pendente</option></select></div>
-    <div class="if-group" id="vParcelasGrp" style="display:none"><label>Nº Parcelas</label><input type="number" id="vParcelas" min="2" max="24" value="3" placeholder="Ex: 5"></div>
+    <div class="if-group" id="vParcelasGrp" style="display:none"><label>Nº Parcelas</label><input type="number" id="vParcelas" min="2" max="24" value="3" placeholder="Ex: 5" oninput="calcPreviewParcelas()"></div>
+    <div class="if-group" id="vEntradaGrp" style="display:none"><label>Entrada (R$)</label><input type="number" id="vEntrada" min="0" step="0.01" value="" placeholder="0,00" oninput="calcPreviewParcelas()"></div>
     <div class="if-group" id="vVencGrp" style="display:none"><label>1º Vencimento</label><input type="date" id="vVenc1"></div>
+    <div id="vPreviewParcelas" style="display:none;grid-column:1/-1;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px 14px;font-size:12px;color:var(--text2)"></div>
     <div class="if-group" id="vRecebeuGrp"><label>Recebeu?</label><select id="vRecebeu"><option value="nao">Não</option><option value="sim">Sim</option></select></div>
   </div>
   <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:6px">Itens da venda:</div>
@@ -1504,13 +1506,35 @@ function toggleParcelas(){
   const forma=document.getElementById('vForma').value;
   const parc=forma==='Parcelado';
   document.getElementById('vParcelasGrp').style.display=parc?'':'none';
+  document.getElementById('vEntradaGrp').style.display=parc?'':'none';
   document.getElementById('vVencGrp').style.display=parc?'':'none';
   document.getElementById('vRecebeuGrp').style.display=parc?'none':'';
+  const prev=document.getElementById('vPreviewParcelas');
+  if(!parc){prev.style.display='none';prev.innerHTML=''}
   if(parc&&!document.getElementById('vVenc1').value){
-    // Preencher com 30 dias a partir de hoje por padrão
     const d=new Date();d.setMonth(d.getMonth()+1);
     document.getElementById('vVenc1').value=d.toISOString().slice(0,10);
   }
+  if(parc)calcPreviewParcelas();
+}
+function calcPreviewParcelas(){
+  const prev=document.getElementById('vPreviewParcelas');if(!prev)return;
+  const totalVenda=_vendaCart.reduce((a,it)=>a+(+it.valorVenda||0),0);
+  const nParcelas=Math.max(2,Math.min(24,+(document.getElementById('vParcelas').value||3)));
+  const entrada=+(document.getElementById('vEntrada').value||0);
+  if(totalVenda<=0){prev.style.display='block';prev.innerHTML='<span style="color:var(--gray)">Adicione itens com preço para ver o cálculo das parcelas</span>';return}
+  if(entrada>=totalVenda){prev.style.display='block';prev.innerHTML='<span style="color:var(--red)">Entrada não pode ser maior ou igual ao total da venda</span>';return}
+  const restante=Math.round((totalVenda-entrada)*100)/100;
+  const valorParcela=Math.round((restante/nParcelas)*100)/100;
+  const ajuste=Math.round((restante-valorParcela*nParcelas)*100)/100;
+  let html='<div style="font-weight:600;margin-bottom:6px">Resumo do parcelamento:</div>';
+  html+='<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">';
+  if(entrada>0) html+=`<span style="background:#dcfce7;padding:3px 8px;border-radius:4px;font-weight:600;color:#16a34a">Entrada: ${fmt(entrada)}</span><span>+</span>`;
+  html+=`<span style="background:#dbeafe;padding:3px 8px;border-radius:4px;font-weight:600;color:#2563eb">${nParcelas}x ${fmt(valorParcela)}</span>`;
+  if(ajuste!==0) html+=`<span style="font-size:10px;color:var(--gray)">(última parcela: ${fmt(valorParcela+ajuste)})</span>`;
+  html+=`<span>=</span><span style="background:#fef3c7;padding:3px 8px;border-radius:4px;font-weight:700;color:#d97706">Total: ${fmt(totalVenda)}</span>`;
+  html+='</div>';
+  prev.style.display='block';prev.innerHTML=html;
 }
 
 let _vendaCart=[{produtoId:0,valorVenda:0}];
@@ -1564,6 +1588,8 @@ function vendaCartUpdate(idx,field,val){
   if(infoEl)infoEl.textContent=_vendaCartInfo(idx);
   const totEl=document.getElementById('vendaCartTotal');
   if(totEl)totEl.textContent=fmt(_vendaCart.reduce((a,it)=>a+(+it.valorVenda||0),0));
+  // Recalcular preview de parcelas se estiver em modo parcelado
+  if(document.getElementById('vForma').value==='Parcelado')calcPreviewParcelas();
 }
 
 function salvarVenda(){
@@ -1592,25 +1618,41 @@ function salvarVenda(){
   if(forma==='Parcelado'){
     const nParcelas=Math.max(2,Math.min(24,+(document.getElementById('vParcelas').value||3)));
     const venc1=document.getElementById('vVenc1').value||data;
+    const entradaTotal=+(document.getElementById('vEntrada').value||0);
+    // Calcular proporção da entrada por item (distribuir proporcionalmente)
+    const totalVenda=validos.reduce((a,it)=>a+(+it.valorVenda||0),0);
+    if(entradaTotal>=totalVenda){toast('Entrada não pode ser maior ou igual ao total da venda',true);return}
     validos.forEach(it=>{
       const prod=D.produtos.find(p=>p.id===it.produtoId);
       const custo=prod.custo||0;const valorVenda=+it.valorVenda;
       const nv=nextId(D.vendas);
-      const valorParcela=Math.round((valorVenda/nParcelas)*100)/100;
-      const ajuste=Math.round((valorVenda-valorParcela*nParcelas)*100)/100;
-      D.vendas.push({id:nv,data,cliente,telefone,endereco,produto:prod.nome,produtoId:prod.id,custo,valorVenda,recebido:0,saldoReceber:valorVenda,status:'Pendente',forma:`${nParcelas}x ${fmt(valorParcela)}`,nParcelas});
+      // Entrada proporcional ao valor deste item
+      const entradaItem=totalVenda>0?Math.round((entradaTotal*(valorVenda/totalVenda))*100)/100:0;
+      const restante=Math.round((valorVenda-entradaItem)*100)/100;
+      const valorParcela=Math.round((restante/nParcelas)*100)/100;
+      const ajuste=Math.round((restante-valorParcela*nParcelas)*100)/100;
+      const recebido=entradaItem;const saldoReceber=Math.round((valorVenda-entradaItem)*100)/100;
+      const formaDesc=entradaItem>0?`Ent. ${fmt(entradaItem)} + ${nParcelas}x ${fmt(valorParcela)}`:`${nParcelas}x ${fmt(valorParcela)}`;
+      D.vendas.push({id:nv,data,cliente,telefone,endereco,produto:prod.nome,produtoId:prod.id,custo,valorVenda,recebido,saldoReceber,status:saldoReceber>0?'Pendente':'Pago Total',forma:formaDesc,nParcelas,entrada:entradaItem});
       prod.status='Vendido';
+      // Se teve entrada, registrar movimentação de entrada
+      if(entradaItem>0){
+        D.movimentacoes.push({id:nextId(D.movimentacoes),data,desc:`Entrada Venda — ${cliente} — ${prod.nome}`,tipo:'Entrada',cat:'Recebimento Venda',plano:'Receita',valor:entradaItem,saldo:0});
+      }
+      // Gerar parcelas sobre o restante
       for(let i=0;i<nParcelas;i++){
         const dt=new Date(venc1+'T12:00:00');dt.setMonth(dt.getMonth()+i);
         const venc=dt.toISOString().slice(0,10);
         const vlr=i===nParcelas-1?valorParcela+ajuste:valorParcela;
-        D.contasReceber.push({id:nextId(D.contasReceber),desc:`Parcela ${i+1}/${nParcelas} — ${cliente} — ${prod.nome}`,valor:Math.round(vlr*100)/100,vencimento:venc,cliente,vendaId:nv,status:'Pendente',dataReceb:'',obs:`Parcelado ${nParcelas}x`,parcela:i+1,totalParcelas:nParcelas});
+        D.contasReceber.push({id:nextId(D.contasReceber),desc:`Parcela ${i+1}/${nParcelas} — ${cliente} — ${prod.nome}`,valor:Math.round(vlr*100)/100,vencimento:venc,cliente,vendaId:nv,status:'Pendente',dataReceb:'',obs:entradaItem>0?`Entrada ${fmt(entradaItem)} + ${nParcelas}x`:`Parcelado ${nParcelas}x`,parcela:i+1,totalParcelas:nParcelas});
       }
       totalGeral+=valorVenda;nItens++;
     });
+    if(entradaTotal>0)recalcSaldos();
     _vendaCart=[{produtoId:0,valorVenda:0}];
     saveData();
-    toast(`Venda parcelada: ${nItens} item(ns) → ${cliente} | Total ${fmt(totalGeral)} (cada item em ${nParcelas}x)`);renderPage();
+    const msgEntrada=entradaTotal>0?` (entrada ${fmt(entradaTotal)} + ${nParcelas}x)`:`(${nParcelas}x)`;
+    toast(`Venda parcelada: ${nItens} item(ns) → ${cliente} | Total ${fmt(totalGeral)} ${msgEntrada}`);renderPage();
   } else {
     validos.forEach(it=>{
       const prod=D.produtos.find(p=>p.id===it.produtoId);
