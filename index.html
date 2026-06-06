@@ -344,6 +344,74 @@ async function loadDataFromSupabase(){
     }
     if(!d.planoContas.includes('Acerto'))d.planoContas.push('Acerto');
     d.vendas.forEach(v=>{if(v.produtoId===undefined)v.produtoId=0;if(v.saldoReceber===undefined)v.saldoReceber=(v.valorVenda||0)-(v.recebido||0)});
+    // Auto-generate contasReceber from vendas with saldo > 0 if empty
+    if((d.contasReceber||[]).length===0){
+      d.vendas.forEach(v=>{
+        if((v.saldoReceber||0)>0){
+          if(!d.contasReceber)d.contasReceber=[];
+          d.contasReceber.push({id:d.contasReceber.length+1,desc:`Venda — ${v.cliente} — ${v.produto}`,valor:v.saldoReceber,vencimento:v.data,cliente:v.cliente,vendaId:v.id,status:'Pendente',dataReceb:'',obs:''});
+        }
+      });
+    }
+    // ═══ MIGRACAO SUPABASE: vincular produtos às compras + remover custo negativo ═══
+    if(!d._migrated_product_links_v2){
+      d._migrated_product_links_v2=true;
+      // 1) Remover produtos com custo negativo
+      const _negB=d.produtos.length;
+      d.produtos=d.produtos.filter(p=>(p.custo||0)>=0);
+      const _negR=_negB-d.produtos.length;
+      // 2) Vincular produtos a compras pelo campo obs/nome
+      const _cps=d.movimentacoes.filter(m=>m.cat==='Pagamento Fornecedor');
+      const _fc2=pat=>_cps.find(m=>pat.test(m.desc||''));
+      const _rl=[
+        {t:p=>/Pedro Dilly/i.test(p.obs||''),c:()=>_fc2(/Lote 1/i)},
+        {t:p=>/Amin Rank/i.test(p.obs||''),c:()=>_fc2(/Jordan/i)},
+        {t:p=>/Fornecedor.*Chen/i.test(p.obs||''),c:()=>_fc2(/Safari/i)},
+        {t:p=>/^Aporte s.cio Natal$/i.test((p.obs||'').trim())&&p.cat==='Relógio',c:()=>_fc2(/Compra Rel.*gios.*aporte/i)},
+        {t:p=>/China 25/i.test(p.obs||''),c:()=>_fc2(/China 25/i)},
+        {t:p=>/Encomenda cliente Rog/i.test(p.obs||'')&&p.cat==='Óculos',c:()=>_fc2(/culos.*Rog/i)},
+        {t:p=>/Birkenstock/i.test(p.nome||''),c:()=>_fc2(/Birkenstock/i)},
+        {t:p=>/Gucci/i.test(p.nome||'')&&p.cat==='Tênis',c:()=>_fc2(/Gucci/i)},
+        {t:p=>/Chanel/i.test(p.nome||''),c:()=>_fc2(/Chanel/i)},
+        {t:p=>/Mercadoria 07\/05/i.test(p.obs||''),c:()=>_fc2(/Compra Mercadoria.*aporte Natal/i)},
+        {t:p=>/Assad/i.test(p.obs||''),c:()=>_fc2(/Assad/i)},
+        {t:p=>/Gas Escape/i.test(p.nome||''),c:()=>_fc2(/Gas Escape/i)},
+        {t:p=>/Compra com receita/i.test(p.obs||''),c:()=>_fc2(/Camisetas Brasil/i)},
+        {t:p=>/Aporte Natal \(Camisetas\)/i.test(p.obs||''),c:()=>_fc2(/Camisetas Brasil/i)},
+        {t:p=>/Material aporte Natal/i.test(p.obs||''),c:()=>_fc2(/Camisetas Brasil/i)},
+        {t:p=>/5 Rolex Premium/i.test(p.obs||''),c:()=>_fc2(/5 Rolex Premium/i)},
+        {t:p=>/Aporte Natal\. Vendido/i.test(p.obs||'')&&/Rolex Premium/i.test(p.nome||''),c:()=>_fc2(/5 Rolex Premium/i)},
+        {t:p=>/17 rel/i.test(p.obs||''),c:()=>_fc2(/17 Rel/i)},
+        {t:p=>/49 [Cc]asuais/i.test(p.obs||''),c:()=>_fc2(/49 Rel.*gios/i)},
+        {t:p=>/Andreia Portugal/i.test(p.obs||''),c:()=>_fc2(/Andreia/i)},
+        {t:p=>/Pedido em tr/i.test(p.obs||''),c:()=>_fc2(/Lote Tr.*nsito/i)},
+        {t:p=>(p.cat==='Camiseta'||/[Cc]amiseta/i.test(p.nome||''))&&/Vendido para/i.test(p.obs||'')&&!/Aporte|49 Casuais/i.test(p.obs||''),c:()=>_fc2(/Camisetas Brasil/i)},
+      ];
+      let _lk=0;
+      d.produtos.forEach(p=>{
+        if(p.movId&&p.movId!=='N/A'&&typeof p.movId==='number')return;
+        for(const r of _rl){if(r.t(p)){const c=r.c();if(c){p.movId=c.id;_lk++;break}}}
+      });
+      // 2b) Estojos
+      const _est=d.produtos.filter(p=>/Estojo/i.test(p.nome||'')&&/^Aporte Natal$/i.test((p.obs||'').trim())&&(!p.movId||p.movId==='N/A'));
+      const _ce1b=_fc2(/^Compra Estojo \(via/i);
+      const _ce4b=_fc2(/04 Estojos/i);
+      _est.sort((a,b)=>a.id-b.id);
+      _est.forEach((p,i)=>{
+        if(i===0&&_ce1b){p.movId=_ce1b.id;_lk++}
+        else if(_ce4b){p.movId=_ce4b.id;_lk++}
+      });
+      // 3) Preencher itens[] nas compras
+      _cps.forEach(m=>{const pr=d.produtos.filter(p=>p.movId===m.id);if(pr.length>0)m.itens=pr.map(p=>p.id)});
+      // 4) Copiar numPedido da compra para produto
+      d.produtos.forEach(p=>{
+        if(p.movId&&p.movId!=='N/A'&&typeof p.movId==='number'){
+          const mv=d.movimentacoes.find(m=>m.id===p.movId);
+          if(mv&&mv.numPedido&&!p.numPedido)p.numPedido=mv.numPedido;
+        }
+      });
+      console.log('Migration v2 (Supabase): removidos',_negR,'produtos custo negativo, vinculados',_lk,'produtos a compras');
+    }
     D=d;
   } else {
     // PROTECAO: Supabase nao tem dados — usar estrutura vazia, mas NUNCA salvar automaticamente no Supabase.
