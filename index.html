@@ -2986,6 +2986,23 @@ function excluirMov(movId){
     }
     cr.status='Pendente';cr.dataReceb='';cr.movIdEstorno=0;
   }
+  // Fallback: Recebimento Venda sem conta a receber vinculada — achar venda pela desc
+  if(!cr&&(m.cat==='Recebimento Venda'||m.cat==='Sinal Encomenda')){
+    const _pts=(m.desc||'').split('—').map(s=>s.trim());
+    if(_pts.length>=2){
+      const _cli=_pts[1]||'';
+      const _prod=_pts.length>=3?_pts[2]:'';
+      const _v=D.vendas.find(x=>x.cliente===_cli&&(_prod?((x.produto||'').indexOf(_prod)>=0):true));
+      if(_v){
+        _v.recebido=Math.max(0,(_v.recebido||0)-m.valor);
+        _v.saldoReceber=Math.max(0,(_v.valorVenda||0)-_v.recebido);
+        _v.status=_v.saldoReceber<=0&&_v.recebido>0?'Pago Total':(_v.recebido>0?'Pago Parcial':'Pendente');
+        // Atualizar conta a receber da venda se existir
+        const _crv=(D.contasReceber||[]).find(c=>c.vendaId===_v.id&&c.status==='Recebido');
+        if(_crv){_crv.status='Pendente';_crv.dataReceb='';_crv.movIdEstorno=0}
+      }
+    }
+  }
   // Se for uma taxa de produto, reverter o custo aplicado aos produtos
   if(m.taxaItens&&m.taxaItens.length){
     m.taxaItens.forEach(it=>{
@@ -5513,11 +5530,35 @@ function rvFinalize(){
   if(removedIds.size>0){
     // Desvincular produtos das movimentacoes removidas
     D.produtos.forEach(p=>{if(p.movId&&removedIds.has(p.movId)){p.movId=null;p.numPedido=''}});
+    // Reverter vendas vinculadas a recebimentos que serão removidos
+    D.movimentacoes.filter(m=>removedIds.has(m.id)&&(m.cat==='Recebimento Venda'||m.cat==='Sinal Encomenda')).forEach(m=>{
+      // Tentar via conta a receber
+      const cr=D.contasReceber.find(c=>c.movIdEstorno===m.id);
+      if(cr){
+        if(cr.vendaId){
+          const v=D.vendas.find(x=>x.id===cr.vendaId);
+          if(v){v.recebido=Math.max(0,(v.recebido||0)-m.valor);v.saldoReceber=Math.max(0,(v.valorVenda||0)-v.recebido);v.status=v.saldoReceber<=0&&v.recebido>0?'Pago Total':(v.recebido>0?'Pago Parcial':'Pendente')}
+        }
+        cr.status='Pendente';cr.dataReceb='';cr.movIdEstorno=0;
+      } else {
+        // Fallback: achar venda pela desc
+        const _pts=(m.desc||'').split('—').map(s=>s.trim());
+        if(_pts.length>=2){
+          const _cli=_pts[1]||'';
+          const _prod=_pts.length>=3?_pts[2]:'';
+          const _v=D.vendas.find(x=>x.cliente===_cli&&(_prod?((x.produto||'').indexOf(_prod)>=0):true));
+          if(_v){
+            _v.recebido=Math.max(0,(_v.recebido||0)-m.valor);
+            _v.saldoReceber=Math.max(0,(_v.valorVenda||0)-_v.recebido);
+            _v.status=_v.saldoReceber<=0&&_v.recebido>0?'Pago Total':(_v.recebido>0?'Pago Parcial':'Pendente');
+            const _crv=(D.contasReceber||[]).find(c=>c.vendaId===_v.id&&c.status==='Recebido');
+            if(_crv){_crv.status='Pendente';_crv.dataReceb='';_crv.movIdEstorno=0}
+          }
+        }
+      }
+    });
     // Remover movimentacoes
     D.movimentacoes=D.movimentacoes.filter(m=>!removedIds.has(m.id));
-    // Remover despesas vinculadas (mesmo ID na lista de despesas)
-    const removedDescs=new Set();
-    removedIds.forEach(rid=>{const m=D.movimentacoes.find(x=>x.id===rid);if(m)removedDescs.add(m.desc)});
   }
   saveData();
   window._rvState={approved:new Set(),removed:new Set(),editId:null,filter:'fab'};
