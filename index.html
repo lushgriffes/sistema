@@ -270,7 +270,9 @@ async function initApp(user){
 
 async function loadDataFromSupabase(){
   if(!userProfile)return;
-  const{data}=await SB.from('app_data').select('data').eq('org_id',userProfile.org_id).single();
+  const{data,error}=await SB.from('app_data').select('data,updated_at').eq('org_id',userProfile.org_id).single();
+  if(error){console.error('Erro ao carregar Supabase:',error);toast('Aviso: usando dados locais (Supabase indisponivel)',true);return}
+  if(data&&data.updated_at)_lastKnownUpdatedAt=data.updated_at;
   if(data&&data.data&&Object.keys(data.data).length>0){
     const d=data.data;
     // Migrations
@@ -353,9 +355,29 @@ async function loadDataFromSupabase(){
   }
 }
 
+let _lastKnownUpdatedAt=null; // timestamp da ultima leitura do Supabase
 async function saveDataToSupabase(){
   if(!userProfile)return;
-  await SB.from('app_data').upsert({org_id:userProfile.org_id,data:D,updated_at:new Date().toISOString()},{onConflict:'org_id'});
+  // PROTECAO: verificar se outro computador salvou dados mais novos
+  try{
+    const{data:remote}=await SB.from('app_data').select('updated_at').eq('org_id',userProfile.org_id).single();
+    if(remote&&remote.updated_at&&_lastKnownUpdatedAt){
+      const remoteTime=new Date(remote.updated_at).getTime();
+      const localTime=new Date(_lastKnownUpdatedAt).getTime();
+      if(remoteTime>localTime+2000){ // 2s de tolerancia
+        const diff=Math.round((remoteTime-localTime)/60000);
+        const confirma=confirm(`ATENCAO: Outro computador salvou dados ${diff} minuto(s) atras.\n\nSe continuar, voce pode SOBRESCREVER dados mais recentes.\n\nClique OK para salvar mesmo assim, ou CANCELAR para recarregar a pagina com os dados mais recentes.`);
+        if(!confirma){
+          location.reload();
+          return;
+        }
+      }
+    }
+  }catch(e){console.warn('Erro ao verificar timestamp remoto:',e)}
+  const agora=new Date().toISOString();
+  D._savedAt=agora;
+  await SB.from('app_data').upsert({org_id:userProfile.org_id,data:D,updated_at:agora},{onConflict:'org_id'});
+  _lastKnownUpdatedAt=agora;
 }
 
 // Check session on load — com persistência local do token
@@ -647,7 +669,8 @@ function renderPage(){
   if(userProfile&&userProfile.role==='admin')fns.push(renderUsuarios);
   const tabIdx=Math.min(activeTab,fns.length-1);
   document.getElementById('main').innerHTML=`<div class="page active">${fns[tabIdx](m)}</div>`;
-  document.getElementById('hdr-sub').textContent=`Patrimônio: ${fmt(m.patrimonio)} | Caixa: ${fmt(m.caixa)} | ${new Date().toLocaleDateString('pt-BR')} | ${APP_VERSION}`;
+  const _syncInfo=_lastKnownUpdatedAt?` | Sync: ${new Date(_lastKnownUpdatedAt).toLocaleString('pt-BR')}`:'';
+  document.getElementById('hdr-sub').textContent=`Patrimônio: ${fmt(m.patrimonio)} | Caixa: ${fmt(m.caixa)} | ${D.produtos.length} produtos | ${new Date().toLocaleDateString('pt-BR')} | ${APP_VERSION}${_syncInfo}`;
   if(tabIdx===0)initCharts(m);
   if(tabIdx===1)initPeriodoCharts();
   if(tabIdx===13)initSelicChart();
