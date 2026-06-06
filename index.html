@@ -412,6 +412,29 @@ async function loadDataFromSupabase(){
       });
       console.log('Migration v2 (Supabase): removidos',_negR,'produtos custo negativo, vinculados',_lk,'produtos a compras');
     }
+    // ═══ MIGRACAO v3: reconciliar vendas com movimentações (recebimento excluído → venda volta a Pendente) ═══
+    if(!d._migrated_venda_receb_sync_v1){
+      d._migrated_venda_receb_sync_v1=true;
+      let _syncCount=0;
+      const _recebMovs=d.movimentacoes.filter(m=>m.cat==='Recebimento Venda'||m.cat==='Sinal Encomenda');
+      (d.vendas||[]).forEach(v=>{
+        if(v.status==='Pago Total'||v.status==='Pago Parcial'){
+          // Verificar se existe ao menos 1 movimentação de recebimento para esta venda
+          const _temReceb=_recebMovs.some(m=>{
+            const _pts=(m.desc||'').split('—').map(s=>s.trim());
+            return _pts.length>=2&&_pts[1]===v.cliente;
+          }) || (d.contasReceber||[]).some(c=>c.vendaId===v.id&&c.status==='Recebido');
+          if(!_temReceb){
+            v.recebido=0;v.saldoReceber=+(v.valorVenda||0);
+            v.status='Pendente';
+            // Reverter conta a receber vinculada
+            (d.contasReceber||[]).filter(c=>c.vendaId===v.id).forEach(c=>{c.status='Pendente';c.dataReceb='';c.movIdEstorno=0});
+            _syncCount++;
+          }
+        }
+      });
+      if(_syncCount>0)console.log('Migration v3 (Supabase): reconciliadas',_syncCount,'vendas sem recebimento');
+    }
     D=d;
   } else {
     // PROTECAO: Supabase nao tem dados — usar estrutura vazia, mas NUNCA salvar automaticamente no Supabase.
@@ -789,6 +812,27 @@ function loadData(){
           }
         });
         console.log('Migration v2: removidos',_negRemoved,'produtos com custo negativo, vinculados',_linked,'produtos a compras');
+      }
+      // ═══ MIGRACAO v3: reconciliar vendas com movimentações ═══
+      if(!d._migrated_venda_receb_sync_v1){
+        d._migrated_venda_receb_sync_v1=true;
+        let _syncCount=0;
+        const _recebMovs=d.movimentacoes.filter(m=>m.cat==='Recebimento Venda'||m.cat==='Sinal Encomenda');
+        (d.vendas||[]).forEach(v=>{
+          if(v.status==='Pago Total'||v.status==='Pago Parcial'){
+            const _temReceb=_recebMovs.some(m=>{
+              const _pts=(m.desc||'').split('—').map(s=>s.trim());
+              return _pts.length>=2&&_pts[1]===v.cliente;
+            }) || (d.contasReceber||[]).some(c=>c.vendaId===v.id&&c.status==='Recebido');
+            if(!_temReceb){
+              v.recebido=0;v.saldoReceber=+(v.valorVenda||0);
+              v.status='Pendente';
+              (d.contasReceber||[]).filter(c=>c.vendaId===v.id).forEach(c=>{c.status='Pendente';c.dataReceb='';c.movIdEstorno=0});
+              _syncCount++;
+            }
+          }
+        });
+        if(_syncCount>0)console.log('Migration v3: reconciliadas',_syncCount,'vendas sem recebimento');
       }
       return d;
     }
