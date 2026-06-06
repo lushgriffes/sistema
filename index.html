@@ -663,6 +663,65 @@ function loadData(){
           }
         });
       }
+      // ═══ MIGRACAO: vincular produtos às compras + remover custo negativo ═══
+      if(!d._migrated_product_links_v2){
+        d._migrated_product_links_v2=true;
+        // 1) Remover produtos com custo negativo
+        const _negBefore=d.produtos.length;
+        d.produtos=d.produtos.filter(p=>(p.custo||0)>=0);
+        const _negRemoved=_negBefore-d.produtos.length;
+        // 2) Vincular produtos a compras pelo campo obs/nome
+        const _compras=d.movimentacoes.filter(m=>m.cat==='Pagamento Fornecedor');
+        const _fc=pat=>_compras.find(m=>pat.test(m.desc||''));
+        const _rules=[
+          {t:p=>/Pedro Dilly/i.test(p.obs||''),c:()=>_fc(/Lote 1/i)},
+          {t:p=>/Amin Rank/i.test(p.obs||''),c:()=>_fc(/Jordan/i)},
+          {t:p=>/Fornecedor.*Chen/i.test(p.obs||''),c:()=>_fc(/Safari/i)},
+          {t:p=>/^Aporte s.cio Natal$/i.test((p.obs||'').trim())&&p.cat==='Relógio',c:()=>_fc(/Compra Rel.*gios.*aporte/i)},
+          {t:p=>/China 25/i.test(p.obs||''),c:()=>_fc(/China 25/i)},
+          {t:p=>/Encomenda cliente Rog/i.test(p.obs||'')&&p.cat==='Óculos',c:()=>_fc(/culos.*Rog/i)},
+          {t:p=>/Birkenstock/i.test(p.nome||''),c:()=>_fc(/Birkenstock/i)},
+          {t:p=>/Gucci/i.test(p.nome||'')&&p.cat==='Tênis',c:()=>_fc(/Gucci/i)},
+          {t:p=>/Chanel/i.test(p.nome||''),c:()=>_fc(/Chanel/i)},
+          {t:p=>/Mercadoria 07\/05/i.test(p.obs||''),c:()=>_fc(/Compra Mercadoria.*aporte Natal/i)},
+          {t:p=>/Assad/i.test(p.obs||''),c:()=>_fc(/Assad/i)},
+          {t:p=>/Gas Escape/i.test(p.nome||''),c:()=>_fc(/Gas Escape/i)},
+          {t:p=>/Compra com receita/i.test(p.obs||''),c:()=>_fc(/Camisetas Brasil/i)},
+          {t:p=>/Aporte Natal \(Camisetas\)/i.test(p.obs||''),c:()=>_fc(/Camisetas Brasil/i)},
+          {t:p=>/Material aporte Natal/i.test(p.obs||''),c:()=>_fc(/Camisetas Brasil/i)},
+          {t:p=>/5 Rolex Premium/i.test(p.obs||''),c:()=>_fc(/5 Rolex Premium/i)},
+          {t:p=>/Aporte Natal\. Vendido/i.test(p.obs||'')&&/Rolex Premium/i.test(p.nome||''),c:()=>_fc(/5 Rolex Premium/i)},
+          {t:p=>/17 rel/i.test(p.obs||''),c:()=>_fc(/17 Rel/i)},
+          {t:p=>/49 [Cc]asuais/i.test(p.obs||''),c:()=>_fc(/49 Rel.*gios/i)},
+          {t:p=>/Andreia Portugal/i.test(p.obs||''),c:()=>_fc(/Andreia/i)},
+          {t:p=>/Pedido em tr/i.test(p.obs||''),c:()=>_fc(/Lote Tr.*nsito/i)},
+          {t:p=>(p.cat==='Camiseta'||/[Cc]amiseta/i.test(p.nome||''))&&/Vendido para/i.test(p.obs||'')&&!/Aporte|49 Casuais/i.test(p.obs||''),c:()=>_fc(/Camisetas Brasil/i)},
+        ];
+        let _linked=0;
+        d.produtos.forEach(p=>{
+          if(p.movId&&p.movId!=='N/A'&&typeof p.movId==='number')return;
+          for(const r of _rules){if(r.t(p)){const c=r.c();if(c){p.movId=c.id;_linked++;break}}}
+        });
+        // 2b) Estojos: primeiro vai para compra unitaria, demais para compra de 4
+        const _estojos=d.produtos.filter(p=>/Estojo/i.test(p.nome||'')&&/^Aporte Natal$/i.test((p.obs||'').trim())&&(!p.movId||p.movId==='N/A'));
+        const _ce1=_fc(/^Compra Estojo \(via/i);
+        const _ce4=_fc(/04 Estojos/i);
+        _estojos.sort((a,b)=>a.id-b.id);
+        _estojos.forEach((p,i)=>{
+          if(i===0&&_ce1){p.movId=_ce1.id;_linked++}
+          else if(_ce4){p.movId=_ce4.id;_linked++}
+        });
+        // 3) Preencher itens[] nas compras
+        _compras.forEach(m=>{const pr=d.produtos.filter(p=>p.movId===m.id);if(pr.length>0)m.itens=pr.map(p=>p.id)});
+        // 4) Copiar numPedido da compra para produto
+        d.produtos.forEach(p=>{
+          if(p.movId&&p.movId!=='N/A'&&typeof p.movId==='number'){
+            const mv=d.movimentacoes.find(m=>m.id===p.movId);
+            if(mv&&mv.numPedido&&!p.numPedido)p.numPedido=mv.numPedido;
+          }
+        });
+        console.log('Migration v2: removidos',_negRemoved,'produtos com custo negativo, vinculados',_linked,'produtos a compras');
+      }
       return d;
     }
   }catch(e){}
