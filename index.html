@@ -355,7 +355,68 @@ async function loadDataFromSupabase(){
   }
 }
 
-let _lastKnownUpdatedAt=null; // timestamp da ultima leitura do Supabase
+let _lastKnownUpdatedAt=null;
+const BACKUP_KEY='lush-griffes-backups';
+const MAX_BACKUPS=20;
+
+// ═══ SISTEMA DE BACKUP AUTOMÁTICO ═══
+function salvarBackupLocal(){
+  try{
+    const backups=JSON.parse(localStorage.getItem(BACKUP_KEY)||'[]');
+    const snapshot={
+      timestamp:new Date().toISOString(),
+      produtos:D.produtos.length,
+      movimentacoes:D.movimentacoes.length,
+      vendas:D.vendas.length,
+      despesas:D.despesas.length,
+      data:JSON.stringify(D)
+    };
+    backups.unshift(snapshot);
+    // Manter apenas os ultimos MAX_BACKUPS
+    while(backups.length>MAX_BACKUPS)backups.pop();
+    localStorage.setItem(BACKUP_KEY,JSON.stringify(backups));
+  }catch(e){console.warn('Erro ao salvar backup local:',e)}
+}
+
+function listarBackups(){
+  try{
+    const backups=JSON.parse(localStorage.getItem(BACKUP_KEY)||'[]');
+    return backups.map(b=>({
+      timestamp:b.timestamp,
+      produtos:b.produtos,
+      movimentacoes:b.movimentacoes,
+      vendas:b.vendas,
+      despesas:b.despesas||0,
+      tamanho:Math.round((b.data||'').length/1024)+'KB'
+    }));
+  }catch(e){return[]}
+}
+
+function restaurarBackup(idx){
+  try{
+    const backups=JSON.parse(localStorage.getItem(BACKUP_KEY)||'[]');
+    if(!backups[idx]){toast('Backup não encontrado',true);return}
+    const b=backups[idx];
+    const info=`Restaurar backup de ${new Date(b.timestamp).toLocaleString('pt-BR')}?\n\nProdutos: ${b.produtos} | Movimentações: ${b.movimentacoes} | Vendas: ${b.vendas}\n\nISTO VAI SUBSTITUIR OS DADOS ATUAIS.`;
+    if(!confirm(info))return;
+    // Salvar estado atual como backup antes de restaurar
+    salvarBackupLocal();
+    D=JSON.parse(b.data);
+    saveData();
+    toast('Backup restaurado com sucesso!');
+    renderPage();
+  }catch(e){toast('Erro ao restaurar: '+e.message,true)}
+}
+
+function exportarDados(){
+  const blob=new Blob([JSON.stringify(D,null,2)],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;a.download='LUSH-GRIFFES-backup-'+new Date().toISOString().slice(0,10)+'.json';
+  a.click();URL.revokeObjectURL(url);
+  toast('Backup exportado!');
+}
+
 async function saveDataToSupabase(){
   if(!userProfile)return;
   // PROTECAO: verificar se outro computador salvou dados mais novos
@@ -364,16 +425,15 @@ async function saveDataToSupabase(){
     if(remote&&remote.updated_at&&_lastKnownUpdatedAt){
       const remoteTime=new Date(remote.updated_at).getTime();
       const localTime=new Date(_lastKnownUpdatedAt).getTime();
-      if(remoteTime>localTime+2000){ // 2s de tolerancia
+      if(remoteTime>localTime+2000){
         const diff=Math.round((remoteTime-localTime)/60000);
         const confirma=confirm(`ATENCAO: Outro computador salvou dados ${diff} minuto(s) atras.\n\nSe continuar, voce pode SOBRESCREVER dados mais recentes.\n\nClique OK para salvar mesmo assim, ou CANCELAR para recarregar a pagina com os dados mais recentes.`);
-        if(!confirma){
-          location.reload();
-          return;
-        }
+        if(!confirma){location.reload();return}
       }
     }
   }catch(e){console.warn('Erro ao verificar timestamp remoto:',e)}
+  // BACKUP: salvar snapshot antes de gravar no Supabase
+  salvarBackupLocal();
   const agora=new Date().toISOString();
   D._savedAt=agora;
   await SB.from('app_data').upsert({org_id:userProfile.org_id,data:D,updated_at:agora},{onConflict:'org_id'});
@@ -4757,15 +4817,28 @@ function renderConfig(){
 
     <div class="box">
       <h3>💾 Dados do Sistema</h3>
-      <p style="font-size:11px;color:var(--gray);margin-bottom:10px">Os dados são armazenados na nuvem (Supabase). Todos os sócios acessam os mesmos dados. Faça backup por segurança.</p>
+      <p style="font-size:11px;color:var(--gray);margin-bottom:10px">Os dados são armazenados na nuvem (Supabase). Backups automáticos são salvos localmente a cada alteração.</p>
       <div style="display:flex;flex-direction:column;gap:8px">
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-primary btn-sm" onclick="exportData()">📥 Exportar Backup</button>
-          <button class="btn btn-secondary btn-sm" onclick="document.getElementById('importFile').click()">📤 Importar Backup</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary btn-sm" onclick="exportarDados()">📥 Exportar JSON</button>
+          <button class="btn btn-secondary btn-sm" onclick="document.getElementById('importFile').click()">📤 Importar JSON</button>
+          <button class="btn btn-sm" onclick="salvarBackupLocal();toast('Backup manual salvo!')" style="background:var(--cyan);color:#fff">📸 Backup Agora</button>
         </div>
         <div style="background:#d1fae5;border-radius:8px;padding:10px;font-size:11px;color:#065f46">
-          ☁️ <strong>Nuvem:</strong> Dados salvos no Supabase. Acessíveis de qualquer dispositivo com seu login.
+          ☁️ <strong>Nuvem:</strong> Supabase | <strong>Local:</strong> ${listarBackups().length} backups automáticos salvos neste navegador
         </div>
+      </div>
+    </div>
+    <div class="box">
+      <h3>🔄 Restaurar Backup</h3>
+      <p style="font-size:11px;color:var(--gray);margin-bottom:10px">Backups automáticos dos últimos ${MAX_BACKUPS} salvamentos neste navegador. Clique para restaurar.</p>
+      <div style="max-height:300px;overflow-y:auto">
+        <table><thead><tr><th>Data/Hora</th><th>Produtos</th><th>Mov.</th><th>Vendas</th><th>Desp.</th><th>Tamanho</th><th>Ação</th></tr></thead>
+        <tbody>${(()=>{
+          const bks=listarBackups();
+          if(!bks.length)return '<tr><td colspan="7" style="text-align:center;color:var(--gray);padding:20px">Nenhum backup salvo ainda. Backups são criados automaticamente a cada salvamento.</td></tr>';
+          return bks.map((b,i)=>'<tr><td style="font-size:11px">'+new Date(b.timestamp).toLocaleString('pt-BR')+'</td><td class="r">'+b.produtos+'</td><td class="r">'+b.movimentacoes+'</td><td class="r">'+b.vendas+'</td><td class="r">'+b.despesas+'</td><td class="r" style="font-size:10px">'+b.tamanho+'</td><td><button class="btn btn-sm" onclick="restaurarBackup('+i+')" style="background:var(--green);color:#fff;font-size:10px;padding:2px 8px">Restaurar</button></td></tr>').join('');
+        })()}</tbody></table>
       </div>
     </div>
   </div>
