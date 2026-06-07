@@ -4393,7 +4393,7 @@ function renderContasReceber(){
       <td><select onchange="mudarStatusCR(${c.id},this.value)" style="font-size:10px;padding:3px 6px;border-radius:4px;border:1px solid #ddd">
         <option value="Pendente"${c.status==='Pendente'?' selected':''}>📋 Pendente</option>
         <option value="Recebido"${c.status==='Recebido'?' selected':''}>✅ Recebido</option>
-      </select>${c.status==='Recebido'?`<div style="margin-top:3px;display:flex;align-items:center;gap:3px"><span style="font-size:9px;color:var(--gray)">Recebido:</span><input type="date" value="${c.dataReceb||''}" onchange="editarDataReceb(${c.id},this.value)" style="font-size:9px;padding:2px 4px;border:1px solid var(--border);border-radius:4px" title="Editar a data do recebimento"></div>`:''}</td>
+      </select>${c.status==='Recebido'?`<div style="margin-top:3px;display:flex;align-items:center;gap:3px"><span style="font-size:9px;color:var(--gray)">Recebido:</span><input type="date" value="${c.dataReceb||''}" onblur="if(this.value&&this.value!=='${c.dataReceb||''}')editarDataReceb(${c.id},this.value)" onkeydown="if(event.key==='Enter')this.blur()" style="font-size:9px;padding:2px 4px;border:1px solid var(--border);border-radius:4px" title="Editar a data do recebimento (Enter ou clique fora para salvar)"></div>`:''}</td>
     </tr>`}).join('')}
   </tbody>
   <tfoot>
