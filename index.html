@@ -3104,10 +3104,14 @@ function editMovDate(movId,el){
   if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
   if(el.querySelector('input'))return;_editing=true;
   const m=D.movimentacoes.find(x=>x.id===movId);if(!m){_editing=false;return;}
-  el.innerHTML=`<input type="date" class="edit-input" value="${m.data||''}" style="width:130px">`;
+  el.innerHTML=`<input type="date" class="edit-input" value="${m.data||''}" style="width:130px" onkeydown="if(event.key==='Enter')this.blur()">`;
   const inp=el.querySelector('input');let done=false;
-  inp.addEventListener('change',function(){if(done)return;done=true;_editing=false;m.data=inp.value;syncMovToDesp(movId,'data',inp.value);saveData();renderPage();toast('Data alterada para '+fmtD(inp.value))});
-  inp.addEventListener('blur',function(){if(done)return;done=true;_editing=false;renderPage()});
+  inp.addEventListener('blur',function(){
+    if(done)return;done=true;_editing=false;
+    if(inp.value&&inp.value!==m.data){
+      m.data=inp.value;syncMovToDesp(movId,'data',inp.value);saveData();renderPage();toast('Data alterada para '+fmtD(inp.value));
+    } else { renderPage(); }
+  });
   setTimeout(()=>inp.focus(),30);
 }
 function editMovText(movId,field,el){
