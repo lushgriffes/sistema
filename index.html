@@ -296,8 +296,8 @@ async function loadDataFromSupabase(){
     d.produtos.forEach(p=>{if(p.num===undefined)p.num='';if(p.img===undefined)p.img='';if(!p.imgs){p.imgs=p.img?[p.img]:[]}if(p.precoVenda===undefined)p.precoVenda=0});
     d.despesas.forEach(x=>{if(!x.plano)x.plano='';if(!x.tipoDespesa)x.tipoDespesa='Despesa'});
     d.movimentacoes.forEach(m=>{if(!m.plano)m.plano='';if(!m.itens)m.itens=[];if(m.comprovante===undefined)m.comprovante='';if(!m.comprovantes)m.comprovantes=m.comprovante?[m.comprovante]:[];if(m.itens&&m.itens.length){m.itens.forEach(it=>{if(it.produtoId){const _p=d.produtos.find(x=>x.id===it.produtoId);if(_p&&!_p.movId)_p.movId=m.id}})}});
-    // Migracao: dataEntrada para produtos via movimentacao vinculada
-    d.produtos.forEach(p=>{if(!p.dataEntrada){if(p.movId){const _m=d.movimentacoes.find(x=>x.id===p.movId);if(_m)p.dataEntrada=_m.data}}});
+    // Migracao: dataEntrada para produtos SEMPRE sincroniza com data da movimentacao vinculada
+    d.produtos.forEach(p=>{if(p.movId){const _m=d.movimentacoes.find(x=>x.id===p.movId);if(_m&&_m.data)p.dataEntrada=_m.data}});
     // Migracao: sincronizar custo das vendas com o custo atual do produto (taxas posteriores etc)
     d.vendas.forEach(v=>{const _p=d.produtos.find(x=>x.id===v.produtoId);if(_p)v.custo=_p.custo});
     // Migracao: numero de pedido de compra (PC-XXXX) para compras existentes, em ordem cronologica
@@ -711,8 +711,8 @@ function loadData(){
       d.produtos.forEach(p=>{if(p.num===undefined)p.num='';if(p.img===undefined)p.img='';if(!p.imgs){p.imgs=p.img?[p.img]:[]}if(p.precoVenda===undefined)p.precoVenda=0});
       d.despesas.forEach(x=>{if(!x.plano)x.plano='';if(!x.tipoDespesa)x.tipoDespesa='Despesa'});
       d.movimentacoes.forEach(m=>{if(!m.plano)m.plano='';if(!m.itens)m.itens=[];if(m.comprovante===undefined)m.comprovante='';if(!m.comprovantes)m.comprovantes=m.comprovante?[m.comprovante]:[];if(m.itens&&m.itens.length){m.itens.forEach(it=>{if(it.produtoId){const _p=d.produtos.find(x=>x.id===it.produtoId);if(_p&&!_p.movId)_p.movId=m.id}})}});
-      // Migracao: dataEntrada para produtos via movimentacao vinculada
-      d.produtos.forEach(p=>{if(!p.dataEntrada){if(p.movId){const _m=d.movimentacoes.find(x=>x.id===p.movId);if(_m)p.dataEntrada=_m.data}}});
+      // Migracao: dataEntrada para produtos SEMPRE sincroniza com data da movimentacao vinculada
+      d.produtos.forEach(p=>{if(p.movId){const _m=d.movimentacoes.find(x=>x.id===p.movId);if(_m&&_m.data)p.dataEntrada=_m.data}});
       // Migracao: sincronizar custo das vendas com o custo atual do produto (taxas posteriores etc)
       d.vendas.forEach(v=>{const _p=d.produtos.find(x=>x.id===v.produtoId);if(_p)v.custo=_p.custo});
       // Migracao: numero de pedido de compra (PC-XXXX) para compras existentes, em ordem cronologica
