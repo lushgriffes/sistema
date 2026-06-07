@@ -333,7 +333,13 @@ async function loadDataFromSupabase(){
       } else if(v.status==='Pago Total'||v.status==='Pago Parcial'){
         // Sem conta a receber — verificar se existe movimentação de recebimento correspondente
         const _temMov=d.movimentacoes.some(m=>(m.cat==='Recebimento Venda'||m.cat==='Sinal Encomenda')&&(m.desc||'').indexOf(v.cliente)>=0);
-        if(!_temMov){v.recebido=0;v.saldoReceber=+(v.valorVenda||0);v.status='Pendente'}
+        if(!_temMov){
+          v.recebido=0;v.saldoReceber=+(v.valorVenda||0);v.status='Pendente';
+          // Criar conta a receber para que apareça na aba A Receber
+          if(!d.contasReceber)d.contasReceber=[];
+          const _crId=(d.contasReceber||[]).reduce((mx,c)=>Math.max(mx,c.id||0),0)+1;
+          d.contasReceber.push({id:_crId,desc:`Venda — ${v.cliente} — ${v.produto}`,valor:+(v.valorVenda||0),vencimento:v.data||'',cliente:v.cliente||'',vendaId:v.id,status:'Pendente',dataReceb:'',obs:''});
+        }
       }
     });
     // Migracao: status de entrega do pedido de compra (compras antigas ja foram entregues)
@@ -739,7 +745,12 @@ function loadData(){
           v.status=v.saldoReceber<=0&&v.recebido>0?'Pago Total':(v.recebido>0?'Pago Parcial':'Pendente');
         } else if(v.status==='Pago Total'||v.status==='Pago Parcial'){
           const _temMov=d.movimentacoes.some(m=>(m.cat==='Recebimento Venda'||m.cat==='Sinal Encomenda')&&(m.desc||'').indexOf(v.cliente)>=0);
-          if(!_temMov){v.recebido=0;v.saldoReceber=+(v.valorVenda||0);v.status='Pendente'}
+          if(!_temMov){
+            v.recebido=0;v.saldoReceber=+(v.valorVenda||0);v.status='Pendente';
+            if(!d.contasReceber)d.contasReceber=[];
+            const _crId=(d.contasReceber||[]).reduce((mx,c)=>Math.max(mx,c.id||0),0)+1;
+            d.contasReceber.push({id:_crId,desc:`Venda — ${v.cliente} — ${v.produto}`,valor:+(v.valorVenda||0),vencimento:v.data||'',cliente:v.cliente||'',vendaId:v.id,status:'Pendente',dataReceb:'',obs:''});
+          }
         }
       });
       // Migracao: status de entrega do pedido de compra (compras antigas ja foram entregues)
@@ -3053,6 +3064,11 @@ function excluirMov(movId){
         // Atualizar conta a receber da venda se existir
         const _crv=(D.contasReceber||[]).find(c=>c.vendaId===_v.id&&c.status==='Recebido');
         if(_crv){_crv.status='Pendente';_crv.dataReceb='';_crv.movIdEstorno=0}
+        // Se venda voltou a Pendente e não tem conta a receber, criar uma
+        if(_v.status==='Pendente'&&!(D.contasReceber||[]).some(c=>c.vendaId===_v.id&&c.status==='Pendente')){
+          const _nId=(D.contasReceber||[]).reduce((mx,c)=>Math.max(mx,c.id||0),0)+1;
+          D.contasReceber.push({id:_nId,desc:`Venda — ${_v.cliente} — ${_v.produto}`,valor:+(_v.valorVenda||_v.saldoReceber||0),vencimento:_v.data||'',cliente:_v.cliente||'',vendaId:_v.id,status:'Pendente',dataReceb:'',obs:''});
+        }
       }
     }
   }
