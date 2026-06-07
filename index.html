@@ -2952,11 +2952,14 @@ function gerarPDFEncomendas(){
 
 // ═══════ SYNC ═══════
 function syncMovToDesp(movId,field,val){
-  const m=D.movimentacoes.find(x=>x.id===movId);if(!m||!m.despId)return;
+  const m=D.movimentacoes.find(x=>x.id===movId);if(!m)return;
+  if(field==='data'){recalcSaldos()}
+  if(!m.despId)return;
   const d=D.despesas.find(x=>x.id===m.despId);if(!d)return;
   if(field==='desc')d.nome=val.replace(/^Despesa — /,'');
   if(field==='cat')d.cat=val==='Despesa Operacional'?d.cat:val;
   if(field==='plano')d.plano=val;
+  if(field==='data')d.data=val;
 }
 function syncDespToMov(despId,field,val){
   D.movimentacoes.filter(m=>m.despId===despId).forEach(m=>{
@@ -3002,7 +3005,7 @@ function renderMov(){
   <div class="box"><h3>Extrato (${sorted.length} registros)</h3><div id="movTableScroll" style="max-height:600px;overflow-y:auto">
   <table><thead><tr><th>ID</th><th>Data</th><th>Descrição</th><th>Tipo</th><th>Categoria</th><th>Plano de Contas</th><th class="r">Valor</th><th class="r">Saldo</th><th>Ação</th></tr></thead><tbody>
   ${sorted.map(m=>`<tr${m.aPagar?' style="background:#fef3c7;opacity:.85"':''}>
-    <td>${m.id}${m.aPagar?' <span style="font-size:9px;background:#fde68a;color:#92400e;padding:1px 4px;border-radius:4px;margin-left:2px" title="Compra A Pagar - nao mexe o caixa">⏳</span>':''}</td><td>${fmtD(m.data)}</td>
+    <td>${m.id}${m.aPagar?' <span style="font-size:9px;background:#fde68a;color:#92400e;padding:1px 4px;border-radius:4px;margin-left:2px" title="Compra A Pagar - nao mexe o caixa">⏳</span>':''}</td><td><span class="editable" onclick="editMovDate(${m.id},this)">${fmtD(m.data)}</span></td>
     <td><span class="editable" onclick="abrirMovDetalhes(${m.id})" title="Clique para ver/editar detalhes, itens e comprovante">${m.desc}${(()=>{const _cm=getCompraMovId(m);if(!_cm)return'';const _n=D.produtos.filter(p=>p.movId===_cm).length;return _n>0?` <span style="font-size:9px;background:#dbeafe;color:#1e40af;padding:1px 5px;border-radius:8px;margin-left:2px;font-weight:600" title="${_n} produto(s) vinculado(s)">📦 ${_n}</span>`:''})()}${(m.comprovantes&&m.comprovantes.length)?` <span style="font-size:9px;background:#fef3c7;color:#92400e;padding:1px 5px;border-radius:8px;margin-left:2px;font-weight:600" title="${m.comprovantes.length} comprovante(s) anexado(s)">📎 ${m.comprovantes.length}</span>`:''}</span></td>
     <td><span class="badge ${m.tipo==='Entrada'?'b-entrada':'b-saida'}">${m.tipo}</span></td>
     <td><span class="editable" onclick="editMovSelect(${m.id},'cat',this,['Capital Inicial','Pagamento Fornecedor','Recebimento Venda','Sinal Encomenda','Despesa Operacional','Custo Produto (Frete/Taxa)','Aporte Sócio','Retirada Sócio','Acerto','Outros'])">${m.cat||''}</span></td>
@@ -3091,6 +3094,16 @@ function excluirMov(movId){
   recalcSaldos();saveData();toast(`Movimentação excluída: ${m.desc}`);renderPage();
 }
 
+function editMovDate(movId,el){
+  if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
+  if(el.querySelector('input'))return;_editing=true;
+  const m=D.movimentacoes.find(x=>x.id===movId);if(!m){_editing=false;return;}
+  el.innerHTML=`<input type="date" class="edit-input" value="${m.data||''}" style="width:130px">`;
+  const inp=el.querySelector('input');let done=false;
+  inp.addEventListener('change',function(){if(done)return;done=true;_editing=false;m.data=inp.value;syncMovToDesp(movId,'data',inp.value);saveData();renderPage();toast('Data alterada para '+fmtD(inp.value))});
+  inp.addEventListener('blur',function(){if(done)return;done=true;_editing=false;renderPage()});
+  setTimeout(()=>inp.focus(),30);
+}
 function editMovText(movId,field,el){
   if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
   if(el.querySelector('input,select'))return;_editing=true;
