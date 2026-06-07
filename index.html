@@ -357,15 +357,17 @@ async function loadDataFromSupabase(){
     }
     if(!d.planoContas.includes('Acerto'))d.planoContas.push('Acerto');
     d.vendas.forEach(v=>{if(v.produtoId===undefined)v.produtoId=0;if(v.saldoReceber===undefined)v.saldoReceber=(v.valorVenda||0)-(v.recebido||0)});
-    // Auto-generate contasReceber from vendas with saldo > 0 if empty
-    if((d.contasReceber||[]).length===0){
-      d.vendas.forEach(v=>{
-        if((v.saldoReceber||0)>0){
-          if(!d.contasReceber)d.contasReceber=[];
-          d.contasReceber.push({id:d.contasReceber.length+1,desc:`Venda — ${v.cliente} — ${v.produto}`,valor:v.saldoReceber,vencimento:v.data,cliente:v.cliente,vendaId:v.id,status:'Pendente',dataReceb:'',obs:''});
+    // Auto-generate contasReceber para TODA venda Pendente/Parcial que não tem CR
+    if(!d.contasReceber)d.contasReceber=[];
+    d.vendas.forEach(v=>{
+      if((v.status==='Pendente'||v.status==='Pago Parcial')&&(+(v.saldoReceber||0)>0||+(v.valorVenda||0)>0)){
+        const _jaTem=(d.contasReceber||[]).some(c=>c.vendaId===v.id);
+        if(!_jaTem){
+          const _crId=(d.contasReceber||[]).reduce((mx,c)=>Math.max(mx,c.id||0),0)+1;
+          d.contasReceber.push({id:_crId,desc:`Venda — ${v.cliente||''} — ${v.produto||''}`,valor:+(v.saldoReceber||v.valorVenda||0),vencimento:v.data||'',cliente:v.cliente||'',vendaId:v.id,status:'Pendente',dataReceb:'',obs:''});
         }
-      });
-    }
+      }
+    });
     // ═══ MIGRACAO SUPABASE: vincular produtos às compras + remover custo negativo ═══
     if(!d._migrated_product_links_v2){
       d._migrated_product_links_v2=true;
@@ -770,14 +772,16 @@ function loadData(){
       }
       if(!d.planoContas.includes('Acerto'))d.planoContas.push('Acerto');
       d.vendas.forEach(v=>{if(v.produtoId===undefined)v.produtoId=0;if(v.saldoReceber===undefined)v.saldoReceber=(v.valorVenda||0)-(v.recebido||0)});
-      // Auto-generate contasReceber from vendas with saldo > 0 if empty
-      if(d.contasReceber.length===0){
-        d.vendas.forEach(v=>{
-          if((v.saldoReceber||0)>0){
-            d.contasReceber.push({id:d.contasReceber.length+1,desc:`Venda — ${v.cliente} — ${v.produto}`,valor:v.saldoReceber,vencimento:v.data,cliente:v.cliente,vendaId:v.id,status:'Pendente',dataReceb:'',obs:''});
+      // Auto-generate contasReceber para TODA venda Pendente/Parcial que não tem CR
+      d.vendas.forEach(v=>{
+        if((v.status==='Pendente'||v.status==='Pago Parcial')&&(+(v.saldoReceber||0)>0||+(v.valorVenda||0)>0)){
+          const _jaTem=(d.contasReceber||[]).some(c=>c.vendaId===v.id);
+          if(!_jaTem){
+            const _crId=(d.contasReceber||[]).reduce((mx,c)=>Math.max(mx,c.id||0),0)+1;
+            d.contasReceber.push({id:_crId,desc:`Venda — ${v.cliente||''} — ${v.produto||''}`,valor:+(v.saldoReceber||v.valorVenda||0),vencimento:v.data||'',cliente:v.cliente||'',vendaId:v.id,status:'Pendente',dataReceb:'',obs:''});
           }
-        });
-      }
+        }
+      });
       // ═══ MIGRACAO: vincular produtos às compras + remover custo negativo ═══
       if(!d._migrated_product_links_v2){
         d._migrated_product_links_v2=true;
