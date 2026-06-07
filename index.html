@@ -1240,6 +1240,8 @@ function renderEstoque(m){
   if(estCol.custo)fil=fil.filter(p=>_ic(p.custo).includes(estCol.custo.toLowerCase()));
   if(estCol.precoVenda)fil=fil.filter(p=>_ic(p.precoVenda).includes(estCol.precoVenda.toLowerCase()));
   if(estSearch){const _q=estSearch.toLowerCase();fil=fil.filter(p=>[p.id,p.nome,p.marca,p.obs,p.num,p.rastreio,p.codFornecedor,p.numPedido,p.cat,p.status,p.custo,p.precoVenda,p.dataEntrada].map(_ic).join(' ').includes(_q));}
+  // Ordenar por data de entrada crescente
+  fil=[...fil].sort((a,b)=>(a.dataEntrada||'').localeCompare(b.dataEntrada||'')||a.id-b.id);
   const statCount={};
   D.produtos.forEach(p=>{statCount[p.status]=(statCount[p.status]||0)+(p.qtd||1)});
   const _fInp='width:100%;font-size:10px;padding:3px 4px;border:1px solid var(--border);border-radius:4px;box-sizing:border-box;font-weight:400';
