@@ -2953,7 +2953,11 @@ function gerarPDFEncomendas(){
 // ═══════ SYNC ═══════
 function syncMovToDesp(movId,field,val){
   const m=D.movimentacoes.find(x=>x.id===movId);if(!m)return;
-  if(field==='data'){recalcSaldos()}
+  if(field==='data'){
+    recalcSaldos();
+    // Atualizar dataEntrada dos produtos vinculados a esta compra
+    D.produtos.filter(p=>p.movId===movId).forEach(p=>{p.dataEntrada=val});
+  }
   if(!m.despId)return;
   const d=D.despesas.find(x=>x.id===m.despId);if(!d)return;
   if(field==='desc')d.nome=val.replace(/^Despesa — /,'');
