@@ -831,7 +831,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-e';
+const APP_VERSION = 'v2026.06.08-f';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -4814,7 +4814,7 @@ function renderContasReceber(){
     const badgeCl=c.status==='Recebido'?'b-recebido':'b-pendente';
     return `<tr>
       <td>${fmtD(c.vencimento)}</td><td>${c.desc}</td><td>${c.cliente||''}</td>
-      <td class="r" style="font-weight:600;color:${c.status==='Recebido'?'var(--green)':'var(--orange)'}">${fmt(c.valor)}</td>
+      <td class="r" style="font-weight:600;color:${c.status==='Recebido'?'var(--green)':'var(--orange)'}"><span class="editable" onclick="editarValorCR(${c.id},this)" title="Clique para corrigir o valor (vai cascatear na venda e na movimentação se existirem)">${fmt(c.valor)}</span></td>
       <td><span class="badge ${badgeCl}">${c.status}</span></td>
       <td><select onchange="mudarStatusCR(${c.id},this.value)" style="font-size:10px;padding:3px 6px;border-radius:4px;border:1px solid #ddd">
         <option value="Pendente"${c.status==='Pendente'?' selected':''}>📋 Pendente</option>
@@ -4849,6 +4849,71 @@ function editarDataReceb(crId, value){
   }
   saveData();renderPage();
   toast('Data de recebimento atualizada para '+fmtD(value));
+}
+
+function editarValorCR(crId,el){
+  if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
+  const c=D.contasReceber.find(x=>x.id===crId);if(!c)return;
+  const vAntigo=+c.valor||0;
+  const v=D.vendas.find(x=>x.id===c.vendaId);
+  const mov=c.movIdEstorno?D.movimentacoes.find(m=>m.id===c.movIdEstorno):null;
+  // Cria input inline
+  const input=document.createElement('input');
+  input.type='number';input.step='0.01';input.value=vAntigo;
+  input.style.cssText='width:100px;font-size:12px;padding:2px 4px;border:1px solid var(--border);border-radius:4px;text-align:right;font-weight:600';
+  const parent=el.parentNode;
+  const original=el.outerHTML;
+  el.replaceWith(input);
+  input.focus();input.select();
+  let done=false;
+  function finalizar(){
+    if(done)return;done=true;
+    const novo=Math.round((+input.value||0)*100)/100;
+    if(novo===vAntigo||!novo||novo<0){
+      // sem mudanca — restaurar visual
+      const tmp=document.createElement('span');tmp.innerHTML=original;input.replaceWith(tmp.firstElementChild||tmp);
+      return;
+    }
+    // Confirmacao com resumo
+    let resumo='ATUALIZAR VALOR DA CONTA A RECEBER\n\n';
+    resumo+='Cliente: '+(c.cliente||'(sem)')+'\n';
+    resumo+='Desc: '+(c.desc||'')+'\n\n';
+    resumo+='Valor atual: '+fmt(vAntigo)+'\n';
+    resumo+='Valor novo:  '+fmt(novo)+'\n';
+    resumo+='Diferenca:   '+fmt(novo-vAntigo)+'\n\n';
+    resumo+='Vai cascatear o ajuste em:\n';
+    if(v)resumo+=' • Venda V#'+v.id+' (valorVenda: '+fmt(v.valorVenda||0)+' → '+fmt((v.valorVenda||0)+(novo-vAntigo))+')\n';
+    else resumo+=' • Nenhuma venda vinculada\n';
+    if(mov)resumo+=' • Movimentacao M#'+mov.id+' tipo='+mov.tipo+' (valor: '+fmt(mov.valor||0)+' → '+fmt(novo)+')\n';
+    else resumo+=' • Nenhuma movimentacao vinculada (CR ainda Pendente)\n';
+    resumo+='\nConfirma?';
+    if(!confirm(resumo)){
+      const tmp=document.createElement('span');tmp.innerHTML=original;input.replaceWith(tmp.firstElementChild||tmp);
+      return;
+    }
+    const dif=novo-vAntigo;
+    c.valor=novo;
+    // Atualizar movimentacao vinculada se CR ja foi recebida
+    if(mov){mov.valor=novo;}
+    // Atualizar venda vinculada
+    if(v){
+      v.valorVenda=Math.round(((+v.valorVenda||0)+dif)*100)/100;
+      // Recalcular saldoReceber e status
+      v.saldoReceber=Math.max(0,Math.round(((+v.valorVenda||0)-(+v.recebido||0))*100)/100);
+      v.status=v.saldoReceber<=0&&(+v.recebido||0)>0?'Pago Total':((+v.recebido||0)>0?'Pago Parcial':'Pendente');
+    }
+    recalcSaldos();
+    saveData();renderPage();
+    toast('Valor atualizado: '+fmt(vAntigo)+' → '+fmt(novo));
+  }
+  input.addEventListener('blur',finalizar);
+  input.addEventListener('keydown',e=>{
+    if(e.key==='Enter'){e.preventDefault();input.blur()}
+    if(e.key==='Escape'){
+      done=true;
+      const tmp=document.createElement('span');tmp.innerHTML=original;input.replaceWith(tmp.firstElementChild||tmp);
+    }
+  });
 }
 
 function mudarStatusCR(crId,newStatus){
