@@ -1142,7 +1142,7 @@ function renderDashPeriodo(){
   const faturamento=vendFil.reduce((a,v)=>a+(v.valorVenda||0),0);
   const lucro=vendFil.reduce((a,v)=>a+((v.valorVenda||0)-(v.custo||0)),0);
   const recebido=vendFil.reduce((a,v)=>a+(v.recebido||0),0);
-  const despTotal=despFil.reduce((a,d)=>a+(d.valor||0),0);
+  const despTotal=despFil.filter(d=>(d.tipoDespesa||'Despesa')!=='Acerto+'&&(d.tipoDespesa||'Despesa')!=='Acerto-'&&d.tipoDespesa!=='EmpConcedido'&&d.tipoDespesa!=='EmpRecebido').reduce((a,d)=>a+(d.valor||0),0);
 
   // Vendas por mês
   const vendasMes={};
@@ -3965,7 +3965,7 @@ function renderDesp(){
     return `<tr>
     <td><span class="editable" onclick="editDespData(${d.id},this)">${fmtD(d.data)}</span></td>
     <td><span class="editable" onclick="editDespText(${d.id},'nome',this)">${d.nome}</span></td>
-    <td><span class="badge ${tpCls}" style="cursor:pointer" onclick="editDespSelect(${d.id},'tipoDespesa',this,['Despesa','Investimento','Acerto-','Acerto+'])">${tp}</span></td>
+    <td><span class="badge ${tpCls}" style="cursor:pointer" onclick="editDespSelect(${d.id},'tipoDespesa',this,['Despesa','Investimento','Acerto-','Acerto+','EmpConcedido','EmpRecebido'])">${tp}</span></td>
     <td><span class="editable" onclick="editDespSelect(${d.id},'cat',this,['Transporte','Embalagem','Ferramenta','Comunicação','Alimentação','Comissão','Outros'])">${d.cat||''}</span></td>
     <td><span class="editable" onclick="editDespSelect(${d.id},'plano',this,D.planoContas)">${d.plano||'—'}</span></td>
     <td class="r" style="font-weight:600;color:${tp==='Acerto+'?'var(--green)':'var(--text)'}">${tp==='Acerto+'?'+ ':''} ${fmt(d.valor)}</td>
