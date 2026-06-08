@@ -694,7 +694,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-a';
+const APP_VERSION = 'v2026.06.08-b';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -1045,6 +1045,8 @@ function renderPage(){
   if(tabIdx===0)initCharts(m);
   if(tabIdx===1)initPeriodoCharts();
   if(tabIdx===13)initSelicChart();
+  // Auto-carregar backups da nuvem se a secao estiver visivel (aba Config)
+  if(document.getElementById('cloudBackupsList'))setTimeout(()=>{try{carregarListaBackupsNuvem()}catch(e){console.warn('auto-load backups:',e)}},150);
   // Restaurar scroll apos render (window + containers internos)
   window.scrollTo(0,_winY);
   Object.keys(_scrollSaves).forEach(id=>{const el=document.getElementById(id);if(el)el.scrollTop=_scrollSaves[id]});
@@ -5557,12 +5559,14 @@ function renderConfig(){
     </div>
 
     <div class="box" style="border-left:4px solid var(--purple)">
-      <h3>☁️ Backups na Nuvem (Diários Automáticos)</h3>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;flex-wrap:wrap;gap:8px">
+        <h3 style="margin:0">☁️ Backups na Nuvem (Diários Automáticos)</h3>
+        <button class="btn btn-sm" onclick="carregarListaBackupsNuvem()" style="background:var(--purple);color:#fff;font-size:10px">🔄 Recarregar</button>
+      </div>
       <p style="font-size:11px;color:var(--gray);margin-bottom:10px">Backup automático salvo na nuvem todo dia ao fazer login. Últimos ${MAX_CLOUD_BACKUPS} dias mantidos. Funciona em qualquer computador.</p>
-      <div id="cloudBackupsList" style="max-height:300px;overflow-y:auto">
-        <div style="text-align:center;padding:20px;color:var(--gray);font-size:12px">
-          <button class="btn btn-sm" onclick="carregarListaBackupsNuvem()" style="background:var(--purple);color:#fff">Carregar backups da nuvem</button>
-        </div>
+      <div id="cloudBackupsStatus" style="padding:10px;background:#f8fafc;border-radius:6px;margin-bottom:10px;font-size:12px;color:var(--gray)">⏳ Carregando status do backup...</div>
+      <div id="cloudBackupsList" style="max-height:400px;overflow-y:auto">
+        <div style="text-align:center;padding:20px;color:var(--gray);font-size:12px">⏳ Carregando lista de backups...</div>
       </div>
     </div>
   </div>
@@ -5924,11 +5928,31 @@ async function resetarSenhaUsuario(userId,nome){
 // ═══ UI: Listar backups nuvem na Config ═══
 async function carregarListaBackupsNuvem(){
   const container=document.getElementById('cloudBackupsList');
+  const statusEl=document.getElementById('cloudBackupsStatus');
   if(!container)return;
-  container.innerHTML='<div style="text-align:center;padding:20px;color:var(--gray);font-size:12px">Carregando...</div>';
+  container.innerHTML='<div style="text-align:center;padding:20px;color:var(--gray);font-size:12px">⏳ Carregando...</div>';
+  if(statusEl)statusEl.innerHTML='⏳ Consultando o Supabase...';
   const backups=await listarBackupsNuvem();
+  // Atualizar painel de status
+  if(statusEl){
+    const hj=new Date().toISOString().slice(0,10);
+    const temHoje=backups.some(b=>b.data_backup===hj);
+    if(!backups.length){
+      statusEl.innerHTML='⚠️ <strong>Nenhum backup ainda.</strong> O primeiro será salvo no próximo login.';
+      statusEl.style.background='#fef3c7';statusEl.style.color='#92400e';
+    } else if(temHoje){
+      const bkpHoje=backups.find(b=>b.data_backup===hj);
+      const horaH=bkpHoje&&bkpHoje.timestamp?new Date(bkpHoje.timestamp).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'';
+      statusEl.innerHTML='✅ <strong>Backup de hoje OK</strong> — salvo às '+horaH+' | '+backups.length+' backup(s) nos últimos '+MAX_CLOUD_BACKUPS+' dias';
+      statusEl.style.background='#d1fae5';statusEl.style.color='#065f46';
+    } else {
+      const ult=backups[0]?backups[0].data_backup:'—';
+      statusEl.innerHTML='🕒 <strong>Backup de hoje pendente</strong> — último foi em '+ult+'. Será feito no próximo login. | '+backups.length+' backup(s) no total';
+      statusEl.style.background='#fef3c7';statusEl.style.color='#92400e';
+    }
+  }
   if(!backups.length){
-    container.innerHTML='<div style="text-align:center;padding:20px;color:var(--gray);font-size:12px">Nenhum backup na nuvem ainda. O primeiro será salvo automaticamente amanhã no login.</div>';
+    container.innerHTML='<div style="text-align:center;padding:20px;color:var(--gray);font-size:12px">Nenhum backup na nuvem ainda.</div>';
     return;
   }
   let html='<table><thead><tr><th>Data</th><th>Hora</th><th>Produtos</th><th>Mov.</th><th>Vendas</th><th>Desp.</th><th>Ação</th></tr></thead><tbody>';
