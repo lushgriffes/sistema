@@ -680,6 +680,69 @@ async function restaurarBackupNuvem(backupId){
   }catch(e){toast('Erro ao restaurar: '+e.message,true)}
 }
 
+// ═══ DIAGNOSTICO A RECEBER ═══
+function diagnosticarAReceber(){
+  const log=[];
+  log.push('=== DIAGNOSTICO A RECEBER ===');
+  log.push('Comparando D.vendas[].saldoReceber vs D.contasReceber[].valor (Pendente)\n');
+
+  // 1) Soma do Balanco (vem das vendas)
+  const somaBalanco=(D.vendas||[]).reduce((a,v)=>a+(+v.saldoReceber||0),0);
+  // 2) Soma da pagina A Receber (vem das CRs Pendentes)
+  const crPend=(D.contasReceber||[]).filter(c=>c.status!=='Recebido');
+  const somaPagina=crPend.reduce((a,c)=>a+(+c.valor||0),0);
+
+  log.push('[A] BALANCO/INVENTARIO (Σ v.saldoReceber): '+fmt(somaBalanco));
+  log.push('[B] PAGINA A RECEBER     (Σ cr.valor pend): '+fmt(somaPagina));
+  log.push('    Diferenca [A − B]: '+fmt(somaBalanco-somaPagina));
+  log.push('');
+
+  // 3) CRs sem vendaId (manuais ou orfas)
+  const crsManuais=(D.contasReceber||[]).filter(c=>!c.vendaId);
+  log.push('--- ['+crsManuais.length+'] CRs SEM vendaId (manuais ou orfas) ---');
+  crsManuais.forEach(c=>log.push(`  CR#${c.id} | ${c.cliente||'?'} | ${c.desc||''} | ${fmt(c.valor)} | ${c.status||'?'}`));
+  if(!crsManuais.length)log.push('  (nenhuma)');
+  log.push('');
+
+  // 4) CRs com vendaId que NAO existe mais (venda foi removida)
+  const crsOrfas=(D.contasReceber||[]).filter(c=>c.vendaId&&!(D.vendas||[]).find(v=>v.id===c.vendaId));
+  log.push('--- ['+crsOrfas.length+'] CRs apontando p/ venda INEXISTENTE ---');
+  crsOrfas.forEach(c=>log.push(`  CR#${c.id} → vendaId=${c.vendaId} | ${c.cliente||'?'} | ${fmt(c.valor)} | ${c.status}`));
+  if(!crsOrfas.length)log.push('  (nenhuma)');
+  log.push('');
+
+  // 5) Vendas com saldoReceber > 0 SEM CR Pendente vinculada
+  const vendasSemCR=(D.vendas||[]).filter(v=>{
+    const sr=+v.saldoReceber||0;
+    if(sr<=0)return false;
+    const temPend=(D.contasReceber||[]).some(c=>c.vendaId===v.id&&c.status!=='Recebido');
+    return !temPend;
+  });
+  log.push('--- ['+vendasSemCR.length+'] VENDAS com saldoReceber>0 SEM CR Pendente ---');
+  vendasSemCR.forEach(v=>log.push(`  V#${v.id} | ${v.cliente||'?'} | ${v.produto||''} | saldoReceber=${fmt(v.saldoReceber)} | status=${v.status||'?'}`));
+  if(!vendasSemCR.length)log.push('  (nenhuma)');
+  log.push('');
+
+  // 6) Diferenca venda.saldoReceber vs soma de suas CRs Pendentes
+  const desincronizadas=[];
+  (D.vendas||[]).forEach(v=>{
+    const sr=+v.saldoReceber||0;
+    const somaCRs=(D.contasReceber||[]).filter(c=>c.vendaId===v.id&&c.status!=='Recebido').reduce((a,c)=>a+(+c.valor||0),0);
+    if(Math.abs(sr-somaCRs)>0.01)desincronizadas.push({v,sr,somaCRs});
+  });
+  log.push('--- ['+desincronizadas.length+'] VENDAS com diferenca entre saldoReceber e soma CRs ---');
+  desincronizadas.forEach(o=>log.push(`  V#${o.v.id} | ${o.v.cliente||'?'} | saldoVenda=${fmt(o.sr)} vs somaCRs=${fmt(o.somaCRs)} | dif=${fmt(o.sr-o.somaCRs)}`));
+  if(!desincronizadas.length)log.push('  (nenhuma)');
+
+  const txt=log.join('\n');
+  console.log(txt);
+  // Modal
+  const w=document.createElement('div');
+  w.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px';
+  w.innerHTML='<div style="background:#fff;border-radius:8px;padding:20px;max-width:900px;width:100%;max-height:90vh;overflow-y:auto"><h3 style="margin:0 0 10px">Diagnostico A Receber</h3><pre style="background:#f8fafc;padding:12px;border-radius:6px;font-size:11px;white-space:pre-wrap;word-break:break-word;max-height:65vh;overflow-y:auto">'+txt.replace(/</g,'&lt;')+'</pre><div style="text-align:right;margin-top:12px"><button onclick="navigator.clipboard.writeText(this.dataset.t).then(()=>alert(\'Copiado!\'))" data-t="'+txt.replace(/"/g,'&quot;')+'" class="btn btn-sm" style="background:var(--blue);color:#fff;margin-right:8px">Copiar</button><button onclick="this.closest(\'div[style*=99999]\').remove()" class="btn btn-sm">Fechar</button></div></div>';
+  document.body.appendChild(w);
+}
+
 async function limparBackupsAntigosNuvem(){
   if(!userProfile)return;
   try{
@@ -768,7 +831,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-d';
+const APP_VERSION = 'v2026.06.08-e';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -1394,15 +1457,29 @@ function renderEstoque(m){
   // Ordenar por data de entrada crescente
   fil=[...fil].sort((a,b)=>(a.dataEntrada||'').localeCompare(b.dataEntrada||'')||a.id-b.id);
   const statCount={};
-  D.produtos.forEach(p=>{statCount[p.status]=(statCount[p.status]||0)+(p.qtd||1)});
+  const statCost={};
+  D.produtos.forEach(p=>{
+    statCount[p.status]=(statCount[p.status]||0)+(p.qtd||1);
+    statCost[p.status]=(statCost[p.status]||0)+(+p.custo||0);
+  });
+  // Custo dos produtos VENDIDOS (vem de D.vendas — produtos que sairam do estoque)
+  const custoVendido=(D.vendas||[]).reduce((a,v)=>a+(+v.custo||0),0);
   const _fInp='width:100%;font-size:10px;padding:3px 4px;border:1px solid var(--border);border-radius:4px;box-sizing:border-box;font-weight:400';
   const _ev=v=>(v==null?'':String(v)).replace(/"/g,'&quot;');
+  const _custoTotalEst=Object.values(statCost).reduce((a,b)=>a+b,0);
   return `
   <div class="cards">
-    <div class="card"><div class="card-lbl">Total</div><div class="card-val">${Object.values(statCount).reduce((a,b)=>a+b,0)}</div></div>
+    <div class="card"><div class="card-lbl">Total Itens</div><div class="card-val">${Object.values(statCount).reduce((a,b)=>a+b,0)}</div></div>
     <div class="card orange"><div class="card-lbl">Em Trânsito</div><div class="card-val">${statCount['Em Trânsito']||0}</div></div>
     <div class="card green"><div class="card-lbl">Em Estoque</div><div class="card-val">${statCount['Em Estoque']||0}</div></div>
     <div class="card purple"><div class="card-lbl">Reservado</div><div class="card-val">${statCount['Reservado (Encomenda)']||0}</div></div>
+  </div>
+  <div class="cards" style="margin-top:-6px">
+    <div class="card" style="background:#f1f5f9;border-left:4px solid #64748b"><div class="card-lbl">💰 Custo Total Estoque</div><div class="card-val" style="font-size:18px">${fmt(_custoTotalEst)}</div><div class="card-sub" style="font-size:10px">Trânsito + Estoque + Reservado</div></div>
+    <div class="card" style="background:#fff7ed;border-left:4px solid #f59e0b"><div class="card-lbl">Custo Em Trânsito</div><div class="card-val" style="font-size:16px">${fmt(statCost['Em Trânsito']||0)}</div></div>
+    <div class="card" style="background:#f0fdf4;border-left:4px solid #22c55e"><div class="card-lbl">Custo Em Estoque</div><div class="card-val" style="font-size:16px">${fmt(statCost['Em Estoque']||0)}</div></div>
+    <div class="card" style="background:#faf5ff;border-left:4px solid #8b5cf6"><div class="card-lbl">Custo Reservado</div><div class="card-val" style="font-size:16px">${fmt(statCost['Reservado (Encomenda)']||0)}</div></div>
+    <div class="card" style="background:#fef2f2;border-left:4px solid #dc2626"><div class="card-lbl">Custo Vendido (acum.)</div><div class="card-val" style="font-size:16px">${fmt(custoVendido)}</div><div class="card-sub" style="font-size:10px">${(D.vendas||[]).length} venda(s)</div></div>
   </div>
   <div class="filter-bar">
     <div class="f-group"><label>Buscar (todas as colunas):</label><input placeholder="Qualquer campo..." id="pgSearchEst" value="${_ev(estSearch)}" oninput="estSearch=this.value;renderPage()"></div>
@@ -4730,7 +4807,7 @@ function renderContasReceber(){
     <div class="f-group"><label>Status:</label><select onchange="crStatusFilter=this.value;renderPage()"><option${crStatusFilter==='Todos'?' selected':''}>Todos</option><option${crStatusFilter==='Pendente'?' selected':''}>Pendente</option><option${crStatusFilter==='Recebido'?' selected':''}>Recebido</option></select></div>
     <span class="f-clear" onclick="crSearch='';crStatusFilter='Todos';renderPage()">Limpar</span>
   </div>
-  <div style="text-align:right;margin-bottom:10px"><button class="btn btn-sm" onclick="gerarPDFContasReceber()" style="background:var(--orange);color:#fff">📄 Baixar PDF A Receber</button></div>
+  <div style="text-align:right;margin-bottom:10px;display:flex;gap:8px;justify-content:flex-end"><button class="btn btn-sm" onclick="diagnosticarAReceber()" style="background:var(--purple);color:#fff">🔍 Diagnosticar Divergências</button><button class="btn btn-sm" onclick="gerarPDFContasReceber()" style="background:var(--orange);color:#fff">📄 Baixar PDF A Receber</button></div>
   <div class="box"><h3>Contas a Receber (${fil.length})</h3><div id="crTableScroll" style="max-height:500px;overflow-y:auto">
   <table><thead><tr><th>Vencimento</th><th>Descrição</th><th>Cliente</th><th class="r">Valor</th><th>Status</th><th>Ação</th></tr></thead><tbody>
   ${fil.map(c=>{
