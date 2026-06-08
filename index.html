@@ -831,7 +831,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-g';
+const APP_VERSION = 'v2026.06.08-h';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -2421,6 +2421,7 @@ function salvarVenda(){
       const formaDesc=entradaItem>0?`Ent. ${fmt(entradaItem)} + ${nParcelas}x ${fmt(valorParcela)}`:`${nParcelas}x ${fmt(valorParcela)}`;
       D.vendas.push({id:nv,data,cliente,telefone,endereco,produto:prod.nome,produtoId:prod.id,custo,valorVenda,recebido,saldoReceber,status:saldoReceber>0?'Pendente':'Pago Total',forma:formaDesc,nParcelas,entrada:entradaItem});
       prod.status='Vendido';
+      prod.precoVenda=valorVenda;
       // Se teve entrada, registrar movimentação de entrada
       if(entradaItem>0){
         D.movimentacoes.push({id:nextId(D.movimentacoes),data,desc:`Entrada Venda — ${cliente} — ${prod.nome}`,tipo:'Entrada',cat:'Recebimento Venda',plano:'Receita',valor:entradaItem,saldo:0});
@@ -2447,6 +2448,7 @@ function salvarVenda(){
       const rec=recebeu==='sim'?valorVenda:0;const saldo=recebeu==='sim'?0:valorVenda;
       D.vendas.push({id:nv,data,cliente,telefone,endereco,produto:prod.nome,produtoId:prod.id,custo,valorVenda,recebido:rec,saldoReceber:saldo,status:recebeu==='sim'?'Pago Total':'Pendente',forma});
       prod.status='Vendido';
+      prod.precoVenda=valorVenda;
       if(recebeu==='sim'){
         D.movimentacoes.push({id:nextId(D.movimentacoes),data,desc:`Recebimento Venda — ${cliente} — ${prod.nome}`,tipo:'Entrada',cat:'Recebimento Venda',plano:'Receita',valor:valorVenda,saldo:0});
       } else {
@@ -2525,6 +2527,9 @@ function editarVenda(vendaId, field, value){
     // Atualizar CRs pendentes
     const crsPend=(D.contasReceber||[]).filter(c=>c.vendaId===vendaId&&c.status!=='Recebido');
     if(crsPend.length===1)crsPend[0].valor=v.saldoReceber>0?v.saldoReceber:v.valorVenda;
+    // Sincronizar precoVenda do produto vendido com o novo valor da venda
+    const _pSync=D.produtos.find(p=>p.id===v.produtoId);
+    if(_pSync)_pSync.precoVenda=+v.valorVenda||0;
     recalcSaldos();
   } else { return; }
   saveData();renderPage();
@@ -2543,6 +2548,7 @@ function trocarProdutoVenda(vendaId,novoProdutoId){
   if(!confirm('Trocar o produto desta venda?\n\nDe: '+(antigoNome||'(produto removido do estoque)')+'\nPara: '+novoProd.nome+'\n\n• '+(antigoProd?('"'+antigoNome+'" volta para o estoque (Em Estoque)'):'(produto antigo não está mais no estoque — nada a devolver)')+'\n• "'+novoProd.nome+'" passa para Vendido\n• Custo da venda: '+fmt(v.custo||0)+' → '+fmt(novoProd.custo||0)+'\n• Lucro é recalculado automaticamente')){renderPage();return}
   if(antigoProd)antigoProd.status='Em Estoque';
   novoProd.status='Vendido';
+  novoProd.precoVenda=+v.valorVenda||0;
   v.produtoId=novoProd.id;
   v.produto=novoProd.nome;
   v.custo=novoProd.custo||0;
@@ -2551,6 +2557,45 @@ function trocarProdutoVenda(vendaId,novoProdutoId){
   }
   saveData();renderPage();
   toast('Produto da venda trocado: '+(antigoNome||'—')+' → '+novoProd.nome);
+}
+
+// ═══ BACKFILL: sincronizar precoVenda de produtos vendidos com valorVenda das vendas ═══
+function sincronizarPrecoVendaVendidos(){
+  if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
+  let atualizados=0,iguais=0,semProd=0;
+  const detalhes=[];
+  (D.vendas||[]).forEach(v=>{
+    const p=D.produtos.find(x=>x.id===v.produtoId);
+    if(!p){semProd++;return}
+    const pvAtual=+p.precoVenda||0;
+    const vvVenda=+v.valorVenda||0;
+    if(Math.abs(pvAtual-vvVenda)<0.005){iguais++;return}
+    detalhes.push({nome:p.nome,id:p.id,antigo:pvAtual,novo:vvVenda});
+    p.precoVenda=vvVenda;
+    atualizados++;
+  });
+  let msg='SINCRONIZAR PREÇO DE VENDA\n\n';
+  msg+='Resultado:\n';
+  msg+=' • '+atualizados+' produto(s) ATUALIZADO(S)\n';
+  msg+=' • '+iguais+' produto(s) já estavam corretos\n';
+  msg+=' • '+semProd+' venda(s) com produto inexistente (ignoradas)\n';
+  if(detalhes.length>0&&detalhes.length<=20){
+    msg+='\nDetalhes:\n';
+    detalhes.forEach(d=>{msg+=' [#'+d.id+'] '+d.nome+': '+fmt(d.antigo)+' → '+fmt(d.novo)+'\n'});
+  } else if(detalhes.length>20){
+    msg+='\nDetalhes (primeiros 20):\n';
+    detalhes.slice(0,20).forEach(d=>{msg+=' [#'+d.id+'] '+d.nome+': '+fmt(d.antigo)+' → '+fmt(d.novo)+'\n'});
+    msg+=' ...e mais '+(detalhes.length-20)+'\n';
+  }
+  msg+='\nConfirma o salvamento? (Cancelar = desfaz)';
+  if(!confirm(msg)){
+    // desfaz
+    detalhes.forEach(d=>{const p=D.produtos.find(x=>x.id===d.id);if(p)p.precoVenda=d.antigo});
+    toast('Sincronização cancelada — nada foi salvo');
+    return;
+  }
+  saveData();renderPage();
+  toast('✅ '+atualizados+' produto(s) sincronizado(s) com valor de venda');
 }
 
 // ═══════ RECEBIMENTOS (receitas diversas que entram no caixa) ═══════
@@ -5772,6 +5817,13 @@ function renderConfig(){
           return bks.map((b,i)=>'<tr><td style="font-size:11px">'+new Date(b.timestamp).toLocaleString('pt-BR')+'</td><td class="r">'+b.produtos+'</td><td class="r">'+b.movimentacoes+'</td><td class="r">'+b.vendas+'</td><td class="r">'+b.despesas+'</td><td class="r" style="font-size:10px">'+b.tamanho+'</td><td><button class="btn btn-sm" onclick="restaurarBackup('+i+')" style="background:var(--green);color:#fff;font-size:10px;padding:2px 8px">Restaurar</button></td></tr>').join('');
         })()}</tbody></table>
       </div>
+    </div>
+
+    <div class="box" style="border-left:4px solid var(--green);margin-bottom:14px">
+      <h3 style="margin:0 0 8px">🔧 Manutenção / Reconciliação</h3>
+      <p style="font-size:11px;color:var(--gray);margin-bottom:10px">Botões que ajustam dados retroativamente. Cada um pede confirmação antes de salvar.</p>
+      <button class="btn btn-sm" onclick="sincronizarPrecoVendaVendidos()" style="background:var(--green);color:#fff">🔄 Sincronizar precoVenda de vendidos</button>
+      <div style="font-size:10px;color:var(--gray);margin-top:6px">Atualiza o <strong>preço de venda</strong> dos produtos com status "Vendido" para refletir o valor real pelo qual foram vendidos. Só afeta o totalizador do Estoque e o catálogo — não mexe em caixa, lucro ou faturamento.</div>
     </div>
 
     <div class="box" style="border-left:4px solid var(--purple)">
