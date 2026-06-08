@@ -681,6 +681,68 @@ async function limparBackupsAntigosNuvem(){
   }catch(e){console.warn('Erro ao limpar backups antigos:',e)}
 }
 
+// ═══ DIAGNOSTICO BACKUP NUVEM ═══
+async function diagnosticarBackupNuvem(){
+  const log=[];
+  log.push('=== DIAGNOSTICO BACKUP NA NUVEM ===');
+  try{
+    // 1) Verificar userProfile
+    if(!userProfile){log.push('[X] userProfile e NULL — usuario nao logado');alert(log.join('\n'));return}
+    log.push('[OK] userProfile.org_id = '+userProfile.org_id);
+    log.push('[OK] userProfile.email = '+(userProfile.email||'(sem email)'));
+
+    // 2) Tentar listar backups existentes
+    const hj=new Date().toISOString().split('T')[0];
+    const backupId=BACKUP_PREFIX+hj+'_'+userProfile.org_id;
+    log.push('[i] backupId que SERIA criado hoje = '+backupId);
+
+    log.push('\n--- TESTE 1: SELECT na tabela app_data (registros com backup_*) ---');
+    const r1=await SB.from('app_data').select('org_id,updated_at').like('org_id',BACKUP_PREFIX+'%').limit(50);
+    if(r1.error){log.push('[X] ERRO SELECT: '+JSON.stringify(r1.error))}
+    else{log.push('[OK] SELECT retornou '+(r1.data?.length||0)+' registros backup_*');
+      if(r1.data&&r1.data.length){r1.data.forEach(r=>log.push('   - '+r.org_id+' ('+r.updated_at+')'))}
+    }
+
+    log.push('\n--- TESTE 2: SELECT do registro principal (org_id=MEU) ---');
+    const r2=await SB.from('app_data').select('org_id,updated_at').eq('org_id',userProfile.org_id);
+    if(r2.error){log.push('[X] ERRO SELECT MEU: '+JSON.stringify(r2.error))}
+    else{log.push('[OK] meu registro existe: '+(r2.data?.length||0)+' linha(s)');if(r2.data?.[0])log.push('   - '+r2.data[0].org_id+' atualizado '+r2.data[0].updated_at)}
+
+    log.push('\n--- TESTE 3: tentar INSERT/UPSERT de backup DE TESTE ---');
+    const testId='backup_TEST_'+Date.now()+'_'+userProfile.org_id;
+    const r3=await SB.from('app_data').upsert({org_id:testId,data:{_test:true,_when:new Date().toISOString()},updated_at:new Date().toISOString()},{onConflict:'org_id'});
+    if(r3.error){
+      log.push('[X] ERRO UPSERT: '+JSON.stringify(r3.error));
+      log.push('   >>> PROVAVEL CAUSA: Row Level Security (RLS) do Supabase bloqueando.');
+      log.push('   >>> SOLUCAO: na tabela app_data, ajustar a RLS policy para permitir');
+      log.push('       INSERT/SELECT/DELETE quando org_id LIKE \'backup_%\'');
+    } else {
+      log.push('[OK] UPSERT de teste FUNCIONOU — sem RLS bloqueando');
+      // limpar o teste
+      await SB.from('app_data').delete().eq('org_id',testId);
+      log.push('[OK] backup de teste removido');
+    }
+
+    log.push('\n--- TESTE 4: rodar verificarBackupDiario() agora ---');
+    try{
+      await verificarBackupDiario();
+      log.push('[OK] verificarBackupDiario() executou sem exception');
+    }catch(e){log.push('[X] verificarBackupDiario lancou: '+e.message)}
+
+    log.push('\n--- TESTE 5: relistar backups apos rodar ---');
+    const r5=await SB.from('app_data').select('org_id,updated_at').like('org_id',BACKUP_PREFIX+'%').limit(50);
+    log.push('[i] Agora tem '+(r5.data?.length||0)+' backups na nuvem');
+
+  }catch(e){log.push('[X] EXCEPTION: '+e.message+' / '+e.stack)}
+  const txt=log.join('\n');
+  console.log(txt);
+  // Mostrar num modal grande, copiavel
+  const w=document.createElement('div');
+  w.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:99999;display:flex;align-items:center;justify-content:center;padding:20px';
+  w.innerHTML='<div style="background:#fff;border-radius:8px;padding:20px;max-width:800px;width:100%;max-height:90vh;overflow-y:auto"><h3 style="margin:0 0 10px">Diagnostico Backup Nuvem</h3><pre style="background:#f8fafc;padding:12px;border-radius:6px;font-size:11px;white-space:pre-wrap;word-break:break-word;max-height:60vh;overflow-y:auto">'+txt.replace(/</g,'&lt;')+'</pre><div style="text-align:right;margin-top:12px"><button onclick="navigator.clipboard.writeText(this.dataset.t).then(()=>alert(\'Copiado!\'))" data-t="'+txt.replace(/"/g,'&quot;')+'" class="btn btn-sm" style="background:var(--blue);color:#fff;margin-right:8px">Copiar</button><button onclick="this.closest(\'div[style*=99999]\').remove()" class="btn btn-sm">Fechar</button></div></div>';
+  document.body.appendChild(w);
+}
+
 // Check session on load — com persistência local do token
 SB.auth.getSession().then(({data:{session}})=>{
   if(session&&session.user){initApp(session.user)}
@@ -694,7 +756,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-b';
+const APP_VERSION = 'v2026.06.08-c';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -5562,6 +5624,7 @@ function renderConfig(){
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;flex-wrap:wrap;gap:8px">
         <h3 style="margin:0">☁️ Backups na Nuvem (Diários Automáticos)</h3>
         <button class="btn btn-sm" onclick="carregarListaBackupsNuvem()" style="background:var(--purple);color:#fff;font-size:10px">🔄 Recarregar</button>
+        <button class="btn btn-sm" onclick="diagnosticarBackupNuvem()" style="background:var(--orange);color:#fff;font-size:10px">🔍 Diagnosticar</button>
       </div>
       <p style="font-size:11px;color:var(--gray);margin-bottom:10px">Backup automático salvo na nuvem todo dia ao fazer login. Últimos ${MAX_CLOUD_BACKUPS} dias mantidos. Funciona em qualquer computador.</p>
       <div id="cloudBackupsStatus" style="padding:10px;background:#f8fafc;border-radius:6px;margin-bottom:10px;font-size:12px;color:var(--gray)">⏳ Carregando status do backup...</div>
