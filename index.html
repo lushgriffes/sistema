@@ -4787,7 +4787,7 @@ function salvarCompra(){
     D.contasPagar.push({id:_cpId,desc:`Compra ${_numPedido} — ${forn}`,valor:total,vencimento:vencimento||data,cat:'Fornecedor',plano:'Mercadoria',status:'Pendente',dataPgto:'',obs:'',origem:'compra',movIdEstorno:_newMovId,numPedido:_numPedido});
   }
   recalcSaldos();saveData();compraItems=[{nome:'',cat:'Tênis',custo:0,qtd:1,num:'',imgs:[]}];_compraForn='';_compraData='';
-  toast(`Compra ${_numPedido} registrada! ${valid.reduce((a,i)=>a+(i.qtd||1),0)} produtos — Total: ${fmt(total)}${aPagar?' • A PAGAR (vai pra Contas a Pagar)':''}`);showTab(2);
+  toast(`Compra ${_numPedido} registrada! ${valid.reduce((a,i)=>a+(i.qtd||1),0)} produtos — Total: ${fmt(total)}${aPagar?' • A PAGAR (vai pra Contas a Pagar)':''}`);showTab(4);
 }
 
 function togglePagamentoCompra(movId){
