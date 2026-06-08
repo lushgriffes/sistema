@@ -1924,16 +1924,7 @@ function renderVendas(m){
   </div>
   <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:6px">Itens da venda:</div>
   <div id="vendaCartWrap">
-    ${_vendaCart.map((it,i)=>`
-      <div style="display:grid;grid-template-columns:1fr 110px 1.3fr 34px;gap:6px;margin-bottom:6px;align-items:center">
-        <select id="pgVendaCartProd_${i}" onchange="vendaCartUpdate(${i},'produtoId',+this.value)" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">
-          <option value="0">— selecione o produto —</option>
-          ${disponiveis.map(p=>`<option value="${p.id}"${p.id===it.produtoId?' selected':''}>[${p.id}] ${p.nome} ${p.num?'Nº'+p.num:''} — custo ${fmt(p.custo)}</option>`).join('')}
-        </select>
-        <input id="pgVendaCartValor_${i}" type="number" step="0.01" value="${it.valorVenda||''}" onchange="vendaCartUpdate(${i},'valorVenda',+this.value)" placeholder="Preço R$" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;text-align:right">
-        <span id="vendaCartInfo_${i}" style="font-size:10px;color:var(--gray)">${_vendaCartInfo(i)}</span>
-        <button onclick="removeVendaCartItem(${i})" style="background:var(--red);color:#fff;border:none;width:30px;height:30px;border-radius:6px;font-size:13px;cursor:pointer" title="Remover item">✕</button>
-      </div>`).join('')}
+    ${_vendaCartItemsHtml()}
   </div>
   <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;flex-wrap:wrap;gap:8px">
     <button class="btn btn-secondary btn-sm" onclick="addVendaCartItem()">+ Adicionar item</button>
@@ -2029,16 +2020,59 @@ function _vendaCartInfo(idx){
 
 function _vendaCartItemsHtml(){
   const disponiveis=D.produtos.filter(p=>p.status!=='Vendido');
-  return _vendaCart.map((it,i)=>`
+  return _vendaCart.map((it,i)=>{
+    const selProd=disponiveis.find(p=>p.id===it.produtoId)||D.produtos.find(p=>p.id===it.produtoId);
+    const selLabel=selProd?`[${selProd.id}] ${selProd.nome||'(sem nome)'}${selProd.num?' Nº'+selProd.num:''} — custo ${fmt(selProd.custo)}`:'';
+    return `
       <div style="display:grid;grid-template-columns:1fr 110px 1.3fr 34px;gap:6px;margin-bottom:6px;align-items:center">
-        <select id="pgVendaCartProd_${i}" onchange="vendaCartUpdate(${i},'produtoId',+this.value)" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">
-          <option value="0">— selecione o produto —</option>
-          ${disponiveis.map(p=>`<option value="${p.id}"${p.id===it.produtoId?' selected':''}>[${p.id}] ${p.nome} ${p.num?'Nº'+p.num:''} — custo ${fmt(p.custo)}</option>`).join('')}
-        </select>
+        <div style="position:relative" id="vendaCartProdWrap_${i}">
+          <input type="text" class="venda-prod-search" id="vendaCartProdSearch_${i}" value="${selLabel}" placeholder="🔍 Pesquisar produto..."
+            onfocus="openVendaProdDropdown(${i})" oninput="filterVendaProdDropdown(${i})"
+            style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;width:100%;box-sizing:border-box">
+          <div class="venda-prod-dropdown" id="vendaCartProdDrop_${i}" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:200px;overflow-y:auto;background:var(--white);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:999;margin-top:2px"></div>
+        </div>
         <input id="pgVendaCartValor_${i}" type="number" step="0.01" value="${it.valorVenda||''}" onchange="vendaCartUpdate(${i},'valorVenda',+this.value)" placeholder="Preço R$" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;text-align:right">
         <span id="vendaCartInfo_${i}" style="font-size:10px;color:var(--gray)">${_vendaCartInfo(i)}</span>
         <button onclick="removeVendaCartItem(${i})" style="background:var(--red);color:#fff;border:none;width:30px;height:30px;border-radius:6px;font-size:13px;cursor:pointer" title="Remover item">✕</button>
-      </div>`).join('');
+      </div>`}).join('');
+}
+
+function openVendaProdDropdown(idx){
+  const inp=document.getElementById('vendaCartProdSearch_'+idx);
+  if(inp&&!_vendaCart[idx].produtoId)inp.value='';
+  else if(inp)inp.select();
+  filterVendaProdDropdown(idx);
+}
+
+function filterVendaProdDropdown(idx){
+  const inp=document.getElementById('vendaCartProdSearch_'+idx);
+  const drop=document.getElementById('vendaCartProdDrop_'+idx);
+  if(!inp||!drop)return;
+  const q=(inp.value||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+  const disponiveis=D.produtos.filter(p=>p.status!=='Vendido');
+  const filtered=disponiveis.filter(p=>{
+    const txt=`${p.id} ${p.nome||''} ${p.num||''} ${p.cat||''}`.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+    return !q||txt.indexOf(q)>=0;
+  }).slice(0,30);
+  if(filtered.length===0){
+    drop.innerHTML='<div style="padding:8px 10px;font-size:11px;color:var(--gray)">Nenhum produto encontrado</div>';
+  } else {
+    drop.innerHTML=filtered.map(p=>`<div class="venda-prod-option" onmousedown="selectVendaProd(${idx},${p.id})" style="padding:6px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .15s" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''">[${p.id}] ${p.nome||'(sem nome)'}${p.num?' <span style=color:var(--gray)>Nº'+p.num+'</span>':''} — custo ${fmt(p.custo)}</div>`).join('');
+  }
+  drop.style.display='block';
+}
+
+function selectVendaProd(idx,prodId){
+  vendaCartUpdate(idx,'produtoId',prodId);
+  const p=D.produtos.find(x=>x.id===prodId);
+  const inp=document.getElementById('vendaCartProdSearch_'+idx);
+  if(inp)inp.value=p?`[${p.id}] ${p.nome||'(sem nome)'}${p.num?' Nº'+p.num:''} — custo ${fmt(p.custo)}`:'';
+  closeVendaProdDropdown(idx);
+}
+
+function closeVendaProdDropdown(idx){
+  const drop=document.getElementById('vendaCartProdDrop_'+idx);
+  if(drop)drop.style.display='none';
 }
 
 function _refreshVendaCart(){
@@ -4069,10 +4103,13 @@ function closeTaxaProdDropdown(idx){
   if(drop)drop.style.display='none';
 }
 
-// Fechar dropdown ao clicar fora
+// Fechar dropdowns de pesquisa de produto ao clicar fora
 document.addEventListener('click',function(e){
   if(!e.target.closest('.taxa-prod-search')&&!e.target.closest('.taxa-prod-dropdown')){
     document.querySelectorAll('.taxa-prod-dropdown').forEach(d=>d.style.display='none');
+  }
+  if(!e.target.closest('.venda-prod-search')&&!e.target.closest('.venda-prod-dropdown')){
+    document.querySelectorAll('.venda-prod-dropdown').forEach(d=>d.style.display='none');
   }
 });
 
