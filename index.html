@@ -2025,16 +2025,32 @@ function _vendaCartItemsHtml(){
     const selLabel=selProd?`[${selProd.id}] ${selProd.nome||'(sem nome)'}${selProd.num?' Nº'+selProd.num:''} — custo ${fmt(selProd.custo)}`:'';
     return `
       <div style="display:grid;grid-template-columns:1fr 110px 1.3fr 34px;gap:6px;margin-bottom:6px;align-items:center">
-        <div style="position:relative" id="vendaCartProdWrap_${i}">
+        <div id="vendaCartProdWrap_${i}">
           <input type="text" class="venda-prod-search" id="vendaCartProdSearch_${i}" value="${selLabel}" placeholder="🔍 Pesquisar produto..."
             onfocus="openVendaProdDropdown(${i})" oninput="filterVendaProdDropdown(${i})"
             style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;width:100%;box-sizing:border-box">
-          <div class="venda-prod-dropdown" id="vendaCartProdDrop_${i}" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:220px;overflow-y:auto;background:#ffffff;border:1px solid #d1d5db;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.25);z-index:9999;margin-top:2px"></div>
         </div>
         <input id="pgVendaCartValor_${i}" type="number" step="0.01" value="${it.valorVenda||''}" onchange="vendaCartUpdate(${i},'valorVenda',+this.value)" placeholder="Preço R$" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;text-align:right">
         <span id="vendaCartInfo_${i}" style="font-size:10px;color:var(--gray)">${_vendaCartInfo(i)}</span>
         <button onclick="removeVendaCartItem(${i})" style="background:var(--red);color:#fff;border:none;width:30px;height:30px;border-radius:6px;font-size:13px;cursor:pointer" title="Remover item">✕</button>
       </div>`}).join('');
+}
+
+function _getOrCreateFixedDrop(id){
+  let drop=document.getElementById(id);
+  if(!drop){
+    drop=document.createElement('div');drop.id=id;
+    drop.style.cssText='display:none;position:fixed;max-height:220px;overflow-y:auto;background:#ffffff;border:1px solid #d1d5db;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.3);z-index:99999;';
+    document.body.appendChild(drop);
+  }
+  return drop;
+}
+
+function _positionFixedDrop(inp,drop){
+  const r=inp.getBoundingClientRect();
+  drop.style.top=(r.bottom+2)+'px';
+  drop.style.left=r.left+'px';
+  drop.style.width=r.width+'px';
 }
 
 function openVendaProdDropdown(idx){
@@ -2046,8 +2062,9 @@ function openVendaProdDropdown(idx){
 
 function filterVendaProdDropdown(idx){
   const inp=document.getElementById('vendaCartProdSearch_'+idx);
-  const drop=document.getElementById('vendaCartProdDrop_'+idx);
-  if(!inp||!drop)return;
+  if(!inp)return;
+  const drop=_getOrCreateFixedDrop('vendaCartProdDrop_'+idx);
+  _positionFixedDrop(inp,drop);
   const q=(inp.value||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
   const disponiveis=D.produtos.filter(p=>p.status!=='Vendido');
   const filtered=disponiveis.filter(p=>{
@@ -2057,7 +2074,7 @@ function filterVendaProdDropdown(idx){
   if(filtered.length===0){
     drop.innerHTML='<div style="padding:10px 12px;font-size:11px;color:#9ca3af;background:#fff">Nenhum produto encontrado</div>';
   } else {
-    drop.innerHTML=filtered.map(p=>`<div class="venda-prod-option" onmousedown="selectVendaProd(${idx},${p.id})" style="padding:8px 12px;font-size:12px;cursor:pointer;border-bottom:1px solid #e5e7eb;background:#fff" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='#fff'">[${p.id}] ${p.nome||'(sem nome)'}${p.num?' <span style=color:#9ca3af>Nº'+p.num+'</span>':''} — custo ${fmt(p.custo)}</div>`).join('');
+    drop.innerHTML=filtered.map(p=>`<div onmousedown="selectVendaProd(${idx},${p.id})" style="padding:8px 12px;font-size:12px;cursor:pointer;border-bottom:1px solid #e5e7eb;background:#fff" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='#fff'">[${p.id}] ${p.nome||'(sem nome)'}${p.num?' <span style=color:#9ca3af>Nº'+p.num+'</span>':''} — custo ${fmt(p.custo)}</div>`).join('');
   }
   drop.style.display='block';
 }
@@ -4054,11 +4071,10 @@ function _buildTaxaItensHTML(){
     const selLabel=selProd?`${selProd.nome||'(sem nome)'} — ${fmt(selProd.custo)}${selProd.num?' (Nº '+selProd.num+')':''}`:'';
     return `
     <div style="display:grid;grid-template-columns:1fr 110px 34px;gap:6px;margin-bottom:6px;align-items:center">
-      <div style="position:relative" id="taxaProdWrap_${i}">
+      <div id="taxaProdWrap_${i}">
         <input type="text" class="taxa-prod-search" id="taxaProdSearch_${i}" value="${selLabel}" placeholder="🔍 Pesquisar produto..."
           onfocus="openTaxaProdDropdown(${i})" oninput="filterTaxaProdDropdown(${i})"
           style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;width:100%;box-sizing:border-box">
-        <div class="taxa-prod-dropdown" id="taxaProdDrop_${i}" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:220px;overflow-y:auto;background:#ffffff;border:1px solid #d1d5db;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.25);z-index:9999;margin-top:2px"></div>
       </div>
       <input type="number" step="0.01" value="${it.valor||''}" onchange="updateTaxaItem(${i},'valor',+this.value)" placeholder="R$ taxa" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;text-align:right">
       <button onclick="removeTaxaItem(${i})" style="background:var(--red);color:#fff;border:none;width:30px;height:30px;border-radius:6px;font-size:13px;cursor:pointer" title="Remover">✕</button>
@@ -4069,14 +4085,13 @@ function openTaxaProdDropdown(idx){
   const inp=document.getElementById('taxaProdSearch_'+idx);
   if(inp&&!_taxaItens[idx].produtoId)inp.value='';
   filterTaxaProdDropdown(idx);
-  const drop=document.getElementById('taxaProdDrop_'+idx);
-  if(drop)drop.style.display='block';
 }
 
 function filterTaxaProdDropdown(idx){
   const inp=document.getElementById('taxaProdSearch_'+idx);
-  const drop=document.getElementById('taxaProdDrop_'+idx);
-  if(!inp||!drop)return;
+  if(!inp)return;
+  const drop=_getOrCreateFixedDrop('taxaProdDrop_'+idx);
+  _positionFixedDrop(inp,drop);
   const q=(inp.value||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
   const filtered=D.produtos.filter(p=>{
     const txt=`${p.nome||''} ${p.num||''} ${p.cat||''}`.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
@@ -4085,7 +4100,7 @@ function filterTaxaProdDropdown(idx){
   if(filtered.length===0){
     drop.innerHTML='<div style="padding:10px 12px;font-size:11px;color:#9ca3af;background:#fff">Nenhum produto encontrado</div>';
   } else {
-    drop.innerHTML=filtered.map(p=>`<div class="taxa-prod-option" onmousedown="selectTaxaProd(${idx},${p.id})" style="padding:8px 12px;font-size:12px;cursor:pointer;border-bottom:1px solid #e5e7eb;background:#fff" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='#fff'">${p.nome||'(sem nome)'} — ${fmt(p.custo)}${p.num?' <span style=color:#9ca3af>(Nº '+p.num+')</span>':''}</div>`).join('');
+    drop.innerHTML=filtered.map(p=>`<div onmousedown="selectTaxaProd(${idx},${p.id})" style="padding:8px 12px;font-size:12px;cursor:pointer;border-bottom:1px solid #e5e7eb;background:#fff" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='#fff'">${p.nome||'(sem nome)'} — ${fmt(p.custo)}${p.num?' <span style=color:#9ca3af>(Nº '+p.num+')</span>':''}</div>`).join('');
   }
   drop.style.display='block';
 }
@@ -4105,13 +4120,17 @@ function closeTaxaProdDropdown(idx){
 
 // Fechar dropdowns de pesquisa de produto ao clicar fora
 document.addEventListener('click',function(e){
-  if(!e.target.closest('.taxa-prod-search')&&!e.target.closest('.taxa-prod-dropdown')){
-    document.querySelectorAll('.taxa-prod-dropdown').forEach(d=>d.style.display='none');
+  if(!e.target.closest('.taxa-prod-search')){
+    document.querySelectorAll('[id^="taxaProdDrop_"]').forEach(d=>d.style.display='none');
   }
-  if(!e.target.closest('.venda-prod-search')&&!e.target.closest('.venda-prod-dropdown')){
-    document.querySelectorAll('.venda-prod-dropdown').forEach(d=>d.style.display='none');
+  if(!e.target.closest('.venda-prod-search')){
+    document.querySelectorAll('[id^="vendaCartProdDrop_"]').forEach(d=>d.style.display='none');
   }
 });
+// Fechar dropdowns ao scroll para evitar desalinhamento
+window.addEventListener('scroll',function(){
+  document.querySelectorAll('[id^="taxaProdDrop_"],[id^="vendaCartProdDrop_"]').forEach(d=>d.style.display='none');
+},true);
 
 function _updateTaxaItensWrap(){
   const el=document.getElementById('taxaItensWrap');
