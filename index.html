@@ -691,7 +691,8 @@ async function restaurarBackupNuvem(backupId){
 // Pra cada venda onde v.saldoReceber != Σ CRs Pendentes vinculadas:
 // novoRecebido = max(0, v.valorVenda - Σ CRs Pendentes)
 // Ajusta v.recebido, v.saldoReceber, v.status
-function reconciliarVendasComCRs(){
+// IMPORTANTE: salva direto no Supabase contornando a protecao de timestamp (operacao deliberada).
+async function reconciliarVendasComCRs(){
   if(!PERMS.edit){toast('Sem permissao para alterar',true);return}
   const ajustes=[];
   (D.vendas||[]).forEach(v=>{
@@ -700,7 +701,6 @@ function reconciliarVendasComCRs(){
     const novoSaldo=somaCRsPend;
     const novoStatus=novoSaldo<=0&&novoRecebido>0?'Pago Total':(novoRecebido>0?'Pago Parcial':'Pendente');
     if(Math.abs(novoRecebido-(+v.recebido||0))>0.005){
-      // Procurar movimentacao do cliente no caixa com mesmo valor pra mostrar como evidencia
       const cliL=(v.cliente||'').toLowerCase().trim();
       const movsCli=(D.movimentacoes||[]).filter(m=>{
         if(m.tipo!=='Entrada')return false;
@@ -727,7 +727,6 @@ function reconciliarVendasComCRs(){
     alert('✓ Tudo OK! Nao ha vendas divergentes.\n\nv.recebido = v.valorVenda - Σ CRs Pendentes em todas as vendas.');
     return;
   }
-  // Montar resumo pra confirmacao
   let msg='RECONCILIAR '+ajustes.length+' VENDA(S) COM SUAS PARCELAS PENDENTES\n\n';
   msg+='Vai ajustar v.recebido = valorVenda - Σ CRs Pendentes em cada uma.\n';
   msg+='NAO mexe em movimentacoes do caixa, NAO altera CRs, NAO altera valorVenda.\n\n';
@@ -741,16 +740,57 @@ function reconciliarVendasComCRs(){
     msg+='   Mov(s) Entrada/Recebimento do '+(a.v.cliente||'?')+' no caixa: '+a.movsCliCount+' = '+fmt(a.somaMovsCli)+'\n';
   });
   const totalAjuste=ajustes.reduce((a,x)=>a+x.diferenca,0);
-  msg+='\nTotal de Recebido a adicionar: '+fmt(totalAjuste)+'\n\nConfirma a aplicacao?';
+  msg+='\nTotal de Recebido a adicionar: '+fmt(totalAjuste)+'\n\n';
+  msg+='Esta operacao vai SALVAR DIRETO no Supabase, ignorando a protecao de timestamp entre PCs.\nConfirma a aplicacao?';
   if(!confirm(msg)){toast('Reconciliacao cancelada');return}
-  // Aplicar
+  // Aplicar em memoria
   ajustes.forEach(a=>{
     a.v.recebido=a.novoRecebido;
     a.v.saldoReceber=a.novoSaldo;
     a.v.status=a.novoStatus;
   });
-  saveData();renderPage();
-  toast('✅ '+ajustes.length+' venda(s) reconciliada(s)');
+  // SAVE FORCADO — pula a protecao de timestamp/PC
+  try{
+    localStorage.setItem(STORAGE_KEY,JSON.stringify(D));
+    if(userProfile){
+      salvarBackupLocal();
+      const agora=new Date().toISOString();
+      D._savedAt=agora;
+      D._savedBy=_sessionToken;
+      const{error}=await SB.from('app_data').upsert({org_id:userProfile.org_id,data:D,updated_at:agora},{onConflict:'org_id'});
+      if(error){
+        alert('❌ ERRO ao salvar no Supabase:\n\n'+error.message+'\n\nAs alteracoes foram aplicadas LOCALMENTE mas NAO foram persistidas na nuvem.');
+        renderPage();
+        return;
+      }
+      _lastKnownUpdatedAt=agora;
+      _lastKnownSessionToken=_sessionToken;
+    }
+    renderPage();
+    // VERIFICAR persistencia: re-buscar do Supabase
+    if(userProfile){
+      const{data:remote}=await SB.from('app_data').select('data').eq('org_id',userProfile.org_id).single();
+      const vendasRemote=(remote&&remote.data&&remote.data.vendas)||[];
+      const idsAjustados=ajustes.map(a=>a.v.id);
+      const okCount=idsAjustados.filter(id=>{
+        const vr=vendasRemote.find(x=>x.id===id);
+        if(!vr)return false;
+        const aj=ajustes.find(a=>a.v.id===id);
+        return Math.abs((+vr.recebido||0)-aj.novoRecebido)<0.01&&Math.abs((+vr.saldoReceber||0)-aj.novoSaldo)<0.01;
+      }).length;
+      if(okCount===ajustes.length){
+        alert('✅ SUCESSO!\n\n'+ajustes.length+' venda(s) reconciliada(s) e CONFIRMADAS no Supabase.\n\nVai em Balanco Inventario pra ver o A Receber atualizado.');
+      } else {
+        alert('⚠ ATENCAO\n\nSalvei '+ajustes.length+' venda(s) localmente, mas no Supabase apenas '+okCount+' confirmou.\n\nPode ser delay de sincronizacao. Recarregue a pagina em 1 minuto e verifique.');
+      }
+    } else {
+      toast('✅ '+ajustes.length+' venda(s) reconciliada(s) localmente (sem Supabase)');
+    }
+  } catch(e){
+    alert('❌ EXCEPTION no save:\n\n'+e.message+'\n\nDetalhes no console (F12).');
+    console.error('reconciliarVendasComCRs save error:',e);
+    renderPage();
+  }
 }
 
 // ═══ DIAGNOSTICO A RECEBER ═══
@@ -904,7 +944,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-o';
+const APP_VERSION = 'v2026.06.08-p';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
