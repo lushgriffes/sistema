@@ -2197,10 +2197,28 @@ function editarVenda(vendaId, field, value){
     const nv=+value;
     if(!(nv>=0)){toast('Valor inválido',true);renderPage();return}
     v.valorVenda=Math.round(nv*100)/100;
+    // Atualizar CRs recebidas + movimentação vinculada ao novo valor
+    const crsReceb=(D.contasReceber||[]).filter(c=>c.vendaId===vendaId&&c.status==='Recebido');
+    if(crsReceb.length>0){
+      // Se tem apenas 1 CR recebida, atualizar valor dela e da movimentação
+      if(crsReceb.length===1){
+        crsReceb[0].valor=v.valorVenda;
+        if(crsReceb[0].movIdEstorno){
+          const mov=D.movimentacoes.find(m=>m.id===crsReceb[0].movIdEstorno);
+          if(mov)mov.valor=v.valorVenda;
+        }
+        v.recebido=v.valorVenda;
+      } else {
+        // Múltiplas CRs recebidas — somar tudo
+        v.recebido=crsReceb.reduce((a,c)=>a+(+c.valor||0),0);
+      }
+    }
     v.saldoReceber=Math.max(0,Math.round((v.valorVenda-(+v.recebido||0))*100)/100);
     v.status=v.saldoReceber<=0&&(+v.recebido||0)>0?'Pago Total':((+v.recebido||0)>0?'Pago Parcial':'Pendente');
+    // Atualizar CRs pendentes
     const crsPend=(D.contasReceber||[]).filter(c=>c.vendaId===vendaId&&c.status!=='Recebido');
-    if(crsPend.length===1)crsPend[0].valor=v.saldoReceber;
+    if(crsPend.length===1)crsPend[0].valor=v.saldoReceber>0?v.saldoReceber:v.valorVenda;
+    recalcSaldos();
   } else { return; }
   saveData();renderPage();
   toast('Venda atualizada');
