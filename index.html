@@ -2029,7 +2029,7 @@ function _vendaCartItemsHtml(){
           <input type="text" class="venda-prod-search" id="vendaCartProdSearch_${i}" value="${selLabel}" placeholder="🔍 Pesquisar produto..."
             onfocus="openVendaProdDropdown(${i})" oninput="filterVendaProdDropdown(${i})"
             style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;width:100%;box-sizing:border-box">
-          <div class="venda-prod-dropdown" id="vendaCartProdDrop_${i}" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:200px;overflow-y:auto;background:var(--white);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:999;margin-top:2px"></div>
+          <div class="venda-prod-dropdown" id="vendaCartProdDrop_${i}" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:220px;overflow-y:auto;background:#ffffff;border:1px solid #d1d5db;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.25);z-index:9999;margin-top:2px"></div>
         </div>
         <input id="pgVendaCartValor_${i}" type="number" step="0.01" value="${it.valorVenda||''}" onchange="vendaCartUpdate(${i},'valorVenda',+this.value)" placeholder="Preço R$" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;text-align:right">
         <span id="vendaCartInfo_${i}" style="font-size:10px;color:var(--gray)">${_vendaCartInfo(i)}</span>
@@ -2055,9 +2055,9 @@ function filterVendaProdDropdown(idx){
     return !q||txt.indexOf(q)>=0;
   }).slice(0,30);
   if(filtered.length===0){
-    drop.innerHTML='<div style="padding:8px 10px;font-size:11px;color:var(--gray)">Nenhum produto encontrado</div>';
+    drop.innerHTML='<div style="padding:10px 12px;font-size:11px;color:#9ca3af;background:#fff">Nenhum produto encontrado</div>';
   } else {
-    drop.innerHTML=filtered.map(p=>`<div class="venda-prod-option" onmousedown="selectVendaProd(${idx},${p.id})" style="padding:6px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .15s" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''">[${p.id}] ${p.nome||'(sem nome)'}${p.num?' <span style=color:var(--gray)>Nº'+p.num+'</span>':''} — custo ${fmt(p.custo)}</div>`).join('');
+    drop.innerHTML=filtered.map(p=>`<div class="venda-prod-option" onmousedown="selectVendaProd(${idx},${p.id})" style="padding:8px 12px;font-size:12px;cursor:pointer;border-bottom:1px solid #e5e7eb;background:#fff" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='#fff'">[${p.id}] ${p.nome||'(sem nome)'}${p.num?' <span style=color:#9ca3af>Nº'+p.num+'</span>':''} — custo ${fmt(p.custo)}</div>`).join('');
   }
   drop.style.display='block';
 }
@@ -4058,7 +4058,7 @@ function _buildTaxaItensHTML(){
         <input type="text" class="taxa-prod-search" id="taxaProdSearch_${i}" value="${selLabel}" placeholder="🔍 Pesquisar produto..."
           onfocus="openTaxaProdDropdown(${i})" oninput="filterTaxaProdDropdown(${i})"
           style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;width:100%;box-sizing:border-box">
-        <div class="taxa-prod-dropdown" id="taxaProdDrop_${i}" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:200px;overflow-y:auto;background:var(--white);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:999;margin-top:2px"></div>
+        <div class="taxa-prod-dropdown" id="taxaProdDrop_${i}" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:220px;overflow-y:auto;background:#ffffff;border:1px solid #d1d5db;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.25);z-index:9999;margin-top:2px"></div>
       </div>
       <input type="number" step="0.01" value="${it.valor||''}" onchange="updateTaxaItem(${i},'valor',+this.value)" placeholder="R$ taxa" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;text-align:right">
       <button onclick="removeTaxaItem(${i})" style="background:var(--red);color:#fff;border:none;width:30px;height:30px;border-radius:6px;font-size:13px;cursor:pointer" title="Remover">✕</button>
@@ -4083,9 +4083,9 @@ function filterTaxaProdDropdown(idx){
     return !q||txt.indexOf(q)>=0;
   }).slice(0,30);
   if(filtered.length===0){
-    drop.innerHTML='<div style="padding:8px 10px;font-size:11px;color:var(--gray)">Nenhum produto encontrado</div>';
+    drop.innerHTML='<div style="padding:10px 12px;font-size:11px;color:#9ca3af;background:#fff">Nenhum produto encontrado</div>';
   } else {
-    drop.innerHTML=filtered.map(p=>`<div class="taxa-prod-option" onmousedown="selectTaxaProd(${idx},${p.id})" style="padding:6px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .15s" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''">${p.nome||'(sem nome)'} — ${fmt(p.custo)}${p.num?' <span style=color:var(--gray)>(Nº '+p.num+')</span>':''}</div>`).join('');
+    drop.innerHTML=filtered.map(p=>`<div class="taxa-prod-option" onmousedown="selectTaxaProd(${idx},${p.id})" style="padding:8px 12px;font-size:12px;cursor:pointer;border-bottom:1px solid #e5e7eb;background:#fff" onmouseover="this.style.background='#f3f4f6'" onmouseout="this.style.background='#fff'">${p.nome||'(sem nome)'} — ${fmt(p.custo)}${p.num?' <span style=color:#9ca3af>(Nº '+p.num+')</span>':''}</div>`).join('');
   }
   drop.style.display='block';
 }
