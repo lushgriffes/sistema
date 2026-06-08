@@ -979,8 +979,8 @@ function renderPage(){
   const _syncInfo=_lastKnownUpdatedAt?` | Sync: ${new Date(_lastKnownUpdatedAt).toLocaleString('pt-BR')}`:'';
   document.getElementById('hdr-sub').textContent=`Patrimônio: ${fmt(m.patrimonio)} | Caixa: ${fmt(m.caixa)} | ${D.produtos.length} produtos | ${new Date().toLocaleDateString('pt-BR')} | ${APP_VERSION}${_syncInfo}`;
   if(tabIdx===0)initCharts(m);
-  if(tabIdx===2)initPeriodoCharts();
-  if(tabIdx===14)initSelicChart();
+  if(tabIdx===1)initPeriodoCharts();
+  if(tabIdx===13)initSelicChart();
   // Restaurar scroll apos render (window + containers internos)
   window.scrollTo(0,_winY);
   Object.keys(_scrollSaves).forEach(id=>{const el=document.getElementById(id);if(el)el.scrollTop=_scrollSaves[id]});
