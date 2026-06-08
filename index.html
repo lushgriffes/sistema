@@ -994,7 +994,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-u';
+const APP_VERSION = 'v2026.06.08-v';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -1561,6 +1561,10 @@ function renderDashPeriodo(){
     <div class="box"><h3>Faturamento por Mês</h3><canvas id="cPeriodoBar" height="250"></canvas></div>
     <div class="box"><h3>Entradas vs Saídas por Mês</h3><canvas id="cFluxoBar" height="250"></canvas></div>
   </div>
+  <div class="box" style="margin-top:10px">
+    <h3>📈 Lucro Líquido por Mês <span style="font-size:11px;color:var(--gray);font-weight:normal">(Faturamento − Custo − Despesas + Outras Receitas)</span></h3>
+    <canvas id="cLucroLiquidoBar" height="200"></canvas>
+  </div>
   <div class="box"><h3>Vendas do Período (${vendFil.length})</h3>
   <div style="max-height:400px;overflow-y:auto">
   <table><thead><tr><th>Data</th><th>Cliente</th><th>Produto</th><th class="r">Custo</th><th class="r">Venda</th><th class="r">Lucro</th><th>Margem</th><th class="r">Recebido</th></tr></thead><tbody>
@@ -1601,6 +1605,84 @@ function initPeriodoCharts(){
   const c2=document.getElementById('cFluxoBar');
   if(c2){
     new Chart(c2,{type:'bar',data:{labels:nomesMov,datasets:[{label:'Entradas',data:mesesMov.map(m=>movMes[m].ent),backgroundColor:'#22c55e',borderRadius:6},{label:'Saídas',data:mesesMov.map(m=>movMes[m].sai),backgroundColor:'#ef4444',borderRadius:6}]},plugins:[ChartDataLabels],options:{responsive:true,layout:{padding:{top:20}},plugins:{datalabels:{anchor:'end',align:'end',clip:false,font:{size:9,weight:'bold'},formatter:v=>v>0?fmtK(v):''}},scales:{y:{grace:'14%',ticks:{callback:v=>fmtK(v)}}}}});
+  }
+  // Lucro Liquido por mês = Faturamento - Custo - Despesas Operacionais + Outras Receitas
+  // Agrega por mes (YYYY-MM)
+  const lucroMes={};
+  D.vendas.forEach(v=>{
+    if(!v.data)return;
+    const mes=v.data.substring(0,7);
+    if(!lucroMes[mes])lucroMes[mes]={fat:0,custo:0,desp:0,outras:0};
+    lucroMes[mes].fat+=(+v.valorVenda||0);
+    lucroMes[mes].custo+=(+v.custo||0);
+  });
+  D.despesas.forEach(d=>{
+    if(!d.data)return;
+    const tipo=d.tipoDespesa||'Despesa';
+    // Considerar apenas tipo Despesa (nao Acertos/Empréstimos/Investimento)
+    if(tipo!=='Despesa')return;
+    const mes=d.data.substring(0,7);
+    if(!lucroMes[mes])lucroMes[mes]={fat:0,custo:0,desp:0,outras:0};
+    lucroMes[mes].desp+=(+d.valor||0);
+  });
+  (D.recebimentos||[]).forEach(r=>{
+    if(!r.data)return;
+    const mes=r.data.substring(0,7);
+    if(!lucroMes[mes])lucroMes[mes]={fat:0,custo:0,desp:0,outras:0};
+    lucroMes[mes].outras+=(+r.valor||0);
+  });
+  const mesesLL=Object.keys(lucroMes).sort();
+  const nomesLL=mesesLL.map(m=>{const[y,mo]=m.split('-');return['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][+mo-1]+'/'+y.slice(2)});
+  const lucroBrutoData=mesesLL.map(m=>lucroMes[m].fat-lucroMes[m].custo);
+  const despesasData=mesesLL.map(m=>-lucroMes[m].desp); // negativo pra visualizar como saida
+  const outrasData=mesesLL.map(m=>lucroMes[m].outras);
+  const liquidoData=mesesLL.map(m=>(lucroMes[m].fat-lucroMes[m].custo)-lucroMes[m].desp+lucroMes[m].outras);
+  const c3=document.getElementById('cLucroLiquidoBar');
+  if(c3){
+    new Chart(c3,{
+      type:'bar',
+      data:{
+        labels:nomesLL,
+        datasets:[
+          {type:'bar',label:'Lucro Bruto',data:lucroBrutoData,backgroundColor:'rgba(59,130,246,0.6)',borderColor:'#3b82f6',borderWidth:1,borderRadius:4,stack:'componentes'},
+          {type:'bar',label:'Despesas',data:despesasData,backgroundColor:'rgba(239,68,68,0.6)',borderColor:'#ef4444',borderWidth:1,borderRadius:4,stack:'componentes'},
+          {type:'bar',label:'Outras Receitas',data:outrasData,backgroundColor:'rgba(168,85,247,0.6)',borderColor:'#a855f7',borderWidth:1,borderRadius:4,stack:'componentes'},
+          {type:'line',label:'Lucro Líquido',data:liquidoData,borderColor:'#16a34a',backgroundColor:'#16a34a',pointRadius:6,pointHoverRadius:8,borderWidth:3,fill:false,tension:0.2,datalabels:{align:'top',anchor:'end',color:'#16a34a',font:{weight:'bold',size:10},formatter:v=>v!==0?fmtK(v):''}}
+        ]
+      },
+      plugins:[ChartDataLabels],
+      options:{
+        responsive:true,
+        layout:{padding:{top:30}},
+        plugins:{
+          legend:{position:'bottom',labels:{font:{size:11}}},
+          datalabels:{
+            display:ctx=>ctx.dataset.type==='line',
+            anchor:'end',align:'top',
+            color:'#16a34a',font:{weight:'bold',size:10},
+            formatter:v=>v!==0?fmtK(v):''
+          },
+          tooltip:{
+            callbacks:{
+              label:ctx=>{
+                const v=ctx.parsed.y;
+                return ctx.dataset.label+': '+fmt(Math.abs(v))+(v<0?' (saida)':'');
+              }
+            }
+          }
+        },
+        scales:{
+          y:{
+            grace:'20%',
+            ticks:{callback:v=>fmtK(v)},
+            grid:{color:'rgba(0,0,0,0.05)'}
+          },
+          x:{
+            grid:{display:false}
+          }
+        }
+      }
+    });
   }
 }
 
