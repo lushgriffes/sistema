@@ -10,6 +10,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -837,7 +838,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-k';
+const APP_VERSION = 'v2026.06.08-m';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -1499,7 +1500,7 @@ function renderEstoque(m){
     <span class="f-clear" onclick="estFilter='Todos';estStatus='Todos';estSearch='';estCol={id:'',data:'',nome:'',num:'',rastreio:'',codForn:'',numPedido:'',custo:'',precoVenda:''};renderPage()">Limpar filtros</span>
   </div>
   <div style="font-size:11px;color:var(--gray);margin-bottom:8px">💡 Use a busca geral acima ou filtre coluna por coluna na linha de filtros abaixo do cabeçalho da tabela.</div>
-  <div style="text-align:right;margin-bottom:10px"><button class="btn btn-sm" onclick="gerarPDFEstoque()" style="background:var(--dark);color:#fff">📄 Baixar PDF Estoque</button></div>
+  <div style="text-align:right;margin-bottom:10px;display:flex;gap:4px;justify-content:flex-end"><button class="btn btn-sm" onclick="gerarPDFEstoque()" style="background:var(--dark);color:#fff;padding:4px 10px" title="Baixar PDF do Estoque (respeita filtros)">📄</button><button class="btn btn-sm" onclick="gerarExcelEstoque()" style="background:#16a34a;color:#fff;padding:4px 10px" title="Baixar Excel do Estoque (respeita filtros)">📊</button></div>
   <div class="box"><h3>Produtos (${fil.length} itens)</h3>
   <div id="estTableScroll" style="max-height:600px;overflow-y:auto;overflow-x:auto">
   <table><thead><tr><th style="width:50px">Foto</th><th>ID</th><th>Data</th><th>Descrição</th><th>Nº</th><th>Rastreio</th><th>Cód. Forn.</th><th>Nº Pedido</th><th>Cat.</th><th style="text-align:right">Custo</th><th style="text-align:right">Pç. Venda</th><th>Status</th><th>Ação</th></tr>
@@ -2118,7 +2119,7 @@ function renderEncomendas(){
     <div class="card purple"><div class="card-lbl">Encomendas</div><div class="card-val">${Object.keys(clients).length} clientes</div><div class="card-sub">${enc.length} itens</div></div>
     <div class="card orange"><div class="card-lbl">Custo Total</div><div class="card-val">${fmt(custoT)}</div></div>
   </div>
-  <div style="text-align:right;margin-bottom:10px"><button class="btn btn-sm" onclick="gerarPDFEncomendas()" style="background:var(--purple);color:#fff">📄 Baixar PDF Encomendas</button></div>
+  <div style="text-align:right;margin-bottom:10px;display:flex;gap:4px;justify-content:flex-end"><button class="btn btn-sm" onclick="gerarPDFEncomendas()" style="background:var(--purple);color:#fff;padding:4px 10px" title="Baixar PDF de Encomendas">📄</button></div>
   <div class="enc-grid">`;
   for(const [cli,items] of Object.entries(clients)){
     const custo=items.reduce((a,p)=>a+(p.custo||0),0);
@@ -2156,7 +2157,7 @@ function renderVendas(m){
     <div class="card emerald"><div class="card-lbl">Recebido</div><div class="card-val">${fmt(recebido)}</div></div>
     <div class="card orange"><div class="card-lbl">A Receber</div><div class="card-val">${fmt(aReceber)}</div></div>
   </div>
-  <div style="text-align:right;margin-bottom:10px"><button class="btn btn-sm" onclick="gerarPDFVendas()" style="background:var(--red);color:#fff">📄 Baixar PDF Vendas</button></div>
+  <div style="text-align:right;margin-bottom:10px;display:flex;gap:4px;justify-content:flex-end"><button class="btn btn-sm" onclick="gerarPDFVendas()" style="background:var(--red);color:#fff;padding:4px 10px" title="Baixar PDF de Vendas">📄</button><button class="btn btn-sm" onclick="gerarExcelVendas()" style="background:#16a34a;color:#fff;padding:4px 10px" title="Baixar Excel de Vendas">📊</button></div>
 
   <div class="box"><h3>Registrar Nova Venda <span style="font-size:11px;font-weight:400;color:var(--gray)">(pode adicionar vários produtos para o mesmo cliente)</span></h3>
   <div class="inline-form" style="margin-bottom:10px">
@@ -2573,64 +2574,100 @@ function trocarProdutoVenda(vendaId,novoProdutoId){
   toast('Produto da venda trocado: '+(antigoNome||'—')+' → '+novoProd.nome);
 }
 
-// ═══ MODAL DETALHES DA VENDA ═══
+// ═══ MODAL DETALHES DA VENDA (com estado local + botao Salvar) ═══
+let _dvState=null;
+
 function abrirDetalhesVenda(vendaId){
   const v=D.vendas.find(x=>x.id===vendaId);
   if(!v){toast('Venda nao encontrada',true);return}
-  // Fechar modal existente
-  const existente=document.getElementById('vendaDetalhesModal');
-  if(existente)existente.remove();
-  document.body.insertAdjacentHTML('beforeend',renderDetalhesVendaModal(v));
-  document.body.style.overflow='hidden';
-}
-
-function fecharDetalhesVenda(){
-  const m=document.getElementById('vendaDetalhesModal');
-  if(m)m.remove();
-  document.body.style.overflow='';
-}
-
-function renderDetalhesVendaModal(v){
-  const crs=(D.contasReceber||[]).filter(c=>c.vendaId===v.id);
-  const crsPend=crs.filter(c=>c.status!=='Recebido');
-  const crsReceb=crs.filter(c=>c.status==='Recebido');
-  // movs vinculadas via movIdEstorno + match por descricao
-  const movsPorId=new Set(crs.filter(c=>c.movIdEstorno).map(c=>c.movIdEstorno));
-  const movsRelacionadas=(D.movimentacoes||[]).filter(m=>{
-    if(movsPorId.has(m.id))return true;
+  // Cria estado local (rascunho — nao mexe no D ate Salvar)
+  _dvState={
+    vendaId:v.id,
+    venda:JSON.parse(JSON.stringify(v)),
+    parcelas:(D.contasReceber||[]).filter(c=>c.vendaId===v.id).map(c=>JSON.parse(JSON.stringify(c))),
+    // Linha sintetica de entrada — usa v.recebido como ponto de partida
+    entrada:{
+      valor:+v.recebido||0,
+      dataReceb:v.dataEntrada||v.data||hoje(),
+      // ID da mov vinculada a entrada (se houver, achamos pela desc)
+      movId:0,
+    },
+    dirty:false,
+  };
+  // Procurar a movimentacao de entrada pela descricao
+  const cliL=(v.cliente||'').toLowerCase().trim();
+  const movEntrada=(D.movimentacoes||[]).find(m=>{
     if(m.tipo!=='Entrada')return false;
     if(m.cat!=='Recebimento Venda'&&m.cat!=='Sinal Encomenda')return false;
     const desc=(m.desc||'').toLowerCase();
-    const cli=(v.cliente||'').toLowerCase();
-    return cli&&desc.includes(cli);
+    return desc.startsWith('entrada venda')&&cliL&&desc.includes(cliL);
   });
-  const somaCRsPend=crsPend.reduce((a,c)=>a+(+c.valor||0),0);
-  const somaCRsReceb=crsReceb.reduce((a,c)=>a+(+c.valor||0),0);
-  const somaMovsRel=movsRelacionadas.reduce((a,m)=>a+(+m.valor||0),0);
+  if(movEntrada){
+    _dvState.entrada.movId=movEntrada.id;
+    if(!v.dataEntrada)_dvState.entrada.dataReceb=movEntrada.data||_dvState.entrada.dataReceb;
+  }
+  // Fechar modal existente
+  const existente=document.getElementById('vendaDetalhesModal');
+  if(existente)existente.remove();
+  document.body.insertAdjacentHTML('beforeend',renderDetalhesVendaModal());
+  document.body.style.overflow='hidden';
+}
+
+function fecharDetalhesVenda(forceClose){
+  if(_dvState&&_dvState.dirty&&!forceClose){
+    if(!confirm('⚠ Voce tem alteracoes nao salvas.\n\nDescartar essas alteracoes?'))return;
+  }
+  const m=document.getElementById('vendaDetalhesModal');
+  if(m)m.remove();
+  document.body.style.overflow='';
+  _dvState=null;
+}
+
+function _dvRecalcLocal(){
+  // Recalcular saldoReceber e status do estado local
+  if(!_dvState)return;
+  const v=_dvState.venda;
+  const entrada=+_dvState.entrada.valor||0;
+  const recParcelas=_dvState.parcelas.filter(p=>p.status==='Recebido').reduce((a,p)=>a+(+p.valor||0),0);
+  const totalRecebido=entrada+recParcelas;
+  v.recebido=Math.round(totalRecebido*100)/100;
+  v.saldoReceber=Math.max(0,Math.round(((+v.valorVenda||0)-totalRecebido)*100)/100);
+  v.status=v.saldoReceber<=0&&totalRecebido>0?'Pago Total':(totalRecebido>0?'Pago Parcial':'Pendente');
+}
+
+function renderDetalhesVendaModal(){
+  if(!_dvState)return'';
+  const v=_dvState.venda;
+  const ent=_dvState.entrada;
+  _dvRecalcLocal();
   const lucro=(+v.valorVenda||0)-(+v.custo||0);
   const margem=v.valorVenda>0?((lucro/v.valorVenda)*100).toFixed(1):0;
+  const somaCRsPend=_dvState.parcelas.filter(p=>p.status!=='Recebido').reduce((a,p)=>a+(+p.valor||0),0);
+  const somaCRsReceb=_dvState.parcelas.filter(p=>p.status==='Recebido').reduce((a,p)=>a+(+p.valor||0),0);
   const esc=s=>(s==null?'':String(s)).replace(/"/g,'&quot;');
+  const dirtyBadge=_dvState.dirty?'<span style="background:#fef3c7;color:#92400e;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:700;margin-left:8px">⚠ Alteracoes pendentes</span>':'';
+
   return `
   <div id="vendaDetalhesModal" class="modal-overlay" onclick="if(event.target===this)fecharDetalhesVenda()" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto">
     <div class="modal-card" style="background:#fff;border-radius:14px;max-width:920px;width:96vw;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.3);position:relative" onclick="event.stopPropagation()">
       <button onclick="fecharDetalhesVenda()" style="position:absolute;top:12px;right:14px;background:transparent;border:none;font-size:22px;cursor:pointer;color:var(--gray)">✕</button>
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:12px;flex-wrap:wrap">
-        <h2 style="margin:0;font-size:18px">📋 Detalhes da Venda <span style="color:var(--blue)">V#${v.id}</span></h2>
+        <h2 style="margin:0;font-size:18px">📋 Detalhes da Venda <span style="color:var(--blue)">V#${v.id}</span>${dirtyBadge}</h2>
         <span class="badge ${v.status==='Pago Total'?'b-estoque':v.status==='Pago Parcial'?'b-reserv':'b-transito'}" style="font-size:11px">${v.status||'—'}</span>
       </div>
 
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:18px">
         <div>
           <label style="font-size:11px;font-weight:600;color:var(--gray);display:block;margin-bottom:3px">📅 Data da venda</label>
-          <input id="dvData" type="date" value="${esc(v.data)}" onchange="atualizarCampoVenda(${v.id},'data',this.value)" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+          <input type="date" value="${esc(v.data)}" onchange="_dvSetCampo('venda','data',this.value)" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px">
         </div>
         <div>
           <label style="font-size:11px;font-weight:600;color:var(--gray);display:block;margin-bottom:3px">👤 Cliente</label>
-          <input id="dvCliente" value="${esc(v.cliente)}" onchange="atualizarCampoVenda(${v.id},'cliente',this.value)" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+          <input value="${esc(v.cliente)}" onchange="_dvSetCampo('venda','cliente',this.value)" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px">
         </div>
         <div>
           <label style="font-size:11px;font-weight:600;color:var(--gray);display:block;margin-bottom:3px">📞 Telefone</label>
-          <input id="dvTel" value="${esc(v.telefone)}" onchange="atualizarCampoVenda(${v.id},'telefone',this.value)" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+          <input value="${esc(v.telefone)}" onchange="_dvSetCampo('venda','telefone',this.value)" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px">
         </div>
         <div>
           <label style="font-size:11px;font-weight:600;color:var(--gray);display:block;margin-bottom:3px">📦 Produto</label>
@@ -2647,11 +2684,11 @@ function renderDetalhesVendaModal(v){
           </div>
           <div>
             <label style="font-size:10px;font-weight:600;color:var(--gray);display:block">Valor da Venda</label>
-            <input id="dvValor" type="number" step="0.01" value="${v.valorVenda||0}" onchange="atualizarCampoVenda(${v.id},'valorVenda',+this.value)" style="width:100%;padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right;font-weight:600">
+            <input type="number" step="0.01" value="${v.valorVenda||0}" onchange="_dvSetCampo('venda','valorVenda',+this.value)" style="width:100%;padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right;font-weight:600">
           </div>
           <div>
-            <label style="font-size:10px;font-weight:600;color:var(--green);display:block">💵 Recebido (entrada)</label>
-            <input id="dvRecebido" type="number" step="0.01" value="${v.recebido||0}" onchange="atualizarCampoVenda(${v.id},'recebido',+this.value)" style="width:100%;padding:5px 7px;border:2px solid var(--green);border-radius:5px;font-size:12px;text-align:right;font-weight:700;color:var(--green)" title="Editar diretamente — vai recalcular saldo e status">
+            <label style="font-size:10px;font-weight:600;color:var(--green);display:block">💵 Recebido (calc.)</label>
+            <input value="${fmt(v.recebido||0)}" readonly style="width:100%;padding:5px 7px;border:1px solid var(--green);border-radius:5px;font-size:12px;text-align:right;font-weight:700;color:var(--green);background:#f0fdf4" title="Calculado automaticamente: entrada + parcelas recebidas">
           </div>
           <div>
             <label style="font-size:10px;font-weight:600;color:var(--orange);display:block">A Receber (calc.)</label>
@@ -2662,162 +2699,165 @@ function renderDetalhesVendaModal(v){
             <input value="${fmt(lucro)} (${margem}%)" readonly style="width:100%;padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:12px;background:#fff;color:${lucro>=0?'var(--green)':'var(--red)'};text-align:right;font-weight:600">
           </div>
         </div>
-        <div style="font-size:10px;color:var(--gray);margin-top:8px;line-height:1.5">💡 Forma: <strong>${esc(v.forma||'—')}</strong> · Editar <strong>Recebido</strong> recalcula automaticamente o "A Receber" e o status. Não cria nem altera movimentação no caixa.</div>
+        <div style="font-size:10px;color:var(--gray);margin-top:8px;line-height:1.5">💡 Forma: <strong>${esc(v.forma||'—')}</strong> · Recebido = Entrada + Parcelas marcadas como Recebido na tabela abaixo. Tudo recalcula automaticamente.</div>
       </div>
 
       <div style="margin-bottom:18px">
-        <h3 style="margin:0 0 8px;font-size:13px;color:var(--dark)">📋 Parcelas (Contas a Receber)</h3>
-        ${crs.length===0?'<div style="font-size:11px;color:var(--gray);padding:10px;background:#f8fafc;border-radius:6px;text-align:center">Nenhuma parcela cadastrada.</div>':`
+        <h3 style="margin:0 0 8px;font-size:13px;color:var(--dark)">📋 Parcelas (Entrada + Contas a Receber)</h3>
         <table style="font-size:11px;width:100%;border-collapse:collapse">
           <thead><tr style="background:#f1f5f9">
-            <th style="padding:6px 8px;text-align:left">#</th>
+            <th style="padding:6px 8px;text-align:left;width:60px">Tipo</th>
             <th style="padding:6px 8px;text-align:left">Descrição</th>
-            <th style="padding:6px 8px;text-align:left">Vencimento</th>
-            <th style="padding:6px 8px;text-align:right">Valor</th>
-            <th style="padding:6px 8px;text-align:center">Status</th>
-            <th style="padding:6px 8px;text-align:left">Recebido em</th>
+            <th style="padding:6px 8px;text-align:left;width:130px">Vencimento</th>
+            <th style="padding:6px 8px;text-align:right;width:110px">Valor</th>
+            <th style="padding:6px 8px;text-align:center;width:110px">Status</th>
+            <th style="padding:6px 8px;text-align:left;width:130px">Recebido em</th>
           </tr></thead>
           <tbody>
-            ${crs.map(c=>`<tr style="border-bottom:1px solid #e2e8f0">
-              <td style="padding:5px 8px;font-weight:600">${c.id}</td>
-              <td style="padding:5px 8px"><input value="${esc(c.desc)}" onchange="atualizarCampoCR(${c.id},'desc',this.value)" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px"></td>
-              <td style="padding:5px 8px"><input type="date" value="${esc(c.vencimento)}" onchange="atualizarCampoCR(${c.id},'vencimento',this.value)" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px"></td>
-              <td style="padding:5px 8px;text-align:right"><input type="number" step="0.01" value="${c.valor||0}" onchange="atualizarCampoCR(${c.id},'valor',+this.value)" style="width:90px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;text-align:right;font-weight:600"></td>
-              <td style="padding:5px 8px;text-align:center"><select onchange="atualizarCampoCR(${c.id},'status',this.value)" style="font-size:10px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;background:${c.status==='Recebido'?'#d1fae5':'#fef3c7'}"><option value="Pendente"${c.status==='Pendente'?' selected':''}>Pendente</option><option value="Recebido"${c.status==='Recebido'?' selected':''}>Recebido</option></select></td>
-              <td style="padding:5px 8px;font-size:10px;color:var(--gray)">${c.dataReceb?fmtD(c.dataReceb):'—'}</td>
+            <tr style="background:#ecfdf5;border-bottom:1px solid #a7f3d0">
+              <td style="padding:5px 8px;font-weight:700;color:#065f46">💵 ENTRADA</td>
+              <td style="padding:5px 8px;font-style:italic;color:#065f46">Entrada paga no ato da venda</td>
+              <td style="padding:5px 8px">—</td>
+              <td style="padding:5px 8px;text-align:right"><input type="number" step="0.01" value="${ent.valor}" onchange="_dvSetCampo('entrada','valor',+this.value)" style="width:90px;font-size:11px;padding:3px 5px;border:2px solid var(--green);border-radius:4px;text-align:right;font-weight:700;background:#fff"></td>
+              <td style="padding:5px 8px;text-align:center"><span style="background:#d1fae5;color:#065f46;padding:3px 8px;border-radius:6px;font-weight:700;font-size:10px">Recebido</span></td>
+              <td style="padding:5px 8px"><input type="date" value="${esc(ent.dataReceb)}" onchange="_dvSetCampo('entrada','dataReceb',this.value)" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px"></td>
+            </tr>
+            ${_dvState.parcelas.map((p,idx)=>`<tr style="border-bottom:1px solid #e2e8f0">
+              <td style="padding:5px 8px;font-weight:600;color:var(--gray)">#${p.id||'—'}</td>
+              <td style="padding:5px 8px"><input value="${esc(p.desc)}" onchange="_dvSetParcela(${idx},'desc',this.value)" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px"></td>
+              <td style="padding:5px 8px"><input type="date" value="${esc(p.vencimento)}" onchange="_dvSetParcela(${idx},'vencimento',this.value)" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px"></td>
+              <td style="padding:5px 8px;text-align:right"><input type="number" step="0.01" value="${p.valor||0}" onchange="_dvSetParcela(${idx},'valor',+this.value)" style="width:90px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;text-align:right;font-weight:600"></td>
+              <td style="padding:5px 8px;text-align:center"><select onchange="_dvSetParcela(${idx},'status',this.value)" style="font-size:10px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;background:${p.status==='Recebido'?'#d1fae5':'#fef3c7'}"><option value="Pendente"${p.status==='Pendente'?' selected':''}>Pendente</option><option value="Recebido"${p.status==='Recebido'?' selected':''}>Recebido</option></select></td>
+              <td style="padding:5px 8px">${p.status==='Recebido'?`<input type="date" value="${esc(p.dataReceb)}" onchange="_dvSetParcela(${idx},'dataReceb',this.value)" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px">`:'<span style="color:var(--gray);font-size:10px">—</span>'}</td>
             </tr>`).join('')}
           </tbody>
           <tfoot>
-            <tr style="background:#fff7ed;font-weight:700"><td colspan="3" style="padding:6px 8px">Σ Pendentes (${crsPend.length})</td><td style="padding:6px 8px;text-align:right;color:var(--orange)">${fmt(somaCRsPend)}</td><td colspan="2"></td></tr>
-            <tr style="background:#f0fdf4;font-weight:700"><td colspan="3" style="padding:6px 8px">Σ Recebidas (${crsReceb.length})</td><td style="padding:6px 8px;text-align:right;color:var(--green)">${fmt(somaCRsReceb)}</td><td colspan="2"></td></tr>
+            <tr style="background:#ecfdf5;font-weight:700"><td colspan="3" style="padding:6px 8px">💵 Entrada</td><td style="padding:6px 8px;text-align:right;color:#065f46">${fmt(ent.valor)}</td><td colspan="2"></td></tr>
+            <tr style="background:#fff7ed;font-weight:700"><td colspan="3" style="padding:6px 8px">Σ Parcelas Pendentes</td><td style="padding:6px 8px;text-align:right;color:var(--orange)">${fmt(somaCRsPend)}</td><td colspan="2"></td></tr>
+            <tr style="background:#f0fdf4;font-weight:700"><td colspan="3" style="padding:6px 8px">Σ Parcelas Recebidas</td><td style="padding:6px 8px;text-align:right;color:var(--green)">${fmt(somaCRsReceb)}</td><td colspan="2"></td></tr>
+            <tr style="background:#1e293b;color:#fff;font-weight:700"><td colspan="3" style="padding:8px 8px">TOTAL (Entrada + Parcelas)</td><td style="padding:8px 8px;text-align:right">${fmt(ent.valor+somaCRsPend+somaCRsReceb)}</td><td colspan="2"></td></tr>
           </tfoot>
         </table>
-        <div style="font-size:10px;color:var(--gray);margin-top:6px;line-height:1.5">💡 Alterar o <strong>valor</strong> ou <strong>status</strong> de uma parcela atualiza somente a parcela. Para reconciliar Saldo e Recebido use o campo "Recebido" acima.</div>
-        `}
+        <div style="font-size:10px;color:var(--gray);margin-top:6px;line-height:1.5">💡 A linha verde de Entrada é sempre considerada Recebida. Ajuste valor e data dela como qualquer outra parcela. Ao salvar, a movimentação de Recebimento Venda no caixa é atualizada (se já existir) ou nada é feito no caixa.</div>
       </div>
 
-      ${movsRelacionadas.length>0?`
-      <div style="margin-bottom:14px">
-        <h3 style="margin:0 0 8px;font-size:13px;color:var(--dark)">📊 Movimentações no caixa relacionadas a este cliente</h3>
-        <table style="font-size:11px;width:100%;border-collapse:collapse">
-          <thead><tr style="background:#f1f5f9">
-            <th style="padding:5px 8px;text-align:left">ID</th>
-            <th style="padding:5px 8px;text-align:left">Data</th>
-            <th style="padding:5px 8px;text-align:left">Descrição</th>
-            <th style="padding:5px 8px;text-align:left">Categoria</th>
-            <th style="padding:5px 8px;text-align:right">Valor</th>
-            <th style="padding:5px 8px;text-align:center">Vinculada?</th>
-          </tr></thead>
-          <tbody>
-            ${movsRelacionadas.map(m=>{
-              const vinculada=movsPorId.has(m.id);
-              return `<tr style="border-bottom:1px solid #e2e8f0">
-                <td style="padding:5px 8px">M#${m.id}</td>
-                <td style="padding:5px 8px">${fmtD(m.data)}</td>
-                <td style="padding:5px 8px">${(m.desc||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</td>
-                <td style="padding:5px 8px;font-size:10px">${m.cat||'—'}</td>
-                <td style="padding:5px 8px;text-align:right;color:var(--green);font-weight:600">${fmt(m.valor||0)}</td>
-                <td style="padding:5px 8px;text-align:center">${vinculada?'<span style="color:var(--green)">✅ Sim</span>':'<span style="color:var(--orange)">⚠ Não</span>'}</td>
-              </tr>`;
-            }).join('')}
-          </tbody>
-          <tfoot>
-            <tr style="background:#dcfce7;font-weight:700"><td colspan="4" style="padding:6px 8px">Σ movimentações</td><td style="padding:6px 8px;text-align:right;color:var(--green)">${fmt(somaMovsRel)}</td><td></td></tr>
-          </tfoot>
-        </table>
-        <div style="font-size:10px;color:var(--gray);margin-top:6px;line-height:1.5">💡 Estas são movimentações de Recebimento Venda / Sinal Encomenda do <strong>${esc(v.cliente)}</strong>. A coluna "Vinculada?" mostra se a mov está formalmente ligada a uma das parcelas acima.</div>
-      </div>`:''}
-
-      <div style="display:flex;justify-content:flex-end;gap:8px;border-top:1px solid var(--border);padding-top:14px">
-        <button onclick="fecharDetalhesVenda()" class="btn btn-sm">Fechar</button>
+      <div style="display:flex;justify-content:space-between;gap:8px;border-top:1px solid var(--border);padding-top:14px;align-items:center">
+        <div style="font-size:11px;color:var(--gray)">${_dvState.dirty?'⚠ Voce tem alteracoes nao salvas':'✓ Sem alteracoes pendentes'}</div>
+        <div style="display:flex;gap:8px">
+          <button onclick="fecharDetalhesVenda()" class="btn btn-sm" style="background:#e5e7eb">Cancelar</button>
+          <button onclick="salvarDetalhesVenda()" class="btn btn-sm" style="background:var(--green);color:#fff;${_dvState.dirty?'':'opacity:0.6;pointer-events:none'}" title="Aplicar todas as alteracoes">💾 Salvar Alterações</button>
+        </div>
       </div>
     </div>
   </div>`;
 }
 
-function atualizarCampoVenda(vendaId,field,value){
-  if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
-  const v=D.vendas.find(x=>x.id===vendaId);if(!v)return;
-  if(field==='data'){v.data=value;}
-  else if(field==='cliente'){v.cliente=(value||'').trim();(D.contasReceber||[]).forEach(c=>{if(c.vendaId===vendaId)c.cliente=v.cliente})}
-  else if(field==='telefone'){v.telefone=(value||'').trim();}
-  else if(field==='valorVenda'){
-    const nv=Math.round((+value||0)*100)/100;
-    if(nv<0){toast('Valor invalido',true);return}
-    v.valorVenda=nv;
-  }
-  else if(field==='recebido'){
-    const nr=Math.round((+value||0)*100)/100;
-    if(nr<0){toast('Recebido invalido',true);return}
-    if(nr>(+v.valorVenda||0)){
-      if(!confirm('Recebido ('+fmt(nr)+') maior que o Valor da Venda ('+fmt(v.valorVenda)+'). Confirma assim mesmo?'))return;
-    }
-    v.recebido=nr;
-  }
-  // Recalcular saldoReceber e status
-  v.saldoReceber=Math.max(0,Math.round(((+v.valorVenda||0)-(+v.recebido||0))*100)/100);
-  v.status=v.saldoReceber<=0&&(+v.recebido||0)>0?'Pago Total':((+v.recebido||0)>0?'Pago Parcial':'Pendente');
-  saveData();
-  // Atualizar modal in-place pra refletir mudancas
-  const modal=document.getElementById('vendaDetalhesModal');
-  if(modal){
-    modal.remove();
-    document.body.insertAdjacentHTML('beforeend',renderDetalhesVendaModal(v));
-  }
-  renderPage();
-  toast('✓ Campo atualizado');
+function _dvRefresh(){
+  // Re-render in-place
+  const m=document.getElementById('vendaDetalhesModal');
+  if(m)m.remove();
+  document.body.insertAdjacentHTML('beforeend',renderDetalhesVendaModal());
 }
 
-function atualizarCampoCR(crId,field,value){
-  if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
-  const c=D.contasReceber.find(x=>x.id===crId);if(!c)return;
-  if(field==='desc'){c.desc=value;}
-  else if(field==='vencimento'){c.vencimento=value;}
-  else if(field==='valor'){
-    const nv=Math.round((+value||0)*100)/100;
-    if(nv<0){toast('Valor invalido',true);return}
-    c.valor=nv;
-    // Se CR tem movimentacao vinculada (recebida), atualizar tambem
-    if(c.movIdEstorno){
-      const mov=D.movimentacoes.find(m=>m.id===c.movIdEstorno);
-      if(mov)mov.valor=nv;
-    }
-  }
+function _dvSetCampo(secao,field,value){
+  if(!_dvState)return;
+  if(secao==='venda'){_dvState.venda[field]=value}
+  else if(secao==='entrada'){_dvState.entrada[field]=value}
+  _dvState.dirty=true;
+  _dvRefresh();
+}
+
+function _dvSetParcela(idx,field,value){
+  if(!_dvState||!_dvState.parcelas[idx])return;
+  const p=_dvState.parcelas[idx];
+  if(field==='valor'){p.valor=Math.round((+value||0)*100)/100}
   else if(field==='status'){
-    const novoStatus=value;
-    if(novoStatus===c.status){return}
-    if(novoStatus==='Recebido'&&c.status!=='Recebido'){
-      // Marcar como recebida — cria movimentacao e atualiza venda
-      c.status='Recebido';c.dataReceb=hoje();
+    p.status=value;
+    if(value==='Recebido'&&!p.dataReceb)p.dataReceb=hoje();
+    if(value==='Pendente')p.dataReceb='';
+  }
+  else p[field]=value;
+  _dvState.dirty=true;
+  _dvRefresh();
+}
+
+function salvarDetalhesVenda(){
+  if(!_dvState){toast('Nada para salvar',true);return}
+  if(!PERMS.edit){toast('Sem permissao para alterar',true);return}
+  const vReal=D.vendas.find(x=>x.id===_dvState.vendaId);
+  if(!vReal){toast('Venda nao encontrada no banco',true);return}
+  const ent=_dvState.entrada;
+  const novoRecebidoEntrada=Math.round((+ent.valor||0)*100)/100;
+  const novaDataEntrada=ent.dataReceb||vReal.data||hoje();
+
+  // 1) Aplicar campos da venda (data, cliente, telefone, valorVenda)
+  ['data','cliente','telefone','endereco','valorVenda'].forEach(f=>{
+    if(_dvState.venda[f]!==undefined)vReal[f]=_dvState.venda[f];
+  });
+  vReal.valorVenda=Math.round((+vReal.valorVenda||0)*100)/100;
+  vReal.dataEntrada=novaDataEntrada;
+  // Cascade cliente nos CRs
+  (D.contasReceber||[]).forEach(c=>{if(c.vendaId===vReal.id)c.cliente=vReal.cliente});
+
+  // 2) Aplicar parcelas (CRs)
+  _dvState.parcelas.forEach(p=>{
+    const cr=D.contasReceber.find(c=>c.id===p.id);
+    if(!cr)return;
+    const statusAntigo=cr.status;
+    cr.desc=p.desc;
+    cr.vencimento=p.vencimento;
+    cr.valor=Math.round((+p.valor||0)*100)/100;
+    // Mudou status?
+    if(statusAntigo!==p.status){
+      if(p.status==='Recebido'&&statusAntigo!=='Recebido'){
+        // Marcar como Recebido — cria mov
+        cr.status='Recebido';
+        cr.dataReceb=p.dataReceb||hoje();
+        const nm=nextId(D.movimentacoes);
+        D.movimentacoes.push({id:nm,data:cr.dataReceb,desc:`Recebimento — ${cr.cliente||''} — ${cr.desc}`,tipo:'Entrada',cat:'Recebimento Venda',plano:'Receita',valor:cr.valor,saldo:0});
+        cr.movIdEstorno=nm;
+      } else if(p.status==='Pendente'&&statusAntigo==='Recebido'){
+        // Reverter — remove mov se existir
+        if(cr.movIdEstorno){
+          D.movimentacoes=D.movimentacoes.filter(m=>m.id!==cr.movIdEstorno);
+        }
+        cr.status='Pendente';
+        cr.dataReceb='';
+        cr.movIdEstorno=0;
+      }
+    } else if(p.status==='Recebido'){
+      // Status nao mudou mas pode ter atualizado dataReceb ou valor
+      cr.dataReceb=p.dataReceb||cr.dataReceb;
+      if(cr.movIdEstorno){
+        const mov=D.movimentacoes.find(m=>m.id===cr.movIdEstorno);
+        if(mov){mov.valor=cr.valor;mov.data=cr.dataReceb||mov.data}
+      }
+    }
+  });
+
+  // 3) Aplicar entrada — atualiza mov de entrada se ja existir
+  if(ent.movId){
+    const mov=D.movimentacoes.find(m=>m.id===ent.movId);
+    if(mov){mov.valor=novoRecebidoEntrada;mov.data=novaDataEntrada}
+  } else if(novoRecebidoEntrada>0){
+    // Nao existe mov de entrada e tem valor — pergunta se cria
+    if(confirm('Nao foi encontrada movimentacao de Entrada Venda no caixa para esta venda.\n\nDeseja CRIAR uma agora?\n• OK = Cria mov de Entrada Venda no valor de '+fmt(novoRecebidoEntrada)+' em '+fmtD(novaDataEntrada)+'\n• Cancelar = Atualiza apenas o Recebido da venda (sem mexer no caixa)')){
       const nm=nextId(D.movimentacoes);
-      D.movimentacoes.push({id:nm,data:hoje(),desc:`Recebimento — ${c.cliente||''} — ${c.desc}`,tipo:'Entrada',cat:'Recebimento Venda',plano:'Receita',valor:c.valor,saldo:0});
-      c.movIdEstorno=nm;recalcSaldos();
-      if(c.vendaId){
-        const v=D.vendas.find(x=>x.id===c.vendaId);
-        if(v){v.recebido=(v.recebido||0)+c.valor;v.saldoReceber=Math.max(0,(v.valorVenda||0)-v.recebido);v.status=v.saldoReceber<=0?'Pago Total':'Pago Parcial'}
-      }
-    } else if(novoStatus==='Pendente'&&c.status==='Recebido'){
-      // Reverter — remove movimentacao se existir e atualiza venda
-      if(c.movIdEstorno){
-        D.movimentacoes=D.movimentacoes.filter(m=>m.id!==c.movIdEstorno);
-        recalcSaldos();
-      }
-      if(c.vendaId){
-        const v=D.vendas.find(x=>x.id===c.vendaId);
-        if(v){v.recebido=Math.max(0,(v.recebido||0)-c.valor);v.saldoReceber=Math.max(0,(v.valorVenda||0)-v.recebido);v.status=v.saldoReceber<=0&&v.recebido>0?'Pago Total':(v.recebido>0?'Pago Parcial':'Pendente')}
-      }
-      c.status='Pendente';c.dataReceb='';c.movIdEstorno=0;
+      D.movimentacoes.push({id:nm,data:novaDataEntrada,desc:`Entrada Venda — ${vReal.cliente||''} — ${vReal.produto||''}`,tipo:'Entrada',cat:'Recebimento Venda',plano:'Receita',valor:novoRecebidoEntrada,saldo:0});
     }
   }
+
+  // 4) Recalcular venda
+  const recParcelas=(D.contasReceber||[]).filter(c=>c.vendaId===vReal.id&&c.status==='Recebido').reduce((a,c)=>a+(+c.valor||0),0);
+  vReal.recebido=Math.round((novoRecebidoEntrada+recParcelas)*100)/100;
+  vReal.saldoReceber=Math.max(0,Math.round(((+vReal.valorVenda||0)-vReal.recebido)*100)/100);
+  vReal.status=vReal.saldoReceber<=0&&vReal.recebido>0?'Pago Total':(vReal.recebido>0?'Pago Parcial':'Pendente');
+
+  recalcSaldos();
   saveData();
-  // Re-renderizar modal pra refletir mudancas
-  const v=c.vendaId?D.vendas.find(x=>x.id===c.vendaId):null;
-  if(v){
-    const modal=document.getElementById('vendaDetalhesModal');
-    if(modal){modal.remove();document.body.insertAdjacentHTML('beforeend',renderDetalhesVendaModal(v))}
-  }
   renderPage();
-  toast('✓ Parcela atualizada');
+  fecharDetalhesVenda(true);
+  toast('✅ Venda V#'+vReal.id+' atualizada com sucesso');
 }
 
 // ═══ BACKFILL: sincronizar precoVenda de produtos vendidos com valorVenda das vendas ═══
@@ -3210,38 +3250,149 @@ function gerarPDFPedido(movId){
   }catch(e){toast('Erro ao gerar PDF: '+e.message,true);console.error(e)}
 }
 
+// Replicar logica de filtro da pagina Estoque
+function _filtrarEstoque(){
+  let fil=D.produtos.filter(p=>p.status!=='Vendido');
+  if(typeof estFilter!=='undefined'&&estFilter!=='Todos')fil=fil.filter(p=>p.cat===estFilter);
+  if(typeof estStatus!=='undefined'&&estStatus!=='Todos')fil=fil.filter(p=>p.status===estStatus);
+  const _ic=s=>(s==null?'':String(s)).toLowerCase();
+  if(typeof estCol!=='undefined'){
+    if(estCol.id)fil=fil.filter(p=>_ic(p.id).includes(estCol.id.toLowerCase()));
+    if(estCol.data)fil=fil.filter(p=>_ic(fmtD(p.dataEntrada)+' '+(p.dataEntrada||'')).includes(estCol.data.toLowerCase()));
+    if(estCol.nome)fil=fil.filter(p=>_ic(p.nome).includes(estCol.nome.toLowerCase()));
+    if(estCol.num)fil=fil.filter(p=>_ic(p.num).includes(estCol.num.toLowerCase()));
+    if(estCol.rastreio)fil=fil.filter(p=>_ic(p.rastreio).includes(estCol.rastreio.toLowerCase()));
+    if(estCol.codForn)fil=fil.filter(p=>_ic(p.codFornecedor).includes(estCol.codForn.toLowerCase()));
+    if(estCol.numPedido)fil=fil.filter(p=>_ic(p.numPedido).includes(estCol.numPedido.toLowerCase()));
+    if(estCol.custo)fil=fil.filter(p=>_ic(p.custo).includes(estCol.custo.toLowerCase()));
+    if(estCol.precoVenda)fil=fil.filter(p=>_ic(p.precoVenda).includes(estCol.precoVenda.toLowerCase()));
+  }
+  if(typeof estSearch!=='undefined'&&estSearch){
+    const _q=estSearch.toLowerCase();
+    fil=fil.filter(p=>[p.id,p.nome,p.marca,p.obs,p.num,p.rastreio,p.codFornecedor,p.numPedido,p.cat,p.status,p.custo,p.precoVenda,p.dataEntrada].map(_ic).join(' ').includes(_q));
+  }
+  return fil;
+}
+
 function gerarPDFEstoque(){
   try{
-  const{jsPDF}=window.jspdf;if(!jsPDF){toast('Erro: biblioteca PDF não carregou',true);return}
+  const{jsPDF}=window.jspdf;if(!jsPDF){toast('Erro: biblioteca PDF nao carregou',true);return}
+  const prods=_filtrarEstoque();
+  const isFiltrado=prods.length!==D.produtos.filter(p=>p.status!=='Vendido').length;
   const doc=new jsPDF('l','mm','a4');const w=doc.internal.pageSize.getWidth();const h=doc.internal.pageSize.getHeight();const mx=10;let y=12;
   doc.setFillColor(30,41,59);doc.rect(0,0,w,22,'F');
   doc.setFontSize(16);doc.setFont(undefined,'bold');doc.setTextColor(255,255,255);doc.text('LUSH GRIFFES',mx,13);
-  doc.setFontSize(10);doc.setFont(undefined,'normal');doc.text(`Relatório de Estoque — ${fmtD(hoje())}`,w-mx,13,{align:'right'});
+  doc.setFontSize(10);doc.setFont(undefined,'normal');doc.text(`Relatorio de Estoque${isFiltrado?' (filtrado)':''} — ${fmtD(hoje())}`,w-mx,13,{align:'right'});
   doc.setTextColor(0,0,0);y=28;
-  const totalItens=D.produtos.reduce((a,p)=>a+(p.qtd||1),0);
-  const totalCusto=D.produtos.reduce((a,p)=>a+(p.custo||0),0);
-  const emEstoque=D.produtos.filter(p=>p.status==='Em Estoque');const emTransito=D.produtos.filter(p=>p.status==='Em Trânsito');
-  const reservados=D.produtos.filter(p=>p.status==='Reservado (Encomenda)');const vendidos=D.produtos.filter(p=>p.status==='Vendido');
+  // Cards baseados no filtrado
+  const totalItens=prods.reduce((a,p)=>a+(p.qtd||1),0);
+  const totalCusto=prods.reduce((a,p)=>a+(p.custo||0),0);
+  const emEstoque=prods.filter(p=>p.status==='Em Estoque');
+  const emTransito=prods.filter(p=>p.status==='Em Trânsito');
+  const reservados=prods.filter(p=>p.status==='Reservado (Encomenda)');
   const cw=(w-mx*2-5*4)/5;const ch=20;
   drawCard(doc,mx,y,cw,ch,'Total Itens',String(totalItens),[239,246,255]);
   drawCard(doc,mx+(cw+5),y,cw,ch,'Em Estoque',String(emEstoque.length),[236,253,245]);
-  drawCard(doc,mx+(cw+5)*2,y,cw,ch,'Em Trânsito',String(emTransito.length),[255,251,235]);
+  drawCard(doc,mx+(cw+5)*2,y,cw,ch,'Em Transito',String(emTransito.length),[255,251,235]);
   drawCard(doc,mx+(cw+5)*3,y,cw,ch,'Reservados',String(reservados.length),[243,244,255]);
   drawCard(doc,mx+(cw+5)*4,y,cw,ch,'Custo Total',fmt(totalCusto),[254,242,242]);
   y+=ch+8;
-  doc.setFontSize(11);doc.setFont(undefined,'bold');doc.setTextColor(30,41,59);doc.text('Detalhamento do Estoque',mx,y);y+=2;
-  const prods=D.produtos.filter(p=>p.status!=='Vendido');
+  doc.setFontSize(11);doc.setFont(undefined,'bold');doc.setTextColor(30,41,59);
+  doc.text(`Detalhamento do Estoque${isFiltrado?' (filtrado)':''} — ${prods.length} item(s)`,mx,y);y+=2;
   doc.autoTable({startY:y,
-    head:[['ID','Produto','Nº','Categoria','Custo','Pç. Venda','Status']],
+    head:[['ID','Produto','No','Categoria','Custo','Pc. Venda','Status']],
     body:prods.map(p=>[p.id,p.nome,p.num||'—',p.cat||'—',fmt(p.custo),p.precoVenda?fmt(p.precoVenda):'—',p.status]),
     foot:[['','TOTAL','',prods.length+' itens',fmt(prods.reduce((a,p)=>a+(p.custo||0),0)),fmt(prods.filter(p=>p.precoVenda).reduce((a,p)=>a+(p.precoVenda||0),0)),'']],
+    showFoot:'lastPage',
     styles:{fontSize:8,cellPadding:2.5},headStyles:{fillColor:[30,41,59],textColor:255,fontStyle:'bold',cellPadding:3},
     footStyles:{fillColor:[241,245,249],textColor:[30,41,59],fontStyle:'bold'},alternateRowStyles:{fillColor:[248,250,252]},
     columnStyles:{0:{cellWidth:12},1:{cellWidth:'auto'},2:{cellWidth:15,halign:'center'},3:{cellWidth:22,halign:'center'},4:{cellWidth:22,halign:'right'},5:{cellWidth:22,halign:'right'},6:{cellWidth:25,halign:'center'}},
     theme:'grid',margin:{left:mx,right:mx}});
-  const pageCount=doc.internal.getNumberOfPages();for(let i=1;i<=pageCount;i++){doc.setPage(i);doc.setFontSize(7);doc.setFont(undefined,'italic');doc.setTextColor(150,150,150);doc.text(`LUSH GRIFFES — Página ${i}/${pageCount}`,w/2,h-5,{align:'center'})}
+  const pageCount=doc.internal.getNumberOfPages();
+  for(let i=1;i<=pageCount;i++){doc.setPage(i);doc.setFontSize(7);doc.setFont(undefined,'italic');doc.setTextColor(150,150,150);doc.text(`LUSH GRIFFES — Pagina ${i}/${pageCount}`,w/2,h-5,{align:'center'})}
   doc.save(`LUSH-GRIFFES-Estoque-${hoje()}.pdf`);toast('PDF Estoque gerado!');
   }catch(e){toast('Erro ao gerar PDF: '+e.message,true);console.error(e)}
+}
+
+// ═══ HELPER GENERICO PARA GERAR EXCEL ═══
+// Uso: gerarXLSX('LUSH-Estoque', [{nome:'Sheet1', cols:['ID','Nome',...], rows:[[1,'Foo',...],...]}])
+function gerarXLSX(filename,sheets){
+  try{
+    if(typeof XLSX==='undefined'){toast('Biblioteca Excel nao carregou. Atualize a pagina.',true);return}
+    const wb=XLSX.utils.book_new();
+    sheets.forEach(s=>{
+      const data=[s.cols].concat(s.rows);
+      const ws=XLSX.utils.aoa_to_sheet(data);
+      // Largura automatica das colunas
+      const cw=s.cols.map((_,i)=>{
+        let max=String(s.cols[i]||'').length;
+        s.rows.forEach(r=>{const v=String(r[i]==null?'':r[i]);if(v.length>max)max=v.length});
+        return{wch:Math.min(50,Math.max(10,max+2))};
+      });
+      ws['!cols']=cw;
+      XLSX.utils.book_append_sheet(wb,ws,s.nome||'Sheet1');
+    });
+    const today=hoje();
+    const safeName=String(filename||'export').replace(/[^a-zA-Z0-9_-]/g,'_');
+    XLSX.writeFile(wb,`${safeName}-${today}.xlsx`);
+    toast('Excel gerado!');
+  }catch(e){toast('Erro Excel: '+e.message,true);console.error(e)}
+}
+
+function gerarExcelEstoque(){
+  const prods=_filtrarEstoque();
+  const isFiltrado=prods.length!==D.produtos.filter(p=>p.status!=='Vendido').length;
+  gerarXLSX(`LUSH-GRIFFES-Estoque${isFiltrado?'-Filtrado':''}`,[{
+    nome:'Estoque',
+    cols:['ID','Data Entrada','Produto','Marca','No','Rastreio','Cod. Fornecedor','No Pedido','Categoria','Qtd','Custo','Pc. Venda','Status','Observacoes'],
+    rows:prods.map(p=>[p.id,p.dataEntrada||'',p.nome||'',p.marca||'',p.num||'',p.rastreio||'',p.codFornecedor||'',p.numPedido||'',p.cat||'',p.qtd||1,+p.custo||0,+p.precoVenda||0,p.status||'',p.obs||''])
+  }]);
+}
+
+function gerarExcelContasReceber(){
+  const pendente=D.contasReceber.filter(c=>c.status!=='Recebido').slice().sort((a,b)=>(a.vencimento||'').localeCompare(b.vencimento||''));
+  const recebidos=D.contasReceber.filter(c=>c.status==='Recebido').slice().sort((a,b)=>(b.dataReceb||'').localeCompare(a.dataReceb||''));
+  gerarXLSX('LUSH-GRIFFES-ContasReceber',[
+    {nome:'A Receber',cols:['Vencimento','Descricao','Cliente','Valor','VendaId'],rows:pendente.map(c=>[c.vencimento||'',c.desc||'',c.cliente||'',+c.valor||0,c.vendaId||''])},
+    {nome:'Recebidas',cols:['Recebido em','Descricao','Cliente','Valor','VendaId'],rows:recebidos.map(c=>[c.dataReceb||'',c.desc||'',c.cliente||'',+c.valor||0,c.vendaId||''])},
+  ]);
+}
+
+function gerarExcelContasPagar(){
+  const cps=D.contasPagar||[];
+  const pend=cps.filter(c=>c.status!=='Pago').slice().sort((a,b)=>(a.vencimento||'').localeCompare(b.vencimento||''));
+  const pag=cps.filter(c=>c.status==='Pago').slice().sort((a,b)=>(b.dataPgto||'').localeCompare(a.dataPgto||''));
+  gerarXLSX('LUSH-GRIFFES-ContasPagar',[
+    {nome:'A Pagar',cols:['Vencimento','Descricao','Categoria','Origem','Valor','No Pedido'],rows:pend.map(c=>[c.vencimento||'',c.desc||'',c.cat||'',c.origem||'',+c.valor||0,c.numPedido||''])},
+    {nome:'Pagas',cols:['Pago em','Descricao','Categoria','Origem','Valor','No Pedido'],rows:pag.map(c=>[c.dataPgto||'',c.desc||'',c.cat||'',c.origem||'',+c.valor||0,c.numPedido||''])},
+  ]);
+}
+
+function gerarExcelVendas(){
+  const vs=D.vendas||[];
+  gerarXLSX('LUSH-GRIFFES-Vendas',[{
+    nome:'Vendas',
+    cols:['V#','Data','Cliente','Telefone','Produto','Custo','Valor Venda','Lucro','Recebido','A Receber','Status','Forma'],
+    rows:vs.map(v=>[v.id,v.data||'',v.cliente||'',v.telefone||'',v.produto||'',+v.custo||0,+v.valorVenda||0,(+v.valorVenda||0)-(+v.custo||0),+v.recebido||0,+v.saldoReceber||0,v.status||'',v.forma||''])
+  }]);
+}
+
+function gerarExcelMov(){
+  const ms=D.movimentacoes||[];
+  gerarXLSX('LUSH-GRIFFES-Movimentacoes',[{
+    nome:'Movimentacoes',
+    cols:['M#','Data','Descricao','Tipo','Categoria','Plano','Valor','Saldo','A Pagar?'],
+    rows:ms.map(m=>[m.id,m.data||'',m.desc||'',m.tipo||'',m.cat||'',m.plano||'',+m.valor||0,+m.saldo||0,m.aPagar?'Sim':'Nao'])
+  }]);
+}
+
+function gerarExcelDesp(){
+  const ds=D.despesas||[];
+  gerarXLSX('LUSH-GRIFFES-Despesas',[{
+    nome:'Despesas',
+    cols:['ID','Data','Descricao','Categoria','Plano','Valor','Tipo Despesa','Pago?'],
+    rows:ds.map(d=>[d.id,d.data||'',d.desc||'',d.cat||'',d.plano||'',+d.valor||0,d.tipoDespesa||'Despesa',d.pago?'Sim':'Nao'])
+  }]);
 }
 
 function gerarPDFMov(){
@@ -3374,30 +3525,87 @@ function gerarPDFContasPagar(){
 
 function gerarPDFContasReceber(){
   try{
-  const{jsPDF}=window.jspdf;if(!jsPDF){toast('Erro: biblioteca PDF não carregou',true);return}
+  const{jsPDF}=window.jspdf;if(!jsPDF){toast('Erro: biblioteca PDF nao carregou',true);return}
   const doc=new jsPDF('l','mm','a4');const w=doc.internal.pageSize.getWidth();const h=doc.internal.pageSize.getHeight();const mx=10;let y=12;
+  // Header padronizado
   doc.setFillColor(30,41,59);doc.rect(0,0,w,22,'F');
   doc.setFontSize(16);doc.setFont(undefined,'bold');doc.setTextColor(255,255,255);doc.text('LUSH GRIFFES',mx,13);
   doc.setFontSize(10);doc.setFont(undefined,'normal');doc.text(`Contas a Receber — ${fmtD(hoje())}`,w-mx,13,{align:'right'});
   doc.setTextColor(0,0,0);y=28;
-  const pendente=D.contasReceber.filter(c=>c.status!=='Recebido');const totalPend=pendente.reduce((a,c)=>a+(c.valor||0),0);
-  const recebidos=D.contasReceber.filter(c=>c.status==='Recebido');const totalReceb=recebidos.reduce((a,c)=>a+(c.valor||0),0);
+  // Dados
+  const pendente=D.contasReceber.filter(c=>c.status!=='Recebido').slice().sort((a,b)=>(a.vencimento||'').localeCompare(b.vencimento||''));
+  const recebidos=D.contasReceber.filter(c=>c.status==='Recebido').slice().sort((a,b)=>(b.dataReceb||'').localeCompare(a.dataReceb||''));
+  const totalPend=pendente.reduce((a,c)=>a+(+c.valor||0),0);
+  const totalReceb=recebidos.reduce((a,c)=>a+(+c.valor||0),0);
+  // 3 Cards resumo no topo
   const cw=(w-mx*2-5*2)/3;const ch=20;
   drawCard(doc,mx,y,cw,ch,'A Receber',fmt(totalPend),[255,251,235]);
-  drawCard(doc,mx+(cw+5),y,cw,ch,'Recebidos',fmt(totalReceb),[236,253,245]);
+  drawCard(doc,mx+(cw+5),y,cw,ch,'Ja Recebido',fmt(totalReceb),[236,253,245]);
   drawCard(doc,mx+(cw+5)*2,y,cw,ch,'Total Geral',fmt(totalPend+totalReceb),[239,246,255]);
-  y+=ch+8;
-  doc.setFontSize(11);doc.setFont(undefined,'bold');doc.setTextColor(30,41,59);doc.text(`Contas a Receber (${D.contasReceber.length})`,mx,y);y+=2;
-  doc.autoTable({startY:y,
-    head:[['Vencimento','Descrição','Cliente','Valor','Status','Dt Receb.']],
-    body:D.contasReceber.map(c=>[fmtD(c.vencimento),c.desc,c.cliente||'',fmt(c.valor),c.status,c.dataReceb?fmtD(c.dataReceb):'—']),
-    foot:[['','','TOTAL',fmt(totalPend+totalReceb),'','']],
-    styles:{fontSize:8,cellPadding:2.5},headStyles:{fillColor:[245,158,11],textColor:255,fontStyle:'bold',cellPadding:3},
-    footStyles:{fillColor:[241,245,249],textColor:[30,41,59],fontStyle:'bold'},alternateRowStyles:{fillColor:[255,251,235]},
-    columnStyles:{0:{cellWidth:24},1:{cellWidth:'auto'},2:{cellWidth:30},3:{cellWidth:24,halign:'right'},4:{cellWidth:22,halign:'center'},5:{cellWidth:22}},
-    theme:'grid',margin:{left:mx,right:mx}});
-  const pageCount=doc.internal.getNumberOfPages();for(let i=1;i<=pageCount;i++){doc.setPage(i);doc.setFontSize(7);doc.setFont(undefined,'italic');doc.setTextColor(150,150,150);doc.text(`LUSH GRIFFES — Página ${i}/${pageCount}`,w/2,h-5,{align:'center'})}
-  doc.save(`LUSH-GRIFFES-ContasReceber-${hoje()}.pdf`);toast('PDF Contas a Receber gerado!');
+  y+=ch+10;
+
+  // SECAO 1: PENDENTES (a receber)
+  doc.setFontSize(12);doc.setFont(undefined,'bold');doc.setTextColor(180,83,9);
+  doc.text(`📋 A RECEBER (${pendente.length} pendente${pendente.length===1?'':'s'})`,mx,y);y+=2;
+  if(pendente.length===0){
+    doc.setFontSize(10);doc.setFont(undefined,'italic');doc.setTextColor(120,120,120);
+    doc.text('Nenhuma conta pendente.',mx,y+6);y+=14;
+  } else {
+    doc.autoTable({startY:y,
+      head:[['Vencimento','Descricao','Cliente','Valor']],
+      body:pendente.map(c=>[fmtD(c.vencimento),c.desc||'—',c.cliente||'—',fmt(c.valor)]),
+      foot:[[{content:`TOTAL PENDENTE (${pendente.length})`,colSpan:3,styles:{halign:'right',fontStyle:'bold'}},{content:fmt(totalPend),styles:{halign:'right',fontStyle:'bold'}}]],
+      showFoot:'lastPage',
+      styles:{fontSize:8,cellPadding:2.5},
+      headStyles:{fillColor:[245,158,11],textColor:255,fontStyle:'bold',cellPadding:3},
+      footStyles:{fillColor:[255,247,237],textColor:[124,45,18],fontStyle:'bold',fontSize:10},
+      alternateRowStyles:{fillColor:[255,251,235]},
+      columnStyles:{0:{cellWidth:26},1:{cellWidth:'auto'},2:{cellWidth:45},3:{cellWidth:30,halign:'right'}},
+      theme:'grid',margin:{left:mx,right:mx}});
+    y=doc.lastAutoTable.finalY+8;
+  }
+
+  // SECAO 2: RECEBIDAS
+  // Adicionar nova pagina se nao couber
+  if(y>h-50){doc.addPage();y=15}
+  doc.setFontSize(12);doc.setFont(undefined,'bold');doc.setTextColor(6,95,70);
+  doc.text(`✅ JA RECEBIDO (${recebidos.length})`,mx,y);y+=2;
+  if(recebidos.length===0){
+    doc.setFontSize(10);doc.setFont(undefined,'italic');doc.setTextColor(120,120,120);
+    doc.text('Nenhuma conta recebida.',mx,y+6);y+=14;
+  } else {
+    doc.autoTable({startY:y,
+      head:[['Recebido em','Descricao','Cliente','Valor']],
+      body:recebidos.map(c=>[c.dataReceb?fmtD(c.dataReceb):'—',c.desc||'—',c.cliente||'—',fmt(c.valor)]),
+      foot:[[{content:`TOTAL RECEBIDO (${recebidos.length})`,colSpan:3,styles:{halign:'right',fontStyle:'bold'}},{content:fmt(totalReceb),styles:{halign:'right',fontStyle:'bold'}}]],
+      showFoot:'lastPage',
+      styles:{fontSize:8,cellPadding:2.5},
+      headStyles:{fillColor:[34,197,94],textColor:255,fontStyle:'bold',cellPadding:3},
+      footStyles:{fillColor:[240,253,244],textColor:[6,95,70],fontStyle:'bold',fontSize:10},
+      alternateRowStyles:{fillColor:[240,253,244]},
+      columnStyles:{0:{cellWidth:26},1:{cellWidth:'auto'},2:{cellWidth:45},3:{cellWidth:30,halign:'right'}},
+      theme:'grid',margin:{left:mx,right:mx}});
+    y=doc.lastAutoTable.finalY+8;
+  }
+
+  // RESUMO FINAL — bloco unico ao final (sem repetir em cada pagina)
+  if(y>h-32){doc.addPage();y=15}
+  doc.setFillColor(30,41,59);doc.rect(mx,y,w-mx*2,18,'F');
+  doc.setFontSize(11);doc.setFont(undefined,'bold');doc.setTextColor(255);
+  doc.text('RESUMO GERAL',mx+4,y+7);
+  doc.setFontSize(9);doc.setFont(undefined,'normal');
+  doc.text(`A receber: ${fmt(totalPend)}  |  Recebido: ${fmt(totalReceb)}  |  Total geral: ${fmt(totalPend+totalReceb)}`,mx+4,y+13);
+  y+=20;
+
+  // Footer com paginacao
+  const pageCount=doc.internal.getNumberOfPages();
+  for(let i=1;i<=pageCount;i++){
+    doc.setPage(i);
+    doc.setFontSize(7);doc.setFont(undefined,'italic');doc.setTextColor(150,150,150);
+    doc.text(`LUSH GRIFFES — Pagina ${i}/${pageCount}`,w/2,h-5,{align:'center'});
+  }
+  doc.save(`LUSH-GRIFFES-ContasReceber-${hoje()}.pdf`);
+  toast('PDF Contas a Receber gerado!');
   }catch(e){toast('Erro ao gerar PDF: '+e.message,true);console.error(e)}
 }
 
@@ -3642,7 +3850,7 @@ function renderMov(){
     <div class="f-group"><label style="display:flex;align-items:center;gap:4px;cursor:pointer;font-weight:400;font-size:11px" title="Mostrar compras A Pagar (que nao mexem o caixa)"><input type="checkbox" ${movMostrarAPagar?'checked':''} onchange="movMostrarAPagar=this.checked;renderPage()"> Mostrar ${nAPagar} compra(s) A Pagar</label></div>
     <span class="f-clear" onclick="movSearch='';movTipo='Todos';movCat='Todos';movPlano='Todos';movMostrarAPagar=false;renderPage()">Limpar filtros</span>
   </div>
-  <div style="text-align:right;margin-bottom:10px"><button class="btn btn-sm" onclick="gerarPDFMov()" style="background:var(--dark);color:#fff">📄 Baixar PDF Movimentações</button></div>
+  <div style="text-align:right;margin-bottom:10px;display:flex;gap:4px;justify-content:flex-end"><button class="btn btn-sm" onclick="gerarPDFMov()" style="background:var(--dark);color:#fff;padding:4px 10px" title="Baixar PDF de Movimentacoes">📄</button><button class="btn btn-sm" onclick="gerarExcelMov()" style="background:#16a34a;color:#fff;padding:4px 10px" title="Baixar Excel de Movimentacoes">📊</button></div>
   <div class="box"><h3>Extrato (${sorted.length} registros)</h3><div id="movTableScroll" style="max-height:600px;overflow-y:auto">
   <table><thead><tr><th>ID</th><th>Data</th><th>Descrição</th><th>Tipo</th><th>Categoria</th><th>Plano de Contas</th><th class="r">Valor</th><th class="r">Saldo</th><th>Ação</th></tr></thead><tbody>
   ${sorted.map(m=>`<tr${m.aPagar?' style="background:#fef3c7;opacity:.85"':''}>
@@ -4497,8 +4705,8 @@ function renderDesp(){
     <span class="f-clear" onclick="despSearch='';despCatFilter='Todos';despPlanoFilter='Todos';despTipoFilter='Todos';renderPage()">Limpar filtros</span>
   </div>
   <div style="display:flex;gap:8px;justify-content:flex-end;margin-bottom:10px">
-    <button class="btn btn-sm" onclick="gerarPDFDesp()" style="background:var(--red);color:#fff">📄 PDF Despesas</button>
-    <button class="btn btn-sm" onclick="gerarPDFAcertos()" style="background:var(--orange);color:#fff">📄 PDF Acertos</button>
+    <button class="btn btn-sm" onclick="gerarPDFDesp()" style="background:var(--red);color:#fff;padding:4px 10px" title="PDF Despesas">📄</button><button class="btn btn-sm" onclick="gerarExcelDesp()" style="background:#16a34a;color:#fff;padding:4px 10px" title="Excel Despesas">📊</button>
+    <button class="btn btn-sm" onclick="gerarPDFAcertos()" style="background:var(--orange);color:#fff;padding:4px 10px" title="PDF Acertos">📄</button>
   </div>
   <div class="box"><h3>Lançamentos (${fil.length})</h3><div id="despTableScroll" style="max-height:500px;overflow-y:auto">
   <table><thead><tr><th>Data</th><th>Despesa</th><th>Tipo</th><th>Categoria</th><th>Plano de Contas</th><th class="r">Valor</th><th>Pago?</th></tr></thead><tbody>
@@ -5014,7 +5222,7 @@ function renderContasPagar(){
     <div class="f-group"><label>Status:</label><select onchange="cpStatusFilter=this.value;renderPage()"><option${cpStatusFilter==='Todos'?' selected':''}>Todos</option><option${cpStatusFilter==='Pendente'?' selected':''}>Pendente</option><option${cpStatusFilter==='Vencido'?' selected':''}>Vencido</option><option${cpStatusFilter==='Pago'?' selected':''}>Pago</option></select></div>
     <span class="f-clear" onclick="cpSearch='';cpStatusFilter='Todos';renderPage()">Limpar</span>
   </div>
-  <div style="text-align:right;margin-bottom:10px"><button class="btn btn-sm" onclick="gerarPDFContasPagar()" style="background:var(--red);color:#fff">📄 Baixar PDF A Pagar</button></div>
+  <div style="text-align:right;margin-bottom:10px;display:flex;gap:4px;justify-content:flex-end"><button class="btn btn-sm" onclick="gerarPDFContasPagar()" style="background:var(--red);color:#fff;padding:4px 10px" title="Baixar PDF de Contas a Pagar">📄</button><button class="btn btn-sm" onclick="gerarExcelContasPagar()" style="background:#16a34a;color:#fff;padding:4px 10px" title="Baixar Excel de Contas a Pagar">📊</button></div>
   <div class="box"><h3>Contas a Pagar (${fil.length})</h3><div id="cpTableScroll" style="max-height:500px;overflow-y:auto">
   <table><thead><tr><th>Vencimento</th><th>Descrição</th><th>Categoria</th><th>Plano</th><th class="r">Valor</th><th>Status</th><th>Ação</th></tr></thead><tbody>
   ${fil.map(c=>{
@@ -5113,7 +5321,7 @@ function renderContasReceber(){
     <div class="f-group"><label>Status:</label><select onchange="crStatusFilter=this.value;renderPage()"><option${crStatusFilter==='Todos'?' selected':''}>Todos</option><option${crStatusFilter==='Pendente'?' selected':''}>Pendente</option><option${crStatusFilter==='Recebido'?' selected':''}>Recebido</option></select></div>
     <span class="f-clear" onclick="crSearch='';crStatusFilter='Todos';renderPage()">Limpar</span>
   </div>
-  <div style="text-align:right;margin-bottom:10px;display:flex;gap:8px;justify-content:flex-end"><button class="btn btn-sm" onclick="diagnosticarAReceber()" style="background:var(--purple);color:#fff">🔍 Diagnosticar Divergências</button><button class="btn btn-sm" onclick="gerarPDFContasReceber()" style="background:var(--orange);color:#fff">📄 Baixar PDF A Receber</button></div>
+  <div style="text-align:right;margin-bottom:10px;display:flex;gap:4px;justify-content:flex-end"><button class="btn btn-sm" onclick="diagnosticarAReceber()" style="background:var(--purple);color:#fff;padding:4px 10px" title="Diagnosticar divergencias">🔍</button><button class="btn btn-sm" onclick="gerarPDFContasReceber()" style="background:var(--orange);color:#fff;padding:4px 10px" title="Baixar PDF de Contas a Receber">📄</button><button class="btn btn-sm" onclick="gerarExcelContasReceber()" style="background:#16a34a;color:#fff;padding:4px 10px" title="Baixar Excel de Contas a Receber">📊</button></div>
   <div class="box"><h3>Contas a Receber (${fil.length})</h3><div id="crTableScroll" style="max-height:500px;overflow-y:auto">
   <table><thead><tr><th>Vencimento</th><th>Descrição</th><th>Cliente</th><th class="r">Valor</th><th>Status</th><th>Ação</th></tr></thead><tbody>
   ${fil.map(c=>{
@@ -5576,7 +5784,7 @@ function renderNovoAporte(){
     <div class="card green"><div class="card-lbl">Capital Líquido</div><div class="card-val">${fmt(capitalLiquido)}</div><div class="card-sub">aportes − retiradas</div></div>
     <div class="card orange"><div class="card-lbl">Correção Acumulada</div><div class="card-val">${fmt(totalCorrecao)}</div><div class="card-sub">corrigido: ${fmt(totalCorrigido)}</div></div>
   </div>
-  <div style="text-align:right;margin-bottom:10px"><button class="btn btn-sm" onclick="gerarPDFAportes()" style="background:#6366f1;color:#fff">📄 Baixar PDF Aportes</button></div>
+  <div style="text-align:right;margin-bottom:10px;display:flex;gap:4px;justify-content:flex-end"><button class="btn btn-sm" onclick="gerarPDFAportes()" style="background:#6366f1;color:#fff;padding:4px 10px" title="PDF Aportes">📄</button></div>
   <div class="form-section"><h2>💼 Registrar Aporte</h2>
   <div class="inline-form">
     <div class="if-group"><label>Sócio</label><input id="aSocio" placeholder="Nome do sócio"></div>
@@ -5846,7 +6054,7 @@ function renderCorrecao(){
     </div>
   </div>
 
-  <div style="text-align:right;margin-bottom:10px"><button class="btn btn-sm" onclick="gerarPDFAportes()" style="background:#6366f1;color:#fff">📄 Baixar PDF Aportes Corrigidos</button></div>
+  <div style="text-align:right;margin-bottom:10px;display:flex;gap:4px;justify-content:flex-end"><button class="btn btn-sm" onclick="gerarPDFAportes()" style="background:#6366f1;color:#fff;padding:4px 10px" title="PDF Aportes Corrigidos">📄</button></div>
 
   <div class="box">
     <h3>📊 Aportes com Correção Detalhada</h3>
