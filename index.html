@@ -2040,7 +2040,7 @@ function _vendaCartItemsHtml(){
       <div style="display:grid;grid-template-columns:1fr 110px 1.3fr 34px;gap:6px;margin-bottom:6px;align-items:center">
         <div id="vendaCartProdWrap_${i}">
           <input type="text" class="venda-prod-search" id="vendaCartProdSearch_${i}" value="${selLabel}" placeholder="🔍 Pesquisar produto..."
-            onfocus="openVendaProdDropdown(${i})" oninput="filterVendaProdDropdown(${i})"
+            onfocus="openVendaProdDropdown(${i})" onclick="openVendaProdDropdown(${i})" oninput="filterVendaProdDropdown(${i})" onblur="restoreVendaProdLabel(${i})"
             style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;width:100%;box-sizing:border-box">
         </div>
         <input id="pgVendaCartValor_${i}" type="number" step="0.01" value="${it.valorVenda||''}" onchange="vendaCartUpdate(${i},'valorVenda',+this.value)" placeholder="Preço R$" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;text-align:right">
@@ -2068,8 +2068,12 @@ function _positionFixedDrop(inp,drop){
 
 function openVendaProdDropdown(idx){
   const inp=document.getElementById('vendaCartProdSearch_'+idx);
-  if(inp&&!_vendaCart[idx].produtoId)inp.value='';
-  else if(inp)inp.select();
+  if(!inp)return;
+  // Fechar outros dropdowns abertos primeiro
+  document.querySelectorAll('[id^="vendaCartProdDrop_"]').forEach(d=>d.style.display='none');
+  document.querySelectorAll('[id^="taxaProdDrop_"]').forEach(d=>d.style.display='none');
+  if(!_vendaCart[idx].produtoId)inp.value='';
+  else inp.select();
   filterVendaProdDropdown(idx);
 }
 
@@ -2103,6 +2107,22 @@ function selectVendaProd(idx,prodId){
 function closeVendaProdDropdown(idx){
   const drop=document.getElementById('vendaCartProdDrop_'+idx);
   if(drop)drop.style.display='none';
+}
+
+function restoreVendaProdLabel(idx){
+  // Ao perder foco, se não selecionou produto, restaura texto original
+  setTimeout(()=>{
+    const inp=document.getElementById('vendaCartProdSearch_'+idx);
+    if(!inp)return;
+    const it=_vendaCart[idx];
+    if(it&&it.produtoId){
+      const p=D.produtos.find(x=>x.id===it.produtoId);
+      if(p)inp.value=`[${p.id}] ${p.nome||'(sem nome)'}${p.num?' Nº'+p.num:''} — custo ${fmt(p.custo)}`;
+    } else {
+      inp.value='';
+    }
+    closeVendaProdDropdown(idx);
+  },200);
 }
 
 function _refreshVendaCart(){
@@ -4104,7 +4124,7 @@ function _buildTaxaItensHTML(){
     <div style="display:grid;grid-template-columns:1fr 110px 34px;gap:6px;margin-bottom:6px;align-items:center">
       <div id="taxaProdWrap_${i}">
         <input type="text" class="taxa-prod-search" id="taxaProdSearch_${i}" value="${selLabel}" placeholder="🔍 Pesquisar produto..."
-          onfocus="openTaxaProdDropdown(${i})" oninput="filterTaxaProdDropdown(${i})"
+          onfocus="openTaxaProdDropdown(${i})" onclick="openTaxaProdDropdown(${i})" oninput="filterTaxaProdDropdown(${i})" onblur="restoreTaxaProdLabel(${i})"
           style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;width:100%;box-sizing:border-box">
       </div>
       <input type="number" step="0.01" value="${it.valor||''}" onchange="updateTaxaItem(${i},'valor',+this.value)" placeholder="R$ taxa" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;text-align:right">
@@ -4114,7 +4134,11 @@ function _buildTaxaItensHTML(){
 
 function openTaxaProdDropdown(idx){
   const inp=document.getElementById('taxaProdSearch_'+idx);
-  if(inp&&!_taxaItens[idx].produtoId)inp.value='';
+  if(!inp)return;
+  // Fechar outros dropdowns abertos primeiro
+  document.querySelectorAll('[id^="taxaProdDrop_"]').forEach(d=>d.style.display='none');
+  document.querySelectorAll('[id^="vendaCartProdDrop_"]').forEach(d=>d.style.display='none');
+  if(!_taxaItens[idx].produtoId)inp.value='';
   filterTaxaProdDropdown(idx);
 }
 
@@ -4149,19 +4173,29 @@ function closeTaxaProdDropdown(idx){
   if(drop)drop.style.display='none';
 }
 
+function restoreTaxaProdLabel(idx){
+  setTimeout(()=>{
+    const inp=document.getElementById('taxaProdSearch_'+idx);
+    if(!inp)return;
+    const it=_taxaItens[idx];
+    if(it&&it.produtoId){
+      const p=D.produtos.find(x=>x.id===it.produtoId);
+      if(p)inp.value=`${p.nome||'(sem nome)'} — ${fmt(p.custo)}${p.num?' (Nº '+p.num+')':''}`;
+    } else {
+      inp.value='';
+    }
+    closeTaxaProdDropdown(idx);
+  },200);
+}
+
 // Fechar dropdowns de pesquisa de produto ao clicar fora
-document.addEventListener('click',function(e){
-  if(!e.target.closest('.taxa-prod-search')){
-    document.querySelectorAll('[id^="taxaProdDrop_"]').forEach(d=>d.style.display='none');
-  }
-  if(!e.target.closest('.venda-prod-search')){
-    document.querySelectorAll('[id^="vendaCartProdDrop_"]').forEach(d=>d.style.display='none');
-  }
+document.addEventListener('mousedown',function(e){
+  // Se clicou dentro de um dropdown ou no input de busca, não fechar
+  if(e.target.closest('[id^="taxaProdDrop_"]')||e.target.closest('.taxa-prod-search'))return;
+  document.querySelectorAll('[id^="taxaProdDrop_"]').forEach(d=>d.style.display='none');
+  if(e.target.closest('[id^="vendaCartProdDrop_"]')||e.target.closest('.venda-prod-search'))return;
+  document.querySelectorAll('[id^="vendaCartProdDrop_"]').forEach(d=>d.style.display='none');
 });
-// Fechar dropdowns ao scroll para evitar desalinhamento
-window.addEventListener('scroll',function(){
-  document.querySelectorAll('[id^="taxaProdDrop_"],[id^="vendaCartProdDrop_"]').forEach(d=>d.style.display='none');
-},true);
 
 function _updateTaxaItensWrap(){
   const el=document.getElementById('taxaItensWrap');
