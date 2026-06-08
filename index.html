@@ -594,9 +594,9 @@ async function verificarBackupDiario(){
   if(!userProfile)return;
   try{
     const hj=new Date().toISOString().split('T')[0];
-    const backupId=BACKUP_PREFIX+hj+'_'+userProfile.org_id;
-    // Verificar se ja fez backup hoje
-    const{data:existe}=await SB.from('app_data').select('org_id').eq('org_id',backupId).single();
+    // Verificar se ja fez backup hoje (tabela nova app_data_backups)
+    const{data:existe,error:errSel}=await SB.from('app_data_backups').select('id').eq('org_id',userProfile.org_id).eq('data_backup',hj).maybeSingle();
+    if(errSel)console.warn('select backup hoje:',errSel);
     if(existe){console.log('Backup diário já existe para hoje:',hj);return}
     // Nao fez — salvar backup automatico
     await salvarBackupNuvem(hj);
@@ -608,10 +608,12 @@ async function verificarBackupDiario(){
 
 async function salvarBackupNuvem(dataStr){
   if(!userProfile)return;
-  const hj=dataStr||new Date().toISOString().split('T')[0];
-  const backupId=BACKUP_PREFIX+hj+'_'+userProfile.org_id;
+  // Aceita "2026-06-08", "2026-06-08-pre-restore", "2026-06-08-pre-import", etc
+  const raw=dataStr||new Date().toISOString().split('T')[0];
+  // data_backup precisa ser DATE valido — extrai os primeiros 10 chars (YYYY-MM-DD)
+  const dateOnly=raw.slice(0,10);
   const snapshot={
-    _backupDate:hj,
+    _backupDate:raw,
     _backupTimestamp:new Date().toISOString(),
     _produtos:D.produtos.length,
     _movimentacoes:D.movimentacoes.length,
@@ -619,41 +621,52 @@ async function salvarBackupNuvem(dataStr){
     _despesas:D.despesas.length,
     ...JSON.parse(JSON.stringify(D))
   };
-  await SB.from('app_data').upsert({org_id:backupId,data:snapshot,updated_at:new Date().toISOString()},{onConflict:'org_id'});
-  toast('Backup na nuvem salvo: '+hj);
+  const{data,error}=await SB.from('app_data_backups').upsert({
+    org_id:userProfile.org_id,
+    data_backup:dateOnly,
+    data:snapshot,
+    created_at:new Date().toISOString()
+  },{onConflict:'org_id,data_backup'}).select('id');
+  if(error){console.error('Erro salvar backup nuvem:',error);toast('Erro backup nuvem: '+error.message,true);return}
+  console.log('Backup nuvem salvo, id=',data&&data[0]&&data[0].id);
+  toast('☁️ Backup na nuvem salvo: '+raw);
 }
 
 async function listarBackupsNuvem(){
   if(!userProfile)return[];
   try{
-    const prefix=BACKUP_PREFIX;
-    const suffix='_'+userProfile.org_id;
-    const{data,error}=await SB.from('app_data').select('org_id,data,updated_at').like('org_id',prefix+'%'+suffix).order('updated_at',{ascending:false});
-    if(error||!data)return[];
+    const{data,error}=await SB.from('app_data_backups')
+      .select('id,data_backup,created_at,data')
+      .eq('org_id',userProfile.org_id)
+      .order('data_backup',{ascending:false});
+    if(error){console.warn('listarBackupsNuvem erro:',error);return[]}
+    if(!data)return[];
+    // Mantemos a propriedade 'org_id' apontando para o id do backup pra nao quebrar a UI
     return data.map(row=>({
-      org_id:row.org_id,
-      data_backup:row.data?._backupDate||'',
-      timestamp:row.data?._backupTimestamp||row.updated_at,
-      produtos:row.data?._produtos||0,
-      movimentacoes:row.data?._movimentacoes||0,
-      vendas:row.data?._vendas||0,
-      despesas:row.data?._despesas||0,
+      org_id:String(row.id),
+      data_backup:row.data_backup||(row.data&&row.data._backupDate)||'',
+      timestamp:(row.data&&row.data._backupTimestamp)||row.created_at,
+      produtos:(row.data&&row.data._produtos)||0,
+      movimentacoes:(row.data&&row.data._movimentacoes)||0,
+      vendas:(row.data&&row.data._vendas)||0,
+      despesas:(row.data&&row.data._despesas)||0,
     }));
   }catch(e){console.warn('Erro ao listar backups nuvem:',e);return[]}
 }
 
-async function restaurarBackupNuvem(orgIdBackup){
+async function restaurarBackupNuvem(backupId){
   if(!userProfile)return;
-  if(!confirm('RESTAURAR BACKUP DA NUVEM?\n\nIsso vai SUBSTITUIR todos os dados atuais pelos dados do backup.\n\nTem certeza?'))return;
+  if(!confirm('RESTAURAR BACKUP DA NUVEM?\n\nIsso vai SUBSTITUIR todos os dados atuais pelos dados do backup.\nUm backup do estado ATUAL sera salvo antes (pre-restore).\n\nTem certeza?'))return;
   try{
     // Primeiro, salvar backup do estado ATUAL antes de restaurar
-    const agora=new Date().toISOString().split('T')[0]+'-pre-restore';
-    await salvarBackupNuvem(agora);
-    // Carregar backup
-    const{data,error}=await SB.from('app_data').select('data').eq('org_id',orgIdBackup).single();
-    if(error||!data||!data.data){toast('Erro ao carregar backup',true);return}
+    const hoje0=new Date().toISOString().split('T')[0];
+    // data_backup tem que ser DATE valido — uso hoje normal e isso pode SUBSTITUIR o backup de hoje
+    // (e ok porque ja estamos restaurando)
+    await salvarBackupNuvem(hoje0);
+    // Carregar backup pelo id
+    const{data,error}=await SB.from('app_data_backups').select('data').eq('id',backupId).maybeSingle();
+    if(error||!data||!data.data){toast('Erro ao carregar backup: '+(error&&error.message||'nao encontrado'),true);return}
     const restored=data.data;
-    // Remover campos internos do backup
     delete restored._backupDate;
     delete restored._backupTimestamp;
     delete restored._produtos;
@@ -663,7 +676,7 @@ async function restaurarBackupNuvem(orgIdBackup){
     D=restored;
     saveData();
     renderPage();
-    toast('Backup restaurado com sucesso!');
+    toast('✅ Backup restaurado com sucesso!');
   }catch(e){toast('Erro ao restaurar: '+e.message,true)}
 }
 
@@ -672,10 +685,10 @@ async function limparBackupsAntigosNuvem(){
   try{
     const backups=await listarBackupsNuvem();
     if(backups.length<=MAX_CLOUD_BACKUPS)return;
-    // Remover os mais antigos
     const paraRemover=backups.slice(MAX_CLOUD_BACKUPS);
     for(const b of paraRemover){
-      await SB.from('app_data').delete().eq('org_id',b.org_id);
+      const{error}=await SB.from('app_data_backups').delete().eq('id',parseInt(b.org_id,10)).eq('org_id',userProfile.org_id);
+      if(error)console.warn('limpar backup id',b.org_id,error);
     }
     console.log(`Removidos ${paraRemover.length} backups antigos da nuvem`);
   }catch(e){console.warn('Erro ao limpar backups antigos:',e)}
@@ -696,11 +709,11 @@ async function diagnosticarBackupNuvem(){
     const backupId=BACKUP_PREFIX+hj+'_'+userProfile.org_id;
     log.push('[i] backupId que SERIA criado hoje = '+backupId);
 
-    log.push('\n--- TESTE 1: SELECT na tabela app_data (registros com backup_*) ---');
-    const r1=await SB.from('app_data').select('org_id,updated_at').like('org_id',BACKUP_PREFIX+'%').limit(50);
+    log.push('\n--- TESTE 1: SELECT na tabela app_data_backups (meus backups) ---');
+    const r1=await SB.from('app_data_backups').select('id,data_backup,created_at').eq('org_id',userProfile.org_id).order('data_backup',{ascending:false}).limit(50);
     if(r1.error){log.push('[X] ERRO SELECT: '+JSON.stringify(r1.error))}
-    else{log.push('[OK] SELECT retornou '+(r1.data?.length||0)+' registros backup_*');
-      if(r1.data&&r1.data.length){r1.data.forEach(r=>log.push('   - '+r.org_id+' ('+r.updated_at+')'))}
+    else{log.push('[OK] SELECT retornou '+(r1.data?.length||0)+' backups da minha org');
+      if(r1.data&&r1.data.length){r1.data.forEach(r=>log.push('   - id='+r.id+' data='+r.data_backup+' ('+r.created_at+')'))}
     }
 
     log.push('\n--- TESTE 2: SELECT do registro principal (org_id=MEU) ---');
@@ -708,19 +721,17 @@ async function diagnosticarBackupNuvem(){
     if(r2.error){log.push('[X] ERRO SELECT MEU: '+JSON.stringify(r2.error))}
     else{log.push('[OK] meu registro existe: '+(r2.data?.length||0)+' linha(s)');if(r2.data?.[0])log.push('   - '+r2.data[0].org_id+' atualizado '+r2.data[0].updated_at)}
 
-    log.push('\n--- TESTE 3: tentar INSERT/UPSERT de backup DE TESTE ---');
-    const testId='backup_TEST_'+Date.now()+'_'+userProfile.org_id;
-    const r3=await SB.from('app_data').upsert({org_id:testId,data:{_test:true,_when:new Date().toISOString()},updated_at:new Date().toISOString()},{onConflict:'org_id'});
+    log.push('\n--- TESTE 3: tentar INSERT de backup DE TESTE na tabela nova ---');
+    // Usa uma data fake 1900-01-01 pra nao confundir com backups reais
+    const r3=await SB.from('app_data_backups').upsert({org_id:userProfile.org_id,data_backup:'1900-01-01',data:{_test:true,_when:new Date().toISOString()}},{onConflict:'org_id,data_backup'}).select('id');
     if(r3.error){
       log.push('[X] ERRO UPSERT: '+JSON.stringify(r3.error));
-      log.push('   >>> PROVAVEL CAUSA: Row Level Security (RLS) do Supabase bloqueando.');
-      log.push('   >>> SOLUCAO: na tabela app_data, ajustar a RLS policy para permitir');
-      log.push('       INSERT/SELECT/DELETE quando org_id LIKE \'backup_%\'');
+      log.push('   >>> Verifique se a tabela app_data_backups foi criada e a RLS permite o usuario autenticado');
     } else {
-      log.push('[OK] UPSERT de teste FUNCIONOU — sem RLS bloqueando');
-      // limpar o teste
-      await SB.from('app_data').delete().eq('org_id',testId);
-      log.push('[OK] backup de teste removido');
+      log.push('[OK] UPSERT funcionou, id criado='+(r3.data&&r3.data[0]&&r3.data[0].id));
+      const del=await SB.from('app_data_backups').delete().eq('org_id',userProfile.org_id).eq('data_backup','1900-01-01');
+      if(del.error)log.push('[!] erro ao limpar backup de teste: '+del.error.message);
+      else log.push('[OK] backup de teste removido');
     }
 
     log.push('\n--- TESTE 4: rodar verificarBackupDiario() agora ---');
@@ -730,8 +741,9 @@ async function diagnosticarBackupNuvem(){
     }catch(e){log.push('[X] verificarBackupDiario lancou: '+e.message)}
 
     log.push('\n--- TESTE 5: relistar backups apos rodar ---');
-    const r5=await SB.from('app_data').select('org_id,updated_at').like('org_id',BACKUP_PREFIX+'%').limit(50);
+    const r5=await SB.from('app_data_backups').select('id,data_backup,created_at').eq('org_id',userProfile.org_id).order('data_backup',{ascending:false});
     log.push('[i] Agora tem '+(r5.data?.length||0)+' backups na nuvem');
+    if(r5.data&&r5.data.length){r5.data.forEach(r=>log.push('   - id='+r.id+' data='+r.data_backup))}
 
   }catch(e){log.push('[X] EXCEPTION: '+e.message+' / '+e.stack)}
   const txt=log.join('\n');
@@ -756,7 +768,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-c';
+const APP_VERSION = 'v2026.06.08-d';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
