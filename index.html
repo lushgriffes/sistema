@@ -944,7 +944,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-q';
+const APP_VERSION = 'v2026.06.08-s';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -1488,8 +1488,8 @@ function renderDashPeriodo(){
 
   return `
   <div class="filter-bar" style="margin-bottom:14px">
-    <div class="f-group"><label>De:</label><input type="date" value="${periodoInicio}" onchange="periodoInicio=this.value;renderPage()"></div>
-    <div class="f-group"><label>Até:</label><input type="date" value="${periodoFim}" onchange="periodoFim=this.value;renderPage()"></div>
+    <div class="f-group"><label>De:</label><input type="date" value="${periodoInicio}" onchange="if(!this.value||this.value.length===10){periodoInicio=this.value;renderPage()}"></div>
+    <div class="f-group"><label>Até:</label><input type="date" value="${periodoFim}" onchange="if(!this.value||this.value.length===10){periodoFim=this.value;renderPage()}"></div>
     <button class="btn btn-sm btn-secondary" onclick="setPeriodoMes(0)">Mês Atual</button>
     <button class="btn btn-sm btn-secondary" onclick="setPeriodoMes(-1)">Mês Anterior</button>
     <button class="btn btn-sm btn-secondary" onclick="setPeriodoMes(-2)">2 Meses Atrás</button>
@@ -2107,8 +2107,8 @@ function renderDRESection(){
     </div>
     <p style="font-size:12px;color:var(--gray);margin-bottom:14px">Fechamento do período — faturamento e custo por categoria + despesas pagas + resultado líquido. <strong>Clique numa categoria para ver os lançamentos.</strong></p>
     <div class="inline-form" style="margin-bottom:16px">
-      <div class="if-group"><label>Data inicial</label><input type="date" id="pgDreIni" value="${dreIni}" onchange="dreIni=this.value;renderPage()"></div>
-      <div class="if-group"><label>Data final</label><input type="date" id="pgDreFim" value="${dreFim}" onchange="dreFim=this.value;renderPage()"></div>
+      <div class="if-group"><label>Data inicial</label><input type="date" id="pgDreIni" value="${dreIni}" onchange="if(!this.value||this.value.length===10){dreIni=this.value;renderPage()}"></div>
+      <div class="if-group"><label>Data final</label><input type="date" id="pgDreFim" value="${dreFim}" onchange="if(!this.value||this.value.length===10){dreFim=this.value;renderPage()}"></div>
       <div class="if-group" style="justify-content:end;align-self:end"><span style="font-size:11px;color:var(--gray)">${dre.nVendas} venda(s) • ${dre.nReceb||0} recebimento(s) • ${dre.nDesp} despesa(s) no período</span></div>
     </div>
     <div class="box" style="padding:0;overflow:hidden">
@@ -2765,7 +2765,7 @@ function renderDetalhesVendaModal(){
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:18px">
         <div>
           <label style="font-size:11px;font-weight:600;color:var(--gray);display:block;margin-bottom:3px">📅 Data da venda</label>
-          <input type="date" value="${esc(v.data)}" onchange="_dvSetCampo('venda','data',this.value)" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+          <input type="date" value="${esc(v.data)}" onblur="if(this.value&&this.value.length===10)_dvSetCampo('venda','data',this.value)" onkeydown="if(event.key==='Enter')this.blur()" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px">
         </div>
         <div>
           <label style="font-size:11px;font-weight:600;color:var(--gray);display:block;margin-bottom:3px">👤 Cliente</label>
@@ -2826,15 +2826,15 @@ function renderDetalhesVendaModal(){
               <td style="padding:5px 8px">—</td>
               <td style="padding:5px 8px;text-align:right"><input type="number" step="0.01" value="${ent.valor}" onchange="_dvSetCampo('entrada','valor',+this.value)" style="width:90px;font-size:11px;padding:3px 5px;border:2px solid var(--green);border-radius:4px;text-align:right;font-weight:700;background:#fff"></td>
               <td style="padding:5px 8px;text-align:center"><span style="background:#d1fae5;color:#065f46;padding:3px 8px;border-radius:6px;font-weight:700;font-size:10px">Recebido</span></td>
-              <td style="padding:5px 8px"><input type="date" value="${esc(ent.dataReceb)}" onchange="_dvSetCampo('entrada','dataReceb',this.value)" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px"></td>
+              <td style="padding:5px 8px"><input type="date" value="${esc(ent.dataReceb)}" onblur="if(this.value&&this.value.length===10)_dvSetCampo('entrada','dataReceb',this.value)" onkeydown="if(event.key==='Enter')this.blur()" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px"></td>
             </tr>
             ${_dvState.parcelas.map((p,idx)=>`<tr style="border-bottom:1px solid #e2e8f0">
               <td style="padding:5px 8px;font-weight:600;color:var(--gray)">#${p.id||'—'}</td>
               <td style="padding:5px 8px"><input value="${esc(p.desc)}" onchange="_dvSetParcela(${idx},'desc',this.value)" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px"></td>
-              <td style="padding:5px 8px"><input type="date" value="${esc(p.vencimento)}" onchange="_dvSetParcela(${idx},'vencimento',this.value)" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px"></td>
+              <td style="padding:5px 8px"><input type="date" value="${esc(p.vencimento)}" onblur="if(this.value&&this.value.length===10)_dvSetParcela(${idx},'vencimento',this.value)" onkeydown="if(event.key==='Enter')this.blur()" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px"></td>
               <td style="padding:5px 8px;text-align:right"><input type="number" step="0.01" value="${p.valor||0}" onchange="_dvSetParcela(${idx},'valor',+this.value)" style="width:90px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;text-align:right;font-weight:600"></td>
               <td style="padding:5px 8px;text-align:center"><select onchange="_dvSetParcela(${idx},'status',this.value)" style="font-size:10px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;background:${p.status==='Recebido'?'#d1fae5':'#fef3c7'}"><option value="Pendente"${p.status==='Pendente'?' selected':''}>Pendente</option><option value="Recebido"${p.status==='Recebido'?' selected':''}>Recebido</option></select></td>
-              <td style="padding:5px 8px">${p.status==='Recebido'?`<input type="date" value="${esc(p.dataReceb)}" onchange="_dvSetParcela(${idx},'dataReceb',this.value)" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px">`:'<span style="color:var(--gray);font-size:10px">—</span>'}</td>
+              <td style="padding:5px 8px">${p.status==='Recebido'?`<input type="date" value="${esc(p.dataReceb)}" onblur="if(this.value&&this.value.length===10)_dvSetParcela(${idx},'dataReceb',this.value)" onkeydown="if(event.key==='Enter')this.blur()" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px">`:'<span style="color:var(--gray);font-size:10px">—</span>'}</td>
             </tr>`).join('')}
           </tbody>
           <tfoot>
@@ -3054,7 +3054,7 @@ function renderRecebimentos(){
     <table><thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th class="r">Valor</th><th>Ação</th></tr></thead><tbody>
     ${filtered.length===0?`<tr><td colspan="5" style="padding:14px;text-align:center;font-size:11px;color:var(--gray)">Nenhum recebimento ${_recSearch?'encontrado para esse filtro':'lançado ainda'}.</td></tr>`:
     filtered.map(r=>`<tr>
-      <td><input type="date" value="${r.data||''}" onchange="editarRecebimento(${r.id},'data',this.value)" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;width:135px" title="Clique para editar a data"></td>
+      <td><input type="date" value="${r.data||''}" onblur="if(this.value&&this.value.length===10&&this.value!=='${r.data||''}')editarRecebimento(${r.id},'data',this.value)" onkeydown="if(event.key==='Enter')this.blur()" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;width:135px" title="Clique para editar a data"></td>
       <td><input id="pgRecEditDesc_${r.id}" value="${esc(r.desc)}" onchange="editarRecebimento(${r.id},'desc',this.value)" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;width:100%;min-width:180px" title="Clique para editar a descrição"></td>
       <td><select onchange="editarRecebimento(${r.id},'cat',this.value)" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;cursor:pointer" title="Trocar categoria">${cats.map(c=>`<option value="${esc(c)}"${c===r.cat?' selected':''}>${escH(c)}</option>`).join('')}${(r.cat&&!cats.includes(r.cat))?`<option value="${esc(r.cat)}" selected>${escH(r.cat)} (removida)</option>`:''}</select></td>
       <td class="r"><input type="number" step="0.01" value="${r.valor||''}" onchange="editarRecebimento(${r.id},'valor',+this.value)" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;text-align:right;width:100px;color:var(--green);font-weight:600" title="Clique para editar o valor"></td>
@@ -5448,7 +5448,7 @@ function renderContasReceber(){
   <div class="filter-bar">
     <div class="f-group"><label>🔍</label><input placeholder="Buscar..." id="pgSearchCR" value="${crSearch}" oninput="crSearch=this.value;renderPage()"></div>
     <div class="f-group"><label>Status:</label><select onchange="crStatusFilter=this.value;renderPage()"><option${crStatusFilter==='Todos'?' selected':''}>Todos</option><option${crStatusFilter==='Pendente'?' selected':''}>Pendente</option><option${crStatusFilter==='Recebido'?' selected':''}>Recebido</option></select></div>
-    <div class="f-group"><label>📅 Vence até:</label><input type="date" value="${crVencAte}" onchange="crVencAte=this.value;renderPage()" title="Mostra contas com vencimento ate essa data"></div>
+    <div class="f-group"><label>📅 Vence até:</label><input type="date" value="${crVencAte}" onchange="if(!this.value||this.value.length===10){crVencAte=this.value;renderPage()}" title="Mostra contas com vencimento ate essa data"></div>
     <div class="f-group" style="align-items:center"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" ${crIncluirVencidos?'checked':''} onchange="crIncluirVencidos=this.checked;renderPage()" style="cursor:pointer"> ⚠ Apresentar Vencidos</label></div>
     <span class="f-clear" onclick="crSearch='';crStatusFilter='Todos';crVencAte='';crIncluirVencidos=false;renderPage()">Limpar</span>
   </div>
@@ -5458,7 +5458,7 @@ function renderContasReceber(){
   ${fil.map(c=>{
     const badgeCl=c.status==='Recebido'?'b-recebido':'b-pendente';
     return `<tr>
-      <td style="white-space:nowrap">${(()=>{const _hj=hoje();const _venc=c.vencimento||'';const _vencida=_venc&&_venc<_hj&&c.status!=='Recebido';const _hoje=_venc===_hj&&c.status!=='Recebido';const _cor=_vencida?'#dc2626':(_hoje?'#ea580c':'inherit');const _bg=_vencida?'#fee2e2':(_hoje?'#fff7ed':'transparent');return `<input type="date" value="${_venc}" onchange="editarVencCR(${c.id},this.value)" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;background:${_bg};color:${_cor};font-weight:${_vencida||_hoje?'700':'normal'}" title="${_vencida?'⚠ VENCIDA':(_hoje?'⚠ Vence HOJE':'Editar data de vencimento (renegociacao)')}">${_vencida?'<div style="font-size:9px;color:#dc2626;margin-top:2px">⚠ Vencida</div>':(_hoje?'<div style="font-size:9px;color:#ea580c;margin-top:2px">⚠ Hoje</div>':'')}`;})()}</td><td>${c.desc}</td><td>${c.cliente||''}</td>
+      <td style="white-space:nowrap">${(()=>{const _hj=hoje();const _venc=c.vencimento||'';const _vencida=_venc&&_venc<_hj&&c.status!=='Recebido';const _hoje=_venc===_hj&&c.status!=='Recebido';const _cor=_vencida?'#dc2626':(_hoje?'#ea580c':'inherit');const _bg=_vencida?'#fee2e2':(_hoje?'#fff7ed':'transparent');return `<input type="date" value="${_venc}" onblur="if(this.value&&this.value.length===10&&this.value!=='${c.vencimento||''}')editarVencCR(${c.id},this.value)" onkeydown="if(event.key==='Enter')this.blur()" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;background:${_bg};color:${_cor};font-weight:${_vencida||_hoje?'700':'normal'}" title="${_vencida?'⚠ VENCIDA':(_hoje?'⚠ Vence HOJE':'Editar data de vencimento (renegociacao)')}">${_vencida?'<div style="font-size:9px;color:#dc2626;margin-top:2px">⚠ Vencida</div>':(_hoje?'<div style="font-size:9px;color:#ea580c;margin-top:2px">⚠ Hoje</div>':'')}`;})()}</td><td>${c.desc}</td><td>${c.cliente||''}</td>
       <td class="r" style="font-weight:600;color:${c.status==='Recebido'?'var(--green)':'var(--orange)'}"><span class="editable" onclick="editarValorCR(${c.id},this)" title="Clique para corrigir o valor (vai cascatear na venda e na movimentação se existirem)">${fmt(c.valor)}</span></td>
       <td><span class="badge ${badgeCl}">${c.status}</span></td>
       <td><select onchange="mudarStatusCR(${c.id},this.value)" style="font-size:10px;padding:3px 6px;border-radius:4px;border:1px solid #ddd">
