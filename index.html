@@ -275,6 +275,9 @@ async function loadDataFromSupabase(){
   const{data,error}=await SB.from('app_data').select('data,updated_at').eq('org_id',userProfile.org_id).single();
   if(error){console.error('Erro ao carregar Supabase:',error);toast('Aviso: usando dados locais (Supabase indisponivel)',true);return}
   if(data&&data.updated_at)_lastKnownUpdatedAt=data.updated_at;
+  if(data&&data.data&&data.data._savedBy)_lastKnownSessionToken=data.data._savedBy;
+  // dispara auto-export semanal se aplicavel
+  setTimeout(verificarAutoExportSemanal,1000);
   if(data&&data.data&&Object.keys(data.data).length>0){
     const d=data.data;
     // Migrations
@@ -464,6 +467,9 @@ async function loadDataFromSupabase(){
 }
 
 let _lastKnownUpdatedAt=null;
+// Session token unico por aba/computador para detectar conflito entre computadores
+const _sessionToken='sess_'+Date.now()+'_'+Math.random().toString(36).slice(2,10);
+let _lastKnownSessionToken=null;
 const BACKUP_KEY='lush-griffes-backups';
 const MAX_BACKUPS=20;
 
@@ -525,15 +531,45 @@ function exportarDados(){
   toast('Backup exportado!');
 }
 
+// ═══ AUTO-EXPORT SEMANAL para Downloads ═══
+const AUTO_EXPORT_KEY='lush-griffes-auto-export-last';
+const AUTO_EXPORT_INTERVAL_DAYS=7;
+function verificarAutoExportSemanal(){
+  try{
+    const ultimo=localStorage.getItem(AUTO_EXPORT_KEY);
+    const agora=Date.now();
+    if(ultimo){
+      const diff=(agora-parseInt(ultimo,10))/(1000*60*60*24);
+      if(diff<AUTO_EXPORT_INTERVAL_DAYS)return; // ainda nao passou o intervalo
+    }
+    // Disparar export apos 3s (espera o sistema carregar)
+    setTimeout(()=>{
+      try{
+        if(!D||!D.produtos)return;
+        const blob=new Blob([JSON.stringify(D,null,2)],{type:'application/json'});
+        const url=URL.createObjectURL(blob);
+        const a=document.createElement('a');
+        a.href=url;a.download='LUSH-GRIFFES-auto-backup-'+new Date().toISOString().slice(0,10)+'.json';
+        a.click();URL.revokeObjectURL(url);
+        localStorage.setItem(AUTO_EXPORT_KEY,String(agora));
+        toast('💾 Backup automático semanal salvo em Downloads');
+      }catch(e){console.warn('Erro no auto-export:',e)}
+    },3000);
+  }catch(e){console.warn('Erro auto-export check:',e)}
+}
+
 async function saveDataToSupabase(){
   if(!userProfile)return;
   // PROTECAO: verificar se outro computador salvou dados mais novos
   try{
-    const{data:remote}=await SB.from('app_data').select('updated_at').eq('org_id',userProfile.org_id).single();
+    const{data:remote}=await SB.from('app_data').select('updated_at,data').eq('org_id',userProfile.org_id).single();
     if(remote&&remote.updated_at&&_lastKnownUpdatedAt){
       const remoteTime=new Date(remote.updated_at).getTime();
       const localTime=new Date(_lastKnownUpdatedAt).getTime();
-      if(remoteTime>localTime+2000){
+      const remoteToken=remote.data&&remote.data._savedBy;
+      // se remoto tem token diferente E e mais novo, alguem em OUTRO PC salvou
+      const outroPC=remoteToken&&_lastKnownSessionToken&&remoteToken!==_lastKnownSessionToken&&remoteToken!==_sessionToken;
+      if(remoteTime>localTime+2000||outroPC){
         const diff=Math.round((remoteTime-localTime)/60000);
         const confirma=confirm(`ATENCAO: Outro computador salvou dados ${diff} minuto(s) atras.\n\nSe continuar, voce pode SOBRESCREVER dados mais recentes.\n\nClique OK para salvar mesmo assim, ou CANCELAR para recarregar a pagina com os dados mais recentes.`);
         if(!confirma){location.reload();return}
@@ -544,8 +580,10 @@ async function saveDataToSupabase(){
   salvarBackupLocal();
   const agora=new Date().toISOString();
   D._savedAt=agora;
+  D._savedBy=_sessionToken;
   await SB.from('app_data').upsert({org_id:userProfile.org_id,data:D,updated_at:agora},{onConflict:'org_id'});
   _lastKnownUpdatedAt=agora;
+  _lastKnownSessionToken=_sessionToken;
 }
 
 // ═══ BACKUP DIÁRIO AUTOMÁTICO NA NUVEM ═══
@@ -656,7 +694,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.05.16-e';
+const APP_VERSION = 'v2026.06.08-a';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -880,7 +918,33 @@ function loadData(){
   });
   return fresh;
 }
-function saveData(){localStorage.setItem(STORAGE_KEY,JSON.stringify(D));if(userProfile)saveDataToSupabase()}
+// ═══ PROTECAO ANTI-ZERO: bloqueia save com 0 itens se tinha >5 antes ═══
+let _lastSnapshotCounts={produtos:0,movimentacoes:0,vendas:0,despesas:0,_init:false};
+function _verificarAntiZero(){
+  // Se nunca capturamos um estado anterior, captura agora (assumindo o atual e ok)
+  if(!_lastSnapshotCounts._init){
+    _lastSnapshotCounts={produtos:(D.produtos||[]).length,movimentacoes:(D.movimentacoes||[]).length,vendas:(D.vendas||[]).length,despesas:(D.despesas||[]).length,_init:true};
+    return true;
+  }
+  // Verifica se algum campo importante foi zerado de >5 para 0
+  const atual={produtos:(D.produtos||[]).length,movimentacoes:(D.movimentacoes||[]).length,vendas:(D.vendas||[]).length,despesas:(D.despesas||[]).length};
+  const alertas=[];
+  if(_lastSnapshotCounts.produtos>5&&atual.produtos===0)alertas.push(`Produtos: ${_lastSnapshotCounts.produtos} → 0`);
+  if(_lastSnapshotCounts.movimentacoes>5&&atual.movimentacoes===0)alertas.push(`Movimentações: ${_lastSnapshotCounts.movimentacoes} → 0`);
+  if(_lastSnapshotCounts.vendas>5&&atual.vendas===0)alertas.push(`Vendas: ${_lastSnapshotCounts.vendas} → 0`);
+  if(_lastSnapshotCounts.despesas>5&&atual.despesas===0)alertas.push(`Despesas: ${_lastSnapshotCounts.despesas} → 0`);
+  if(alertas.length>0){
+    const msg='⚠⚠⚠ PROTECAO ANTI-ZERO ATIVADA ⚠⚠⚠\n\nO sistema esta prestes a SALVAR com os seguintes itens ZERADOS:\n\n'+alertas.join('\n')+'\n\nIsso pode indicar uma falha catastrofica ou um erro. Se voce NAO fez essa exclusao em massa de proposito, CANCELE AGORA.\n\nOK = Salvar mesmo assim (PERDE OS DADOS)\nCancelar = NAO salvar (preserva os dados atuais)';
+    const confirma=confirm(msg);
+    if(!confirma){console.warn('Save BLOQUEADO pelo anti-zero',alertas);return false;}
+    console.warn('Save autorizado pelo usuario (anti-zero)',alertas);
+  }
+  // Atualiza snapshot
+  _lastSnapshotCounts={...atual,_init:true};
+  return true;
+}
+
+function saveData(){if(!_verificarAntiZero())return;localStorage.setItem(STORAGE_KEY,JSON.stringify(D));if(userProfile)saveDataToSupabase()}
 let D=loadData();
 
 function fmt(v){return 'R$ '+Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}
