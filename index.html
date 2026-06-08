@@ -283,6 +283,7 @@ async function loadDataFromSupabase(){
     if(!d.categoriasDespesa||!d.categoriasDespesa.length)d.categoriasDespesa=(DEFAULT_DATA.categoriasDespesa||["Transporte","Embalagem","Ferramenta","Comunicação","Alimentação","Comissão","Fornecedor","Outros"]);
     if(d.categoriasMov&&!d.categoriasMov.includes('Retirada Sócio'))d.categoriasMov.push('Retirada Sócio');
     if(d.categoriasMov&&!d.categoriasMov.includes('Devolução de Venda'))d.categoriasMov.push('Devolução de Venda');
+    if(d.categoriasMov&&!d.categoriasMov.includes('Empréstimo'))d.categoriasMov.push('Empréstimo');
     if(!d.recebimentos)d.recebimentos=[];
     if(!d.categoriasRecebimento||!d.categoriasRecebimento.length)d.categoriasRecebimento=(DEFAULT_DATA.categoriasRecebimento||["Reembolso","Rendimento Financeiro","Empréstimo Recebido","Outras Receitas"]);
     if(!d.nextRecebId)d.nextRecebId=(d.recebimentos.reduce((m,r)=>Math.max(m,r.id||0),0)+1);
@@ -356,6 +357,8 @@ async function loadDataFromSupabase(){
       }
     }
     if(!d.planoContas.includes('Acerto'))d.planoContas.push('Acerto');
+    if(!d.planoContas.includes('Empréstimo Concedido'))d.planoContas.push('Empréstimo Concedido');
+    if(!d.planoContas.includes('Empréstimo Recebido'))d.planoContas.push('Empréstimo Recebido');
     d.vendas.forEach(v=>{if(v.produtoId===undefined)v.produtoId=0;if(v.saldoReceber===undefined)v.saldoReceber=(v.valorVenda||0)-(v.recebido||0)});
     // Auto-generate contasReceber para TODA venda Pendente/Parcial que não tem CR
     if(!d.contasReceber)d.contasReceber=[];
@@ -698,6 +701,7 @@ function loadData(){
       if(!d.categoriasDespesa||!d.categoriasDespesa.length)d.categoriasDespesa=(DEFAULT_DATA.categoriasDespesa||["Transporte","Embalagem","Ferramenta","Comunicação","Alimentação","Comissão","Fornecedor","Outros"]);
       if(d.categoriasMov&&!d.categoriasMov.includes('Retirada Sócio'))d.categoriasMov.push('Retirada Sócio');
       if(d.categoriasMov&&!d.categoriasMov.includes('Devolução de Venda'))d.categoriasMov.push('Devolução de Venda');
+      if(d.categoriasMov&&!d.categoriasMov.includes('Empréstimo'))d.categoriasMov.push('Empréstimo');
       if(!d.recebimentos)d.recebimentos=[];
       if(!d.categoriasRecebimento||!d.categoriasRecebimento.length)d.categoriasRecebimento=(DEFAULT_DATA.categoriasRecebimento||["Reembolso","Rendimento Financeiro","Empréstimo Recebido","Outras Receitas"]);
       if(!d.nextRecebId)d.nextRecebId=(d.recebimentos.reduce((m,r)=>Math.max(m,r.id||0),0)+1);
@@ -771,6 +775,8 @@ function loadData(){
         }
       }
       if(!d.planoContas.includes('Acerto'))d.planoContas.push('Acerto');
+    if(!d.planoContas.includes('Empréstimo Concedido'))d.planoContas.push('Empréstimo Concedido');
+    if(!d.planoContas.includes('Empréstimo Recebido'))d.planoContas.push('Empréstimo Recebido');
       d.vendas.forEach(v=>{if(v.produtoId===undefined)v.produtoId=0;if(v.saldoReceber===undefined)v.saldoReceber=(v.valorVenda||0)-(v.recebido||0)});
       // Auto-generate contasReceber para TODA venda Pendente/Parcial que não tem CR
       d.vendas.forEach(v=>{
@@ -901,9 +907,11 @@ function calcMetrics(){
   D.vendas.forEach(v=>contasR+=(v.saldoReceber||0));
   const despTotal=D.despesas.filter(d=>(d.tipoDespesa||'Despesa')==='Despesa').reduce((a,d)=>a+(d.valor||0),0);
   const despInvestimento=D.despesas.filter(d=>d.tipoDespesa==='Investimento').reduce((a,d)=>a+(d.valor||0),0);
-  const despTotalAll=D.despesas.filter(d=>d.tipoDespesa!=='Acerto+'&&d.tipoDespesa!=='Acerto-').reduce((a,d)=>a+(d.valor||0),0);
+  const despTotalAll=D.despesas.filter(d=>d.tipoDespesa!=='Acerto+'&&d.tipoDespesa!=='Acerto-'&&d.tipoDespesa!=='EmpConcedido'&&d.tipoDespesa!=='EmpRecebido').reduce((a,d)=>a+(d.valor||0),0);
   const acertoSaida=D.despesas.filter(d=>d.tipoDespesa==='Acerto-').reduce((a,d)=>a+(d.valor||0),0);
   const acertoEntrada=D.despesas.filter(d=>d.tipoDespesa==='Acerto+').reduce((a,d)=>a+(d.valor||0),0);
+  const empConcedido=D.despesas.filter(d=>d.tipoDespesa==='EmpConcedido').reduce((a,d)=>a+(d.valor||0),0);
+  const empRecebido=D.despesas.filter(d=>d.tipoDespesa==='EmpRecebido').reduce((a,d)=>a+(d.valor||0),0);
   const lucroVendas=D.vendas.reduce((a,v)=>a+((v.valorVenda||0)-(v.custo||0)),0);
   const faturamento=D.vendas.reduce((a,v)=>a+(v.valorVenda||0),0);
   const totalMerc=mercT+mercE+mercR;
@@ -911,7 +919,7 @@ function calcMetrics(){
   const patrimonio=totalAtivos;
   const lucroAcum=patrimonio-getCapitalTotal();
   const pctCaixa=patrimonio>0?Math.round(caixa/patrimonio*100):0;
-  return{caixa,mercT,mercE,mercR,contasR,itT,itE,itR,totalU,catTot,despTotal,despInvestimento,despTotalAll,acertoSaida,acertoEntrada,lucroVendas,faturamento,totalMerc,totalAtivos,patrimonio,lucroAcum,pctCaixa};
+  return{caixa,mercT,mercE,mercR,contasR,itT,itE,itR,totalU,catTot,despTotal,despInvestimento,despTotalAll,acertoSaida,acertoEntrada,empConcedido,empRecebido,lucroVendas,faturamento,totalMerc,totalAtivos,patrimonio,lucroAcum,pctCaixa};
 }
 
 // ═══════ RECALC SALDOS ═══════
@@ -1456,9 +1464,10 @@ function renderBalanco(){
   const saldoCapital=Math.round((aportes-retiradasBal)*100)/100;
   const despesas=m.despTotalAll;
   const acertoLiquido=m.acertoSaida-m.acertoEntrada;
+  const empLiquido=m.empConcedido-m.empRecebido;
   const lucro=m.lucroVendas;
   const outrasReceitas=(D.recebimentos||[]).reduce((a,r)=>a+(+r.valor||0),0);
-  const totalLado2=Math.round((aportes-despesas+lucro+outrasReceitas-retiradasBal-acertoLiquido)*100)/100;
+  const totalLado2=Math.round((aportes-despesas+lucro+outrasReceitas-retiradasBal-acertoLiquido-empLiquido)*100)/100;
 
   // Diferença
   const diferenca=Math.round((totalLado1-totalLado2)*100)/100;
@@ -1499,6 +1508,7 @@ function renderBalanco(){
             ${outrasReceitas>0?`<tr><td style="padding:8px 12px">💵 Outras Receitas <span style="font-size:10px;color:var(--gray)">(${(D.recebimentos||[]).length} lançamento(s))</span></td><td class="r" style="font-weight:600;padding:8px 12px;font-size:15px;color:var(--green)">+ ${fmt(outrasReceitas)}</td></tr>`:''}
 
             ${acertoLiquido!==0?`<tr style="background:#f8fafc"><td style="padding:8px 12px">🔄 Acertos ${acertoLiquido>0?'(pendente retorno)':'(saldo positivo)'}</td><td class="r" style="font-weight:600;padding:8px 12px;font-size:15px;color:${acertoLiquido>0?'var(--red)':'var(--green)'}">${acertoLiquido>0?'− ':'+ '}${fmt(Math.abs(acertoLiquido))}</td></tr>`:''}
+            ${empLiquido!==0?`<tr style="background:#f8fafc"><td style="padding:8px 12px">🤝 Empréstimos ${empLiquido>0?'(concedido a terceiros)':'(recebido de terceiros)'}</td><td class="r" style="font-weight:600;padding:8px 12px;font-size:15px;color:${empLiquido>0?'var(--red)':'var(--green)'}">${empLiquido>0?'− ':'+ '}${fmt(Math.abs(empLiquido))}</td></tr>`:''}
           </tbody>
           <tfoot>
             <tr style="background:var(--green);color:#fff"><td style="font-weight:700;padding:10px 12px;border-radius:0 0 0 8px">TOTAL</td><td class="r" style="font-weight:700;padding:10px 12px;font-size:16px;border-radius:0 0 8px 0">${fmt(totalLado2)}</td></tr>
@@ -1530,9 +1540,10 @@ function diagnosticarBalanco(){
   const lucro=m.lucroVendas;
   const outrasRec=(D.recebimentos||[]).reduce((a,r)=>a+(+r.valor||0),0);
   const acertoLiq=m.acertoSaida-m.acertoEntrada;
+  const empLiq=m.empConcedido-m.empRecebido;
 
   const totalL1=Math.round((m.caixa+m.mercE+m.mercT+m.mercR+(m.contasR-m.mercR)-cpPendente)*100)/100;
-  const totalL2=Math.round((aportes-m.despTotalAll+lucro+outrasRec-retiradasBal-acertoLiq)*100)/100;
+  const totalL2=Math.round((aportes-m.despTotalAll+lucro+outrasRec-retiradasBal-acertoLiq-empLiq)*100)/100;
   const diff=Math.round((totalL1-totalL2)*100)/100;
 
   // ═══ RASTREAR CADA MOVIMENTAÇÃO: onde ela está contabilizada? ═══
@@ -1549,8 +1560,9 @@ function diagnosticarBalanco(){
       if(cat==='Capital Inicial'||cat==='Aporte Sócio') return; // OK — contado como aporte
       // Entradas que são neutras (aumentam caixa L1, mas reduzem A Receber L1): Recebimento Venda, Sinal Encomenda
       if(cat==='Recebimento Venda'||cat==='Sinal Encomenda') return; // OK — net 0 no L1
-      // Entradas de Acerto
+      // Entradas de Acerto ou Empréstimo
       if(cat==='Acerto') return; // OK — contado via acertoLiq
+      if(cat==='Empréstimo') return; // OK — contado via empLiq
       // Devolução de Venda — saída especial
       if(cat==='Devolução de Venda') return;
       // QUALQUER OUTRA ENTRADA: aumenta caixa L1 mas NÃO está no L2
@@ -1563,6 +1575,7 @@ function diagnosticarBalanco(){
     } else { // Saída
       if(cat==='Retirada Sócio') return; // OK — contado como retirada
       if(cat==='Acerto') return; // OK — contado via acertoLiq
+      if(cat==='Empréstimo') return; // OK — contado via empLiq
       if(cat==='Pagamento Fornecedor'){
         // Deveria ter produtos correspondentes no estoque
         // Se os produtos existem, net 0 no L1 (caixa desce, estoque sobe)
@@ -3875,10 +3888,13 @@ function renderDesp(){
   const totalAcSaida=D.despesas.filter(d=>d.tipoDespesa==='Acerto-').reduce((a,d)=>a+(d.valor||0),0);
   const totalAcEntrada=D.despesas.filter(d=>d.tipoDespesa==='Acerto+').reduce((a,d)=>a+(d.valor||0),0);
   const saldoAcerto=totalAcEntrada-totalAcSaida;
+  const totalEmpConc=D.despesas.filter(d=>d.tipoDespesa==='EmpConcedido').reduce((a,d)=>a+(d.valor||0),0);
+  const totalEmpRec=D.despesas.filter(d=>d.tipoDespesa==='EmpRecebido').reduce((a,d)=>a+(d.valor||0),0);
+  const saldoEmp=totalEmpRec-totalEmpConc;
   const catDesp=D.categoriasDespesa||["Transporte","Embalagem","Ferramenta","Comunicação","Alimentação","Comissão","Outros"];
   const allCatsDesp=['Todos',...new Set(D.despesas.map(d=>d.cat).filter(Boolean))];
   const allPlanos=['Todos',...new Set(D.despesas.map(d=>d.plano).filter(Boolean))];
-  const allTipos=['Todos','Despesa','Investimento','Acerto-','Acerto+'];
+  const allTipos=['Todos','Despesa','Investimento','Acerto-','Acerto+','EmpConcedido','EmpRecebido'];
   let fil=[...D.despesas].sort((a,b)=>{const d=(a.data||'').localeCompare(b.data||'');return d!==0?d:(a.id||0)-(b.id||0)});
   if(despSearch)fil=fil.filter(d=>d.nome.toLowerCase().includes(despSearch.toLowerCase()));
   if(despCatFilter!=='Todos')fil=fil.filter(d=>d.cat===despCatFilter);
@@ -3892,10 +3908,14 @@ function renderDesp(){
     <div class="card orange"><div class="card-lbl">Acertos (Saída)</div><div class="card-val">${fmt(totalAcSaida)}</div></div>
     <div class="card green"><div class="card-lbl">Acertos (Entrada)</div><div class="card-val">${fmt(totalAcEntrada)}</div></div>
     <div class="card ${saldoAcerto>=0?'emerald':'red'}"><div class="card-lbl">Saldo Acertos</div><div class="card-val">${fmt(saldoAcerto)}</div></div>
+    ${(totalEmpConc>0||totalEmpRec>0)?`
+    <div class="card orange"><div class="card-lbl">Emp. Concedido</div><div class="card-val">${fmt(totalEmpConc)}</div></div>
+    <div class="card green"><div class="card-lbl">Emp. Recebido</div><div class="card-val">${fmt(totalEmpRec)}</div></div>
+    <div class="card ${saldoEmp>=0?'emerald':'red'}"><div class="card-lbl">Saldo Empréstimos</div><div class="card-val">${fmt(saldoEmp)}</div></div>`:''}
   </div>
   <div class="box"><h3>Lançar Nova Despesa</h3>
   <div class="inline-form">
-    <div class="if-group"><label>Tipo</label><select id="dTipo" onchange="toggleDespTipo()"><option value="Despesa">Despesa</option><option value="Investimento">Investimento</option><option value="Acerto-">Acerto - (saída)</option><option value="Acerto+">Acerto + (entrada)</option></select></div>
+    <div class="if-group"><label>Tipo</label><select id="dTipo" onchange="toggleDespTipo()"><option value="Despesa">Despesa</option><option value="Investimento">Investimento</option><option value="Acerto-">Acerto - (saída)</option><option value="Acerto+">Acerto + (entrada)</option><option value="EmpConcedido">Empréstimo Concedido (saída)</option><option value="EmpRecebido">Empréstimo Recebido (entrada)</option></select></div>
     <div class="if-group"><label>Descrição</label><input id="dNome" placeholder="Ex: Sacolas Nike"></div>
     <div class="if-group"><label>Valor (R$)</label><input type="number" id="dValor" step="0.01" placeholder="0,00"></div>
     <div class="if-group"><label>Data</label><input type="date" id="dData" value="${hoje()}"></div>
@@ -3908,7 +3928,7 @@ function renderDesp(){
   ${renderTaxaBox()}
   <div class="filter-bar">
     <div class="f-group"><label>Buscar:</label><input placeholder="Descrição..." id="pgSearchDesp" value="${despSearch}" oninput="despSearch=this.value;renderPage()"></div>
-    <div class="f-group"><label>Tipo:</label><select onchange="despTipoFilter=this.value;renderPage()">${allTipos.map(c=>`<option${c===(typeof despTipoFilter!=='undefined'?despTipoFilter:'Todos')?' selected':''}>${c}</option>`).join('')}</select></div>
+    <div class="f-group"><label>Tipo:</label><select onchange="despTipoFilter=this.value;renderPage()">${allTipos.map(c=>{const lbl=c==='EmpConcedido'?'Emp. Concedido':c==='EmpRecebido'?'Emp. Recebido':c;return `<option value="${c}"${c===(typeof despTipoFilter!=='undefined'?despTipoFilter:'Todos')?' selected':''}>${lbl}</option>`}).join('')}</select></div>
     <div class="f-group"><label>Categoria:</label><select onchange="despCatFilter=this.value;renderPage()">${allCatsDesp.map(c=>`<option${c===despCatFilter?' selected':''}>${c}</option>`).join('')}</select></div>
     <div class="f-group"><label>Plano:</label><select onchange="despPlanoFilter=this.value;renderPage()">${allPlanos.map(c=>`<option${c===despPlanoFilter?' selected':''}>${c}</option>`).join('')}</select></div>
     <span class="f-clear" onclick="despSearch='';despCatFilter='Todos';despPlanoFilter='Todos';despTipoFilter='Todos';renderPage()">Limpar filtros</span>
@@ -3969,6 +3989,9 @@ function toggleDespTipo(){
   if(tipo==='Acerto-'||tipo==='Acerto+'){
     pagoGrp.style.display='none';socioGrp.style.display='none';
     for(let i=0;i<planoSel.options.length;i++){if(planoSel.options[i].text==='Acerto'){planoSel.selectedIndex=i;break}}
+  } else if(tipo==='EmpConcedido'||tipo==='EmpRecebido'){
+    pagoGrp.style.display='none';socioGrp.style.display='none';
+    for(let i=0;i<planoSel.options.length;i++){if(planoSel.options[i].text==='Empréstimo Concedido'||planoSel.options[i].text==='Empréstimo Recebido'){planoSel.selectedIndex=i;break}}
   } else {
     pagoGrp.style.display='';socioGrp.style.display='';
   }
@@ -4025,6 +4048,14 @@ function salvarDespesa(){
     // Acerto saída — dinheiro saindo temporariamente
     D.despesas.push({id:nd,data,nome,cat,valor,pago:true,plano:plano||'Acerto',tipoDespesa:'Acerto-'});
     D.movimentacoes.push({id:nm,data,desc:`Acerto- — ${nome}`,tipo:'Saída',cat:'Acerto',plano:plano||'Acerto',valor,saldo:0,despId:nd});
+  } else if(tipoDespesa==='EmpRecebido'){
+    // Empréstimo recebido — dinheiro entrando (não é receita)
+    D.despesas.push({id:nd,data,nome,cat,valor,pago:true,plano:plano||'Empréstimo Recebido',tipoDespesa:'EmpRecebido'});
+    D.movimentacoes.push({id:nm,data,desc:`Emp. Recebido — ${nome}`,tipo:'Entrada',cat:'Empréstimo',plano:plano||'Empréstimo Recebido',valor,saldo:0,despId:nd});
+  } else if(tipoDespesa==='EmpConcedido'){
+    // Empréstimo concedido — dinheiro saindo (não é despesa)
+    D.despesas.push({id:nd,data,nome,cat,valor,pago:true,plano:plano||'Empréstimo Concedido',tipoDespesa:'EmpConcedido'});
+    D.movimentacoes.push({id:nm,data,desc:`Emp. Concedido — ${nome}`,tipo:'Saída',cat:'Empréstimo',plano:plano||'Empréstimo Concedido',valor,saldo:0,despId:nd});
   } else {
     // Despesa normal ou Investimento
     D.despesas.push({id:nd,data,nome,cat,valor,pago:true,plano,tipoDespesa,obs:pago==='nao'?`Aporte ${socio}`:''});
@@ -4036,7 +4067,7 @@ function salvarDespesa(){
       D.movimentacoes.push({id:nm,data,desc:`${tipoDespesa==='Investimento'?'Investimento':'Despesa'} — ${nome}`,tipo:'Saída',cat:'Despesa Operacional',plano,valor,saldo:0,despId:nd});
     }
   }
-  recalcSaldos();saveData();toast(`${tipoDespesa} lançado: ${nome} — ${fmt(valor)}`);renderPage();
+  recalcSaldos();saveData();const _tipoLabel=tipoDespesa==='EmpConcedido'?'Empréstimo Concedido':tipoDespesa==='EmpRecebido'?'Empréstimo Recebido':tipoDespesa;toast(`${_tipoLabel} lançado: ${nome} — ${fmt(valor)}`);renderPage();
 }
 
 // ═══════ TAXAS DE PRODUTO ═══════
