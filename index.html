@@ -434,16 +434,22 @@ async function loadDataFromSupabase(){
       console.log('Migration v2 (Supabase): removidos',_negR,'produtos custo negativo, vinculados',_lk,'produtos a compras');
     }
     // ═══ MIGRACAO v3: reconciliar vendas com movimentações (recebimento excluído → venda volta a Pendente) ═══
-    if(!d._migrated_venda_receb_sync_v1){
-      d._migrated_venda_receb_sync_v1=true;
+    if(!d._migrated_venda_receb_sync_v2){
+      d._migrated_venda_receb_sync_v2=true;
       let _syncCount=0;
-      const _recebMovs=d.movimentacoes.filter(m=>m.cat==='Recebimento Venda'||m.cat==='Sinal Encomenda');
+      // Match robusto: cat=Recebimento Venda OU Sinal Encomenda OU desc comecando com 'Entrada Venda'
+      const _recebMovs=d.movimentacoes.filter(m=>{
+        if(m.cat==='Recebimento Venda'||m.cat==='Sinal Encomenda')return true;
+        const desc=(m.desc||'').toLowerCase();
+        return desc.startsWith('entrada venda')||desc.startsWith('recebimento ');
+      });
       (d.vendas||[]).forEach(v=>{
         if(v.status==='Pago Total'||v.status==='Pago Parcial'){
-          // Verificar se existe ao menos 1 movimentação de recebimento para esta venda
-          const _temReceb=_recebMovs.some(m=>{
-            const _pts=(m.desc||'').split('—').map(s=>s.trim());
-            return _pts.length>=2&&_pts[1]===v.cliente;
+          // Match case-insensitive, com fallback de includes pra evitar zerar erro de espaco
+          const cliL=(v.cliente||'').toLowerCase().trim();
+          const _temReceb=cliL&&_recebMovs.some(m=>{
+            const desc=(m.desc||'').toLowerCase();
+            return desc.includes(cliL);
           }) || (d.contasReceber||[]).some(c=>c.vendaId===v.id&&c.status==='Recebido');
           if(!_temReceb){
             v.recebido=0;v.saldoReceber=+(v.valorVenda||0);
@@ -831,7 +837,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-h';
+const APP_VERSION = 'v2026.06.08-j';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -1023,15 +1029,22 @@ function loadData(){
         console.log('Migration v2: removidos',_negRemoved,'produtos com custo negativo, vinculados',_linked,'produtos a compras');
       }
       // ═══ MIGRACAO v3: reconciliar vendas com movimentações ═══
-      if(!d._migrated_venda_receb_sync_v1){
-        d._migrated_venda_receb_sync_v1=true;
+      if(!d._migrated_venda_receb_sync_v2){
+        d._migrated_venda_receb_sync_v2=true;
         let _syncCount=0;
-        const _recebMovs=d.movimentacoes.filter(m=>m.cat==='Recebimento Venda'||m.cat==='Sinal Encomenda');
+        // Match robusto: cat=Recebimento Venda OU Sinal Encomenda OU desc comecando com 'Entrada Venda'
+        const _recebMovs=d.movimentacoes.filter(m=>{
+          if(m.cat==='Recebimento Venda'||m.cat==='Sinal Encomenda')return true;
+          const desc=(m.desc||'').toLowerCase();
+          return desc.startsWith('entrada venda')||desc.startsWith('recebimento ');
+        });
         (d.vendas||[]).forEach(v=>{
           if(v.status==='Pago Total'||v.status==='Pago Parcial'){
-            const _temReceb=_recebMovs.some(m=>{
-              const _pts=(m.desc||'').split('—').map(s=>s.trim());
-              return _pts.length>=2&&_pts[1]===v.cliente;
+            // Match case-insensitive, com fallback de includes pra evitar zerar erro de espaco
+            const cliL=(v.cliente||'').toLowerCase().trim();
+            const _temReceb=cliL&&_recebMovs.some(m=>{
+              const desc=(m.desc||'').toLowerCase();
+              return desc.includes(cliL);
             }) || (d.contasReceber||[]).some(c=>c.vendaId===v.id&&c.status==='Recebido');
             if(!_temReceb){
               v.recebido=0;v.saldoReceber=+(v.valorVenda||0);
@@ -2177,12 +2190,13 @@ function renderVendas(m){
     <span class="f-clear" onclick="vendaSearch='';vendaCatFilter='Todos';vendaStatusFilter='Todos';renderPage()">Limpar filtros</span>
   </div>
   <div style="max-height:400px;overflow-y:auto">
-  <table><thead><tr><th>Data</th><th>Cliente</th><th>Produto</th><th class="r">Custo</th><th class="r">Venda</th><th class="r">Lucro</th><th>Margem</th><th>Pgto</th><th class="r">Recebido</th><th class="r">A Receber</th><th>Ação</th></tr></thead>
+  <table><thead><tr><th style="width:48px">ID</th><th>Data</th><th>Cliente</th><th>Produto</th><th class="r">Custo</th><th class="r">Venda</th><th class="r">Lucro</th><th>Margem</th><th>Pgto</th><th class="r">Recebido</th><th class="r">A Receber</th><th>Ação</th></tr></thead>
   <tbody>${fil.map(v=>{
     const lucro=(v.valorVenda||0)-(v.custo||0);const margem=v.valorVenda>0?((lucro/v.valorVenda)*100).toFixed(1):0;
     const _curProd=D.produtos.find(p=>p.id===v.produtoId);
     const _prodOpts=[];if(_curProd)_prodOpts.push(_curProd);disponiveis.forEach(p=>{if(!_curProd||p.id!==_curProd.id)_prodOpts.push(p)});
     return `<tr>
+      <td style="font-size:11px;font-weight:700;color:var(--blue);text-align:center"><span onclick="abrirDetalhesVenda(${v.id})" style="cursor:pointer;text-decoration:underline" title="Abrir detalhes da venda">V#${v.id}</span></td>
       <td>${fmtD(v.data)}</td><td><input value="${(v.cliente||'').replace(/"/g,'&quot;')}" onchange="editarVenda(${v.id},'cliente',this.value)" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;min-width:100px;width:100%" title="Editar cliente / descrição"></td>
       <td><select onchange="trocarProdutoVenda(${v.id},+this.value)" style="font-size:11px;padding:3px 5px;border-radius:5px;border:1px solid var(--border);max-width:220px;cursor:pointer" title="Trocar o produto desta venda (atualiza estoque, custo e lucro)">${_curProd?'':`<option value="0" selected>⚠ ${(v.produto||'produto removido')}</option>`}${_prodOpts.map(p=>`<option value="${p.id}"${p.id===v.produtoId?' selected':''}>[${p.id}] ${p.nome}${p.num?' Nº'+p.num:''} — ${fmt(p.custo)}</option>`).join('')}</select></td>
       <td class="r">${fmt(v.custo)}</td><td class="r"><input type="number" step="0.01" value="${v.valorVenda||''}" onchange="editarVenda(${v.id},'valorVenda',+this.value)" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;text-align:right;width:95px;font-weight:600" title="Editar valor da venda"></td>
@@ -2191,10 +2205,10 @@ function renderVendas(m){
       <td><span class="badge ${v.status==='Pago Total'?'b-estoque':v.status==='Pago Parcial'?'b-reserv':'b-transito'}">${v.forma||'—'}</span><div style="font-size:9px;color:var(--gray)">${v.status}</div></td>
       <td class="r">${fmt(v.recebido)}</td>
       <td class="r" style="color:${(v.saldoReceber||0)>0?'var(--orange)':'var(--green)'};font-weight:600">${fmt(v.saldoReceber)}</td>
-      <td><button class="btn btn-sm" onclick="cancelarVenda(${v.id})" style="background:var(--red);color:#fff;font-size:9px;padding:3px 8px" title="Cancelar venda">✕</button></td>
+      <td style="white-space:nowrap"><button class="btn btn-sm" onclick="abrirDetalhesVenda(${v.id})" style="background:var(--blue);color:#fff;font-size:9px;padding:3px 8px;margin-right:3px" title="Ver detalhes / editar entrada e parcelas">📋</button><button class="btn btn-sm" onclick="cancelarVenda(${v.id})" style="background:var(--red);color:#fff;font-size:9px;padding:3px 8px" title="Cancelar venda">✕</button></td>
     </tr>`}).join('')}
   </tbody>
-  <tfoot><tr><td colspan="3" style="font-weight:700">TOTAIS${fil.length!==D.vendas.length?' (filtrado)':''}</td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,v)=>a+(v.custo||0),0))}</td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,v)=>a+(v.valorVenda||0),0))}</td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,v)=>a+((v.valorVenda||0)-(v.custo||0)),0))}</td><td></td><td></td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,v)=>a+(v.recebido||0),0))}</td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,v)=>a+(v.saldoReceber||0),0))}</td><td></td></tr></tfoot>
+  <tfoot><tr><td colspan="4" style="font-weight:700">TOTAIS${fil.length!==D.vendas.length?' (filtrado)':''}</td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,v)=>a+(v.custo||0),0))}</td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,v)=>a+(v.valorVenda||0),0))}</td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,v)=>a+((v.valorVenda||0)-(v.custo||0)),0))}</td><td></td><td></td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,v)=>a+(v.recebido||0),0))}</td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,v)=>a+(v.saldoReceber||0),0))}</td><td></td></tr></tfoot>
   </table></div></div>`;
 }
 
@@ -2419,7 +2433,7 @@ function salvarVenda(){
       const ajuste=Math.round((restante-valorParcela*nParcelas)*100)/100;
       const recebido=entradaItem;const saldoReceber=Math.round((valorVenda-entradaItem)*100)/100;
       const formaDesc=entradaItem>0?`Ent. ${fmt(entradaItem)} + ${nParcelas}x ${fmt(valorParcela)}`:`${nParcelas}x ${fmt(valorParcela)}`;
-      D.vendas.push({id:nv,data,cliente,telefone,endereco,produto:prod.nome,produtoId:prod.id,custo,valorVenda,recebido,saldoReceber,status:saldoReceber>0?'Pendente':'Pago Total',forma:formaDesc,nParcelas,entrada:entradaItem});
+      D.vendas.push({id:nv,data,cliente,telefone,endereco,produto:prod.nome,produtoId:prod.id,custo,valorVenda,recebido,saldoReceber,status:saldoReceber<=0?'Pago Total':(recebido>0?'Pago Parcial':'Pendente'),forma:formaDesc,nParcelas,entrada:entradaItem});
       prod.status='Vendido';
       prod.precoVenda=valorVenda;
       // Se teve entrada, registrar movimentação de entrada
@@ -2557,6 +2571,253 @@ function trocarProdutoVenda(vendaId,novoProdutoId){
   }
   saveData();renderPage();
   toast('Produto da venda trocado: '+(antigoNome||'—')+' → '+novoProd.nome);
+}
+
+// ═══ MODAL DETALHES DA VENDA ═══
+function abrirDetalhesVenda(vendaId){
+  const v=D.vendas.find(x=>x.id===vendaId);
+  if(!v){toast('Venda nao encontrada',true);return}
+  // Fechar modal existente
+  const existente=document.getElementById('vendaDetalhesModal');
+  if(existente)existente.remove();
+  document.body.insertAdjacentHTML('beforeend',renderDetalhesVendaModal(v));
+  document.body.style.overflow='hidden';
+}
+
+function fecharDetalhesVenda(){
+  const m=document.getElementById('vendaDetalhesModal');
+  if(m)m.remove();
+  document.body.style.overflow='';
+}
+
+function renderDetalhesVendaModal(v){
+  const crs=(D.contasReceber||[]).filter(c=>c.vendaId===v.id);
+  const crsPend=crs.filter(c=>c.status!=='Recebido');
+  const crsReceb=crs.filter(c=>c.status==='Recebido');
+  // movs vinculadas via movIdEstorno + match por descricao
+  const movsPorId=new Set(crs.filter(c=>c.movIdEstorno).map(c=>c.movIdEstorno));
+  const movsRelacionadas=(D.movimentacoes||[]).filter(m=>{
+    if(movsPorId.has(m.id))return true;
+    if(m.tipo!=='Entrada')return false;
+    if(m.cat!=='Recebimento Venda'&&m.cat!=='Sinal Encomenda')return false;
+    const desc=(m.desc||'').toLowerCase();
+    const cli=(v.cliente||'').toLowerCase();
+    return cli&&desc.includes(cli);
+  });
+  const somaCRsPend=crsPend.reduce((a,c)=>a+(+c.valor||0),0);
+  const somaCRsReceb=crsReceb.reduce((a,c)=>a+(+c.valor||0),0);
+  const somaMovsRel=movsRelacionadas.reduce((a,m)=>a+(+m.valor||0),0);
+  const lucro=(+v.valorVenda||0)-(+v.custo||0);
+  const margem=v.valorVenda>0?((lucro/v.valorVenda)*100).toFixed(1):0;
+  const esc=s=>(s==null?'':String(s)).replace(/"/g,'&quot;');
+  return `
+  <div id="vendaDetalhesModal" class="modal-overlay" onclick="if(event.target===this)fecharDetalhesVenda()" style="position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto">
+    <div class="modal-card" style="background:#fff;border-radius:14px;max-width:920px;width:96vw;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,.3);position:relative" onclick="event.stopPropagation()">
+      <button onclick="fecharDetalhesVenda()" style="position:absolute;top:12px;right:14px;background:transparent;border:none;font-size:22px;cursor:pointer;color:var(--gray)">✕</button>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <h2 style="margin:0;font-size:18px">📋 Detalhes da Venda <span style="color:var(--blue)">V#${v.id}</span></h2>
+        <span class="badge ${v.status==='Pago Total'?'b-estoque':v.status==='Pago Parcial'?'b-reserv':'b-transito'}" style="font-size:11px">${v.status||'—'}</span>
+      </div>
+
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:18px">
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--gray);display:block;margin-bottom:3px">📅 Data da venda</label>
+          <input id="dvData" type="date" value="${esc(v.data)}" onchange="atualizarCampoVenda(${v.id},'data',this.value)" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--gray);display:block;margin-bottom:3px">👤 Cliente</label>
+          <input id="dvCliente" value="${esc(v.cliente)}" onchange="atualizarCampoVenda(${v.id},'cliente',this.value)" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--gray);display:block;margin-bottom:3px">📞 Telefone</label>
+          <input id="dvTel" value="${esc(v.telefone)}" onchange="atualizarCampoVenda(${v.id},'telefone',this.value)" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--gray);display:block;margin-bottom:3px">📦 Produto</label>
+          <input value="${esc(v.produto)}" readonly style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;background:#f8fafc;color:var(--gray)" title="Para trocar o produto, use o seletor na tabela de Vendas">
+        </div>
+      </div>
+
+      <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:18px">
+        <h3 style="margin:0 0 10px;font-size:13px;color:var(--dark)">💰 Valores</h3>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px">
+          <div>
+            <label style="font-size:10px;font-weight:600;color:var(--gray);display:block">Custo (estoque)</label>
+            <input value="${fmt(v.custo||0)}" readonly style="width:100%;padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:12px;background:#fff;color:var(--gray);text-align:right">
+          </div>
+          <div>
+            <label style="font-size:10px;font-weight:600;color:var(--gray);display:block">Valor da Venda</label>
+            <input id="dvValor" type="number" step="0.01" value="${v.valorVenda||0}" onchange="atualizarCampoVenda(${v.id},'valorVenda',+this.value)" style="width:100%;padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:12px;text-align:right;font-weight:600">
+          </div>
+          <div>
+            <label style="font-size:10px;font-weight:600;color:var(--green);display:block">💵 Recebido (entrada)</label>
+            <input id="dvRecebido" type="number" step="0.01" value="${v.recebido||0}" onchange="atualizarCampoVenda(${v.id},'recebido',+this.value)" style="width:100%;padding:5px 7px;border:2px solid var(--green);border-radius:5px;font-size:12px;text-align:right;font-weight:700;color:var(--green)" title="Editar diretamente — vai recalcular saldo e status">
+          </div>
+          <div>
+            <label style="font-size:10px;font-weight:600;color:var(--orange);display:block">A Receber (calc.)</label>
+            <input value="${fmt(v.saldoReceber||0)}" readonly style="width:100%;padding:5px 7px;border:1px solid var(--orange);border-radius:5px;font-size:12px;background:#fff;color:var(--orange);text-align:right;font-weight:700">
+          </div>
+          <div>
+            <label style="font-size:10px;font-weight:600;color:var(--gray);display:block">Lucro (calc.)</label>
+            <input value="${fmt(lucro)} (${margem}%)" readonly style="width:100%;padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-size:12px;background:#fff;color:${lucro>=0?'var(--green)':'var(--red)'};text-align:right;font-weight:600">
+          </div>
+        </div>
+        <div style="font-size:10px;color:var(--gray);margin-top:8px;line-height:1.5">💡 Forma: <strong>${esc(v.forma||'—')}</strong> · Editar <strong>Recebido</strong> recalcula automaticamente o "A Receber" e o status. Não cria nem altera movimentação no caixa.</div>
+      </div>
+
+      <div style="margin-bottom:18px">
+        <h3 style="margin:0 0 8px;font-size:13px;color:var(--dark)">📋 Parcelas (Contas a Receber)</h3>
+        ${crs.length===0?'<div style="font-size:11px;color:var(--gray);padding:10px;background:#f8fafc;border-radius:6px;text-align:center">Nenhuma parcela cadastrada.</div>':`
+        <table style="font-size:11px;width:100%;border-collapse:collapse">
+          <thead><tr style="background:#f1f5f9">
+            <th style="padding:6px 8px;text-align:left">#</th>
+            <th style="padding:6px 8px;text-align:left">Descrição</th>
+            <th style="padding:6px 8px;text-align:left">Vencimento</th>
+            <th style="padding:6px 8px;text-align:right">Valor</th>
+            <th style="padding:6px 8px;text-align:center">Status</th>
+            <th style="padding:6px 8px;text-align:left">Recebido em</th>
+          </tr></thead>
+          <tbody>
+            ${crs.map(c=>`<tr style="border-bottom:1px solid #e2e8f0">
+              <td style="padding:5px 8px;font-weight:600">${c.id}</td>
+              <td style="padding:5px 8px"><input value="${esc(c.desc)}" onchange="atualizarCampoCR(${c.id},'desc',this.value)" style="width:100%;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px"></td>
+              <td style="padding:5px 8px"><input type="date" value="${esc(c.vencimento)}" onchange="atualizarCampoCR(${c.id},'vencimento',this.value)" style="font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px"></td>
+              <td style="padding:5px 8px;text-align:right"><input type="number" step="0.01" value="${c.valor||0}" onchange="atualizarCampoCR(${c.id},'valor',+this.value)" style="width:90px;font-size:11px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;text-align:right;font-weight:600"></td>
+              <td style="padding:5px 8px;text-align:center"><select onchange="atualizarCampoCR(${c.id},'status',this.value)" style="font-size:10px;padding:3px 5px;border:1px solid var(--border);border-radius:4px;background:${c.status==='Recebido'?'#d1fae5':'#fef3c7'}"><option value="Pendente"${c.status==='Pendente'?' selected':''}>Pendente</option><option value="Recebido"${c.status==='Recebido'?' selected':''}>Recebido</option></select></td>
+              <td style="padding:5px 8px;font-size:10px;color:var(--gray)">${c.dataReceb?fmtD(c.dataReceb):'—'}</td>
+            </tr>`).join('')}
+          </tbody>
+          <tfoot>
+            <tr style="background:#fff7ed;font-weight:700"><td colspan="3" style="padding:6px 8px">Σ Pendentes (${crsPend.length})</td><td style="padding:6px 8px;text-align:right;color:var(--orange)">${fmt(somaCRsPend)}</td><td colspan="2"></td></tr>
+            <tr style="background:#f0fdf4;font-weight:700"><td colspan="3" style="padding:6px 8px">Σ Recebidas (${crsReceb.length})</td><td style="padding:6px 8px;text-align:right;color:var(--green)">${fmt(somaCRsReceb)}</td><td colspan="2"></td></tr>
+          </tfoot>
+        </table>
+        <div style="font-size:10px;color:var(--gray);margin-top:6px;line-height:1.5">💡 Alterar o <strong>valor</strong> ou <strong>status</strong> de uma parcela atualiza somente a parcela. Para reconciliar Saldo e Recebido use o campo "Recebido" acima.</div>
+        `}
+      </div>
+
+      ${movsRelacionadas.length>0?`
+      <div style="margin-bottom:14px">
+        <h3 style="margin:0 0 8px;font-size:13px;color:var(--dark)">📊 Movimentações no caixa relacionadas a este cliente</h3>
+        <table style="font-size:11px;width:100%;border-collapse:collapse">
+          <thead><tr style="background:#f1f5f9">
+            <th style="padding:5px 8px;text-align:left">ID</th>
+            <th style="padding:5px 8px;text-align:left">Data</th>
+            <th style="padding:5px 8px;text-align:left">Descrição</th>
+            <th style="padding:5px 8px;text-align:left">Categoria</th>
+            <th style="padding:5px 8px;text-align:right">Valor</th>
+            <th style="padding:5px 8px;text-align:center">Vinculada?</th>
+          </tr></thead>
+          <tbody>
+            ${movsRelacionadas.map(m=>{
+              const vinculada=movsPorId.has(m.id);
+              return `<tr style="border-bottom:1px solid #e2e8f0">
+                <td style="padding:5px 8px">M#${m.id}</td>
+                <td style="padding:5px 8px">${fmtD(m.data)}</td>
+                <td style="padding:5px 8px">${(m.desc||'').replace(/&/g,'&amp;').replace(/</g,'&lt;')}</td>
+                <td style="padding:5px 8px;font-size:10px">${m.cat||'—'}</td>
+                <td style="padding:5px 8px;text-align:right;color:var(--green);font-weight:600">${fmt(m.valor||0)}</td>
+                <td style="padding:5px 8px;text-align:center">${vinculada?'<span style="color:var(--green)">✅ Sim</span>':'<span style="color:var(--orange)">⚠ Não</span>'}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+          <tfoot>
+            <tr style="background:#dcfce7;font-weight:700"><td colspan="4" style="padding:6px 8px">Σ movimentações</td><td style="padding:6px 8px;text-align:right;color:var(--green)">${fmt(somaMovsRel)}</td><td></td></tr>
+          </tfoot>
+        </table>
+        <div style="font-size:10px;color:var(--gray);margin-top:6px;line-height:1.5">💡 Estas são movimentações de Recebimento Venda / Sinal Encomenda do <strong>${esc(v.cliente)}</strong>. A coluna "Vinculada?" mostra se a mov está formalmente ligada a uma das parcelas acima.</div>
+      </div>`:''}
+
+      <div style="display:flex;justify-content:flex-end;gap:8px;border-top:1px solid var(--border);padding-top:14px">
+        <button onclick="fecharDetalhesVenda()" class="btn btn-sm">Fechar</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+function atualizarCampoVenda(vendaId,field,value){
+  if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
+  const v=D.vendas.find(x=>x.id===vendaId);if(!v)return;
+  if(field==='data'){v.data=value;}
+  else if(field==='cliente'){v.cliente=(value||'').trim();(D.contasReceber||[]).forEach(c=>{if(c.vendaId===vendaId)c.cliente=v.cliente})}
+  else if(field==='telefone'){v.telefone=(value||'').trim();}
+  else if(field==='valorVenda'){
+    const nv=Math.round((+value||0)*100)/100;
+    if(nv<0){toast('Valor invalido',true);return}
+    v.valorVenda=nv;
+  }
+  else if(field==='recebido'){
+    const nr=Math.round((+value||0)*100)/100;
+    if(nr<0){toast('Recebido invalido',true);return}
+    if(nr>(+v.valorVenda||0)){
+      if(!confirm('Recebido ('+fmt(nr)+') maior que o Valor da Venda ('+fmt(v.valorVenda)+'). Confirma assim mesmo?'))return;
+    }
+    v.recebido=nr;
+  }
+  // Recalcular saldoReceber e status
+  v.saldoReceber=Math.max(0,Math.round(((+v.valorVenda||0)-(+v.recebido||0))*100)/100);
+  v.status=v.saldoReceber<=0&&(+v.recebido||0)>0?'Pago Total':((+v.recebido||0)>0?'Pago Parcial':'Pendente');
+  saveData();
+  // Atualizar modal in-place pra refletir mudancas
+  const modal=document.getElementById('vendaDetalhesModal');
+  if(modal){
+    modal.remove();
+    document.body.insertAdjacentHTML('beforeend',renderDetalhesVendaModal(v));
+  }
+  renderPage();
+  toast('✓ Campo atualizado');
+}
+
+function atualizarCampoCR(crId,field,value){
+  if(!PERMS.edit){toast('Sem permissão para alterar',true);return}
+  const c=D.contasReceber.find(x=>x.id===crId);if(!c)return;
+  if(field==='desc'){c.desc=value;}
+  else if(field==='vencimento'){c.vencimento=value;}
+  else if(field==='valor'){
+    const nv=Math.round((+value||0)*100)/100;
+    if(nv<0){toast('Valor invalido',true);return}
+    c.valor=nv;
+    // Se CR tem movimentacao vinculada (recebida), atualizar tambem
+    if(c.movIdEstorno){
+      const mov=D.movimentacoes.find(m=>m.id===c.movIdEstorno);
+      if(mov)mov.valor=nv;
+    }
+  }
+  else if(field==='status'){
+    const novoStatus=value;
+    if(novoStatus===c.status){return}
+    if(novoStatus==='Recebido'&&c.status!=='Recebido'){
+      // Marcar como recebida — cria movimentacao e atualiza venda
+      c.status='Recebido';c.dataReceb=hoje();
+      const nm=nextId(D.movimentacoes);
+      D.movimentacoes.push({id:nm,data:hoje(),desc:`Recebimento — ${c.cliente||''} — ${c.desc}`,tipo:'Entrada',cat:'Recebimento Venda',plano:'Receita',valor:c.valor,saldo:0});
+      c.movIdEstorno=nm;recalcSaldos();
+      if(c.vendaId){
+        const v=D.vendas.find(x=>x.id===c.vendaId);
+        if(v){v.recebido=(v.recebido||0)+c.valor;v.saldoReceber=Math.max(0,(v.valorVenda||0)-v.recebido);v.status=v.saldoReceber<=0?'Pago Total':'Pago Parcial'}
+      }
+    } else if(novoStatus==='Pendente'&&c.status==='Recebido'){
+      // Reverter — remove movimentacao se existir e atualiza venda
+      if(c.movIdEstorno){
+        D.movimentacoes=D.movimentacoes.filter(m=>m.id!==c.movIdEstorno);
+        recalcSaldos();
+      }
+      if(c.vendaId){
+        const v=D.vendas.find(x=>x.id===c.vendaId);
+        if(v){v.recebido=Math.max(0,(v.recebido||0)-c.valor);v.saldoReceber=Math.max(0,(v.valorVenda||0)-v.recebido);v.status=v.saldoReceber<=0&&v.recebido>0?'Pago Total':(v.recebido>0?'Pago Parcial':'Pendente')}
+      }
+      c.status='Pendente';c.dataReceb='';c.movIdEstorno=0;
+    }
+  }
+  saveData();
+  // Re-renderizar modal pra refletir mudancas
+  const v=c.vendaId?D.vendas.find(x=>x.id===c.vendaId):null;
+  if(v){
+    const modal=document.getElementById('vendaDetalhesModal');
+    if(modal){modal.remove();document.body.insertAdjacentHTML('beforeend',renderDetalhesVendaModal(v))}
+  }
+  renderPage();
+  toast('✓ Parcela atualizada');
 }
 
 // ═══ BACKFILL: sincronizar precoVenda de produtos vendidos com valorVenda das vendas ═══
