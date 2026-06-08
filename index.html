@@ -26,7 +26,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
 .nav-item{padding:10px 14px;font-size:11px;font-weight:600;color:var(--gray);cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap}
 .nav-item:hover{color:var(--blue)}
 .nav-item.active{color:var(--blue);border-bottom-color:var(--blue)}
-.main{padding:16px;max-width:1200px;margin:0 auto}
+.main{padding:16px;max-width:1500px;margin:0 auto}
 .page{display:none}.page.active{display:block}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:10px;margin-bottom:14px}
 .card{background:#fff;border-radius:10px;padding:14px;border-left:4px solid var(--blue);box-shadow:0 1px 3px rgba(0,0,0,.06)}
@@ -837,7 +837,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-j';
+const APP_VERSION = 'v2026.06.08-k';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -2189,8 +2189,8 @@ function renderVendas(m){
     <div class="f-group"><label>Status:</label><select onchange="vendaStatusFilter=this.value;renderPage()">${allStatus.map(c=>`<option${c===vendaStatusFilter?' selected':''}>${c}</option>`).join('')}</select></div>
     <span class="f-clear" onclick="vendaSearch='';vendaCatFilter='Todos';vendaStatusFilter='Todos';renderPage()">Limpar filtros</span>
   </div>
-  <div style="max-height:400px;overflow-y:auto">
-  <table><thead><tr><th style="width:48px">ID</th><th>Data</th><th>Cliente</th><th>Produto</th><th class="r">Custo</th><th class="r">Venda</th><th class="r">Lucro</th><th>Margem</th><th>Pgto</th><th class="r">Recebido</th><th class="r">A Receber</th><th>Ação</th></tr></thead>
+  <div style="max-height:600px;overflow-y:auto;overflow-x:auto">
+  <table style="min-width:1300px"><thead><tr><th style="width:48px">ID</th><th>Data</th><th>Cliente</th><th>Produto</th><th class="r">Custo</th><th class="r">Venda</th><th class="r">Lucro</th><th>Margem</th><th>Pgto</th><th class="r">Recebido</th><th class="r">A Receber</th><th>Ação</th></tr></thead>
   <tbody>${fil.map(v=>{
     const lucro=(v.valorVenda||0)-(v.custo||0);const margem=v.valorVenda>0?((lucro/v.valorVenda)*100).toFixed(1):0;
     const _curProd=D.produtos.find(p=>p.id===v.produtoId);
