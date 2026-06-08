@@ -4015,16 +4015,66 @@ function renderTaxaBox(){
 
 function _buildTaxaItensHTML(){
   if(_taxaItens.length===0)return '<div style="font-size:11px;color:var(--gray);padding:8px 0">Nenhum produto adicionado. Clique em "+ Adicionar produto" abaixo.</div>';
-  return _taxaItens.map((it,i)=>`
+  return _taxaItens.map((it,i)=>{
+    const selProd=D.produtos.find(p=>p.id===it.produtoId);
+    const selLabel=selProd?`${selProd.nome||'(sem nome)'} — ${fmt(selProd.custo)}${selProd.num?' (Nº '+selProd.num+')':''}`:'';
+    return `
     <div style="display:grid;grid-template-columns:1fr 110px 34px;gap:6px;margin-bottom:6px;align-items:center">
-      <select onchange="updateTaxaItem(${i},'produtoId',+this.value)" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px">
-        <option value="0">— selecione o produto —</option>
-        ${D.produtos.map(p=>`<option value="${p.id}"${p.id===it.produtoId?' selected':''}>${(p.nome||'(sem nome)')} — ${fmt(p.custo)}${p.num?' (Nº '+p.num+')':''}</option>`).join('')}
-      </select>
+      <div style="position:relative" id="taxaProdWrap_${i}">
+        <input type="text" class="taxa-prod-search" id="taxaProdSearch_${i}" value="${selLabel}" placeholder="🔍 Pesquisar produto..."
+          onfocus="openTaxaProdDropdown(${i})" oninput="filterTaxaProdDropdown(${i})"
+          style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;width:100%;box-sizing:border-box">
+        <div class="taxa-prod-dropdown" id="taxaProdDrop_${i}" style="display:none;position:absolute;top:100%;left:0;right:0;max-height:200px;overflow-y:auto;background:var(--white);border:1px solid var(--border);border-radius:6px;box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:999;margin-top:2px"></div>
+      </div>
       <input type="number" step="0.01" value="${it.valor||''}" onchange="updateTaxaItem(${i},'valor',+this.value)" placeholder="R$ taxa" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;text-align:right">
       <button onclick="removeTaxaItem(${i})" style="background:var(--red);color:#fff;border:none;width:30px;height:30px;border-radius:6px;font-size:13px;cursor:pointer" title="Remover">✕</button>
-    </div>`).join('');
+    </div>`}).join('');
 }
+
+function openTaxaProdDropdown(idx){
+  const inp=document.getElementById('taxaProdSearch_'+idx);
+  if(inp&&!_taxaItens[idx].produtoId)inp.value='';
+  filterTaxaProdDropdown(idx);
+  const drop=document.getElementById('taxaProdDrop_'+idx);
+  if(drop)drop.style.display='block';
+}
+
+function filterTaxaProdDropdown(idx){
+  const inp=document.getElementById('taxaProdSearch_'+idx);
+  const drop=document.getElementById('taxaProdDrop_'+idx);
+  if(!inp||!drop)return;
+  const q=(inp.value||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+  const filtered=D.produtos.filter(p=>{
+    const txt=`${p.nome||''} ${p.num||''} ${p.cat||''}`.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
+    return !q||txt.indexOf(q)>=0;
+  }).slice(0,30);
+  if(filtered.length===0){
+    drop.innerHTML='<div style="padding:8px 10px;font-size:11px;color:var(--gray)">Nenhum produto encontrado</div>';
+  } else {
+    drop.innerHTML=filtered.map(p=>`<div class="taxa-prod-option" onmousedown="selectTaxaProd(${idx},${p.id})" style="padding:6px 10px;font-size:12px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .15s" onmouseover="this.style.background='var(--bg)'" onmouseout="this.style.background=''">${p.nome||'(sem nome)'} — ${fmt(p.custo)}${p.num?' <span style=color:var(--gray)>(Nº '+p.num+')</span>':''}</div>`).join('');
+  }
+  drop.style.display='block';
+}
+
+function selectTaxaProd(idx,prodId){
+  _taxaItens[idx].produtoId=prodId;
+  const p=D.produtos.find(x=>x.id===prodId);
+  const inp=document.getElementById('taxaProdSearch_'+idx);
+  if(inp)inp.value=p?`${p.nome||'(sem nome)'} — ${fmt(p.custo)}${p.num?' (Nº '+p.num+')':''}`:'';
+  closeTaxaProdDropdown(idx);
+}
+
+function closeTaxaProdDropdown(idx){
+  const drop=document.getElementById('taxaProdDrop_'+idx);
+  if(drop)drop.style.display='none';
+}
+
+// Fechar dropdown ao clicar fora
+document.addEventListener('click',function(e){
+  if(!e.target.closest('.taxa-prod-search')&&!e.target.closest('.taxa-prod-dropdown')){
+    document.querySelectorAll('.taxa-prod-dropdown').forEach(d=>d.style.display='none');
+  }
+});
 
 function _updateTaxaItensWrap(){
   const el=document.getElementById('taxaItensWrap');
