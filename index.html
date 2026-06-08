@@ -1306,26 +1306,33 @@ function desdobrarProdutoEstoque(prodId){
   if(p.status&&p.status!=='Em Estoque'){
     if(!confirm(`⚠ Produto está com status "${p.status}". Desdobrar mesmo assim?\n\n(Os duplicados nascerão com status "Em Estoque")`))return;
   }
-  const defQtd=p.qtd&&p.qtd>1?p.qtd:10;
-  const inp=prompt(`Desdobrar "${p.nome||'(sem nome)'}" em quantas unidades separadas?\n\nCada unidade ficará com qty=1 e o mesmo custo (${fmt(p.custo)}).\nTotal: ${fmt((p.custo||0)*defQtd)} (custo × unidades).\n\nSe quiser ajustar o custo unitário antes, cancela e edita o Custo na tabela primeiro.`,String(defQtd));
+  const defQtd=p.qtd&&p.qtd>1?p.qtd:2;
+  const custoTotal=+(p.custo||0);
+  const inp=prompt(`Desdobrar "${p.nome||'(sem nome)'}" em quantas unidades?\n\nCusto total atual: ${fmt(custoTotal)}\nO custo será DIVIDIDO entre as unidades.\n\nEx: 8 unidades → ${fmt(custoTotal/8)} cada`,String(defQtd));
   if(!inp)return;
   const n=parseInt(inp);
   if(isNaN(n)||n<2){toast('Número inválido (mínimo 2)',true);return}
+  const custoUnit=Math.round((custoTotal/n)*100)/100;
+  const precoUnit=p.precoVenda?Math.round((+(p.precoVenda)/n)*100)/100:0;
   const baseName=(p.nome||'Produto').replace(/\s*#\d+$/,'');
   const tinhaNumero=/\s*#\d+$/.test(p.nome||'');
   if(!tinhaNumero)p.nome=baseName+' #1';
   p.qtd=1;
+  p.custo=custoUnit;
+  if(p.precoVenda)p.precoVenda=precoUnit;
   for(let i=2;i<=n;i++){
     const copia=JSON.parse(JSON.stringify(p));
     copia.id=D.nextProdId++;
     copia.nome=baseName+' #'+i;
     copia.qtd=1;
+    copia.custo=custoUnit;
+    if(copia.precoVenda)copia.precoVenda=precoUnit;
     copia.status='Em Estoque';
     delete copia.cliente;
     D.produtos.push(copia);
   }
   saveData();renderPage();
-  toast(`✓ Desdobrado em ${n} unidades: ${baseName} #1 a #${n}`);
+  toast(`✓ Desdobrado em ${n} unidades a ${fmt(custoUnit)} cada: ${baseName} #1 a #${n}`);
 }
 
 function excluirProdutoEstoque(prodId){
@@ -3580,19 +3587,26 @@ function desdobrarTodosMov(movId){
   if(prods.length===0){toast('Nenhum produto com qty>1 nesta movimentação',true);return}
   const totalUnid=prods.reduce((a,p)=>a+(p.qtd||1),0);
   const novasUnid=prods.reduce((a,p)=>a+(p.qtd||1)-1,0);
-  if(!confirm(`Desdobrar ${prods.length} produto(s) com qty>1 em ${totalUnid} produtos separados?\n\nSerão criadas ${novasUnid} nova(s) entrada(s) no estoque (cada produto vira #1, #2, ... #N).\n\nConfirma?`))return;
+  if(!confirm(`Desdobrar ${prods.length} produto(s) com qty>1 em ${totalUnid} produtos separados?\n\nO custo de cada item será DIVIDIDO pelas unidades.\nSerão criadas ${novasUnid} nova(s) entrada(s) no estoque.\n\nConfirma?`))return;
   let expandidos=0;
   prods.forEach(p=>{
     const n=p.qtd||1;
+    const custoTotal=+(p.custo||0);
+    const custoUnit=Math.round((custoTotal/n)*100)/100;
+    const precoUnit=p.precoVenda?Math.round((+(p.precoVenda)/n)*100)/100:0;
     const baseName=(p.nome||'Produto').replace(/\s*#\d+$/,'');
     const tinhaNumero=/\s*#\d+$/.test(p.nome||'');
     if(!tinhaNumero)p.nome=baseName+' #1';
     p.qtd=1;
+    p.custo=custoUnit;
+    if(p.precoVenda)p.precoVenda=precoUnit;
     for(let i=2;i<=n;i++){
       const copia=JSON.parse(JSON.stringify(p));
       copia.id=D.nextProdId++;
       copia.nome=baseName+' #'+i;
       copia.qtd=1;
+      copia.custo=custoUnit;
+      if(copia.precoVenda)copia.precoVenda=precoUnit;
       copia.status='Em Estoque';
       delete copia.cliente;
       D.produtos.push(copia);
@@ -3600,7 +3614,7 @@ function desdobrarTodosMov(movId){
     }
   });
   saveData();refreshMovModal(movId);
-  toast(`✓ ${prods.length} item(s) desdobrado(s) — ${expandidos} nova(s) unidade(s) criada(s)`);
+  toast(`✓ ${prods.length} item(s) desdobrado(s) — ${expandidos} nova(s) unidade(s) criada(s) (custos divididos)`);
 }
 
 function desdobrarProdItemMov(prodId,movId){
@@ -3609,28 +3623,35 @@ function desdobrarProdItemMov(prodId,movId){
   if(p.status&&p.status!=='Em Estoque'){
     if(!confirm(`⚠ Produto está com status "${p.status}". Desdobrar mesmo assim?\n\n(Os duplicados nascerão com status "Em Estoque")`))return;
   }
-  const defQtd=p.qtd&&p.qtd>1?p.qtd:10;
-  const inp=prompt(`Desdobrar "${p.nome||'(sem nome)'}" em quantas unidades separadas?\n\nCada unidade ficará com qty=1 e o mesmo custo (${fmt(p.custo)}).\nO total: ${fmt((p.custo||0)*defQtd)} (custo × unidades)`,String(defQtd));
+  const defQtd=p.qtd&&p.qtd>1?p.qtd:2;
+  const custoTotal=+(p.custo||0);
+  const inp=prompt(`Desdobrar "${p.nome||'(sem nome)'}" em quantas unidades?\n\nCusto total atual: ${fmt(custoTotal)}\nO custo será DIVIDIDO entre as unidades.\n\nEx: 8 unidades → ${fmt(custoTotal/8)} cada`,String(defQtd));
   if(!inp)return;
   const n=parseInt(inp);
   if(isNaN(n)||n<2){toast('Número inválido (mínimo 2)',true);return}
+  const custoUnit=Math.round((custoTotal/n)*100)/100;
+  const precoUnit=p.precoVenda?Math.round((+(p.precoVenda)/n)*100)/100:0;
   // Renomear original com sufixo #1 se ainda nao tiver
   const baseName=(p.nome||'Produto').replace(/\s*#\d+$/,'');
   const tinhaNumero=/\s*#\d+$/.test(p.nome||'');
   if(!tinhaNumero)p.nome=baseName+' #1';
   p.qtd=1;
+  p.custo=custoUnit;
+  if(p.precoVenda)p.precoVenda=precoUnit;
   // Criar N-1 copias
   for(let i=2;i<=n;i++){
     const copia=JSON.parse(JSON.stringify(p));
     copia.id=D.nextProdId++;
     copia.nome=baseName+' #'+i;
     copia.qtd=1;
+    copia.custo=custoUnit;
+    if(copia.precoVenda)copia.precoVenda=precoUnit;
     copia.status='Em Estoque';
     delete copia.cliente;
     D.produtos.push(copia);
   }
   saveData();refreshMovModal(movId);
-  toast(`✓ Desdobrado em ${n} unidades: ${baseName} #1 a #${n}`);
+  toast(`✓ Desdobrado em ${n} unidades a ${fmt(custoUnit)} cada: ${baseName} #1 a #${n}`);
 }
 
 function sincronizarValorMov(movId){
