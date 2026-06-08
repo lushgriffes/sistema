@@ -838,7 +838,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-m';
+const APP_VERSION = 'v2026.06.08-n';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -3251,8 +3251,9 @@ function gerarPDFPedido(movId){
 }
 
 // Replicar logica de filtro da pagina Estoque
-function _filtrarEstoque(){
-  let fil=D.produtos.filter(p=>p.status!=='Vendido');
+// incluirVendidos=true ignora a exclusao automatica de Vendidos (usado pelo Excel)
+function _filtrarEstoque(incluirVendidos){
+  let fil=incluirVendidos?D.produtos.slice():D.produtos.filter(p=>p.status!=='Vendido');
   if(typeof estFilter!=='undefined'&&estFilter!=='Todos')fil=fil.filter(p=>p.cat===estFilter);
   if(typeof estStatus!=='undefined'&&estStatus!=='Todos')fil=fil.filter(p=>p.status===estStatus);
   const _ic=s=>(s==null?'':String(s)).toLowerCase();
@@ -3340,13 +3341,20 @@ function gerarXLSX(filename,sheets){
 }
 
 function gerarExcelEstoque(){
-  const prods=_filtrarEstoque();
-  const isFiltrado=prods.length!==D.produtos.filter(p=>p.status!=='Vendido').length;
-  gerarXLSX(`LUSH-GRIFFES-Estoque${isFiltrado?'-Filtrado':''}`,[{
-    nome:'Estoque',
-    cols:['ID','Data Entrada','Produto','Marca','No','Rastreio','Cod. Fornecedor','No Pedido','Categoria','Qtd','Custo','Pc. Venda','Status','Observacoes'],
-    rows:prods.map(p=>[p.id,p.dataEntrada||'',p.nome||'',p.marca||'',p.num||'',p.rastreio||'',p.codFornecedor||'',p.numPedido||'',p.cat||'',p.qtd||1,+p.custo||0,+p.precoVenda||0,p.status||'',p.obs||''])
-  }]);
+  // Aplicar filtros visuais (categoria, busca, colunas), mas trazer TODOS os status
+  // Se o usuario filtrou por Status especifico, ja vai limitar; senao, vem tudo
+  const todosFiltrados=_filtrarEstoque(true);
+  const ativos=todosFiltrados.filter(p=>p.status!=='Vendido');
+  const vendidos=todosFiltrados.filter(p=>p.status==='Vendido');
+  const cols=['ID','Data Entrada','Produto','Marca','No','Rastreio','Cod. Fornecedor','No Pedido','Categoria','Qtd','Custo','Pc. Venda','Status','Observacoes'];
+  const mapper=p=>[p.id,p.dataEntrada||'',p.nome||'',p.marca||'',p.num||'',p.rastreio||'',p.codFornecedor||'',p.numPedido||'',p.cat||'',p.qtd||1,+p.custo||0,+p.precoVenda||0,p.status||'',p.obs||''];
+  const isFiltrado=todosFiltrados.length!==D.produtos.length;
+  const sheets=[
+    {nome:'Estoque Ativo',cols,rows:ativos.map(mapper)},
+    {nome:'Vendidos',cols,rows:vendidos.map(mapper)},
+    {nome:'Todos',cols,rows:todosFiltrados.map(mapper)},
+  ];
+  gerarXLSX(`LUSH-GRIFFES-Estoque${isFiltrado?'-Filtrado':''}`,sheets);
 }
 
 function gerarExcelContasReceber(){
