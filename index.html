@@ -687,6 +687,72 @@ async function restaurarBackupNuvem(backupId){
   }catch(e){toast('Erro ao restaurar: '+e.message,true)}
 }
 
+// ═══ RECONCILIAR VENDAS COM CRs ═══
+// Pra cada venda onde v.saldoReceber != Σ CRs Pendentes vinculadas:
+// novoRecebido = max(0, v.valorVenda - Σ CRs Pendentes)
+// Ajusta v.recebido, v.saldoReceber, v.status
+function reconciliarVendasComCRs(){
+  if(!PERMS.edit){toast('Sem permissao para alterar',true);return}
+  const ajustes=[];
+  (D.vendas||[]).forEach(v=>{
+    const somaCRsPend=(D.contasReceber||[]).filter(c=>c.vendaId===v.id&&c.status!=='Recebido').reduce((a,c)=>a+(+c.valor||0),0);
+    const novoRecebido=Math.max(0,Math.round(((+v.valorVenda||0)-somaCRsPend)*100)/100);
+    const novoSaldo=somaCRsPend;
+    const novoStatus=novoSaldo<=0&&novoRecebido>0?'Pago Total':(novoRecebido>0?'Pago Parcial':'Pendente');
+    if(Math.abs(novoRecebido-(+v.recebido||0))>0.005){
+      // Procurar movimentacao do cliente no caixa com mesmo valor pra mostrar como evidencia
+      const cliL=(v.cliente||'').toLowerCase().trim();
+      const movsCli=(D.movimentacoes||[]).filter(m=>{
+        if(m.tipo!=='Entrada')return false;
+        if(m.cat!=='Recebimento Venda'&&m.cat!=='Sinal Encomenda')return false;
+        const desc=(m.desc||'').toLowerCase();
+        return cliL&&desc.includes(cliL);
+      });
+      const somaMovsCli=movsCli.reduce((a,m)=>a+(+m.valor||0),0);
+      ajustes.push({
+        v:v,
+        antigoRecebido:+v.recebido||0,
+        novoRecebido,
+        antigoSaldo:+v.saldoReceber||0,
+        novoSaldo,
+        antigoStatus:v.status,
+        novoStatus,
+        diferenca:novoRecebido-(+v.recebido||0),
+        movsCliCount:movsCli.length,
+        somaMovsCli,
+      });
+    }
+  });
+  if(ajustes.length===0){
+    alert('✓ Tudo OK! Nao ha vendas divergentes.\n\nv.recebido = v.valorVenda - Σ CRs Pendentes em todas as vendas.');
+    return;
+  }
+  // Montar resumo pra confirmacao
+  let msg='RECONCILIAR '+ajustes.length+' VENDA(S) COM SUAS PARCELAS PENDENTES\n\n';
+  msg+='Vai ajustar v.recebido = valorVenda - Σ CRs Pendentes em cada uma.\n';
+  msg+='NAO mexe em movimentacoes do caixa, NAO altera CRs, NAO altera valorVenda.\n\n';
+  msg+='Vendas que serao ajustadas:\n';
+  ajustes.forEach(a=>{
+    msg+='\n V#'+a.v.id+' '+(a.v.cliente||'')+' / '+(a.v.produto||'')+':\n';
+    msg+='   Valor venda: '+fmt(a.v.valorVenda)+'\n';
+    msg+='   Recebido: '+fmt(a.antigoRecebido)+' -> '+fmt(a.novoRecebido)+' (dif: '+(a.diferenca>=0?'+':'')+fmt(a.diferenca)+')\n';
+    msg+='   Saldo a receber: '+fmt(a.antigoSaldo)+' -> '+fmt(a.novoSaldo)+'\n';
+    msg+='   Status: '+a.antigoStatus+' -> '+a.novoStatus+'\n';
+    msg+='   Mov(s) Entrada/Recebimento do '+(a.v.cliente||'?')+' no caixa: '+a.movsCliCount+' = '+fmt(a.somaMovsCli)+'\n';
+  });
+  const totalAjuste=ajustes.reduce((a,x)=>a+x.diferenca,0);
+  msg+='\nTotal de Recebido a adicionar: '+fmt(totalAjuste)+'\n\nConfirma a aplicacao?';
+  if(!confirm(msg)){toast('Reconciliacao cancelada');return}
+  // Aplicar
+  ajustes.forEach(a=>{
+    a.v.recebido=a.novoRecebido;
+    a.v.saldoReceber=a.novoSaldo;
+    a.v.status=a.novoStatus;
+  });
+  saveData();renderPage();
+  toast('✅ '+ajustes.length+' venda(s) reconciliada(s)');
+}
+
 // ═══ DIAGNOSTICO A RECEBER ═══
 function diagnosticarAReceber(){
   const log=[];
@@ -838,7 +904,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-n';
+const APP_VERSION = 'v2026.06.08-o';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -5329,7 +5395,7 @@ function renderContasReceber(){
     <div class="f-group"><label>Status:</label><select onchange="crStatusFilter=this.value;renderPage()"><option${crStatusFilter==='Todos'?' selected':''}>Todos</option><option${crStatusFilter==='Pendente'?' selected':''}>Pendente</option><option${crStatusFilter==='Recebido'?' selected':''}>Recebido</option></select></div>
     <span class="f-clear" onclick="crSearch='';crStatusFilter='Todos';renderPage()">Limpar</span>
   </div>
-  <div style="text-align:right;margin-bottom:10px;display:flex;gap:4px;justify-content:flex-end"><button class="btn btn-sm" onclick="diagnosticarAReceber()" style="background:var(--purple);color:#fff;padding:4px 10px" title="Diagnosticar divergencias">🔍</button><button class="btn btn-sm" onclick="gerarPDFContasReceber()" style="background:var(--orange);color:#fff;padding:4px 10px" title="Baixar PDF de Contas a Receber">📄</button><button class="btn btn-sm" onclick="gerarExcelContasReceber()" style="background:#16a34a;color:#fff;padding:4px 10px" title="Baixar Excel de Contas a Receber">📊</button></div>
+  <div style="text-align:right;margin-bottom:10px;display:flex;gap:4px;justify-content:flex-end"><button class="btn btn-sm" onclick="reconciliarVendasComCRs()" style="background:#0891b2;color:#fff;padding:4px 10px" title="Reconciliar v.recebido das vendas com as CRs Pendentes (resolve divergencias)">🔧 Reconciliar</button><button class="btn btn-sm" onclick="diagnosticarAReceber()" style="background:var(--purple);color:#fff;padding:4px 10px" title="Diagnosticar divergencias">🔍</button><button class="btn btn-sm" onclick="gerarPDFContasReceber()" style="background:var(--orange);color:#fff;padding:4px 10px" title="Baixar PDF de Contas a Receber">📄</button><button class="btn btn-sm" onclick="gerarExcelContasReceber()" style="background:#16a34a;color:#fff;padding:4px 10px" title="Baixar Excel de Contas a Receber">📊</button></div>
   <div class="box"><h3>Contas a Receber (${fil.length})</h3><div id="crTableScroll" style="max-height:500px;overflow-y:auto">
   <table><thead><tr><th>Vencimento</th><th>Descrição</th><th>Cliente</th><th class="r">Valor</th><th>Status</th><th>Ação</th></tr></thead><tbody>
   ${fil.map(c=>{
