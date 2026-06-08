@@ -264,11 +264,61 @@ async function initApp(user){
   }
   // Carregar dados
   await loadDataFromSupabase();
+  // AUTO-RECONCILIACAO: forca v.saldoReceber/recebido = Σ CRs Pendentes em toda venda
+  // Salva 1x no Supabase se houver mudanca (fonte unica garantida)
+  await autoReconciliarVendasAoCarregar();
   document.getElementById('loginScreen').style.display='none';
   document.getElementById('appWrap').style.display='';
   buildNav();renderPage();
   // Backup diario automatico na nuvem (roda em background apos carregar)
   verificarBackupDiario().catch(e=>console.warn('Erro backup diario:',e));
+}
+
+// ═══ AUTO-RECONCILIACAO NO STARTUP ═══
+// Pra cada venda:
+//   v.saldoReceber = Σ CRs Pendentes vinculadas
+//   v.recebido = max(0, v.valorVenda - v.saldoReceber)
+//   v.status recalculado
+// Faz log no console (silencioso pra UI). Salva 1x no Supabase se houver mudanca.
+async function autoReconciliarVendasAoCarregar(){
+  if(!D||!D.vendas||!D.contasReceber)return;
+  const mudancas=[];
+  D.vendas.forEach(v=>{
+    const somaCRsPend=D.contasReceber.filter(c=>c.vendaId===v.id&&c.status!=='Recebido').reduce((a,c)=>a+(+c.valor||0),0);
+    const novoSaldo=Math.round(somaCRsPend*100)/100;
+    const novoRecebido=Math.max(0,Math.round(((+v.valorVenda||0)-novoSaldo)*100)/100);
+    const novoStatus=novoSaldo<=0&&novoRecebido>0?'Pago Total':(novoRecebido>0?'Pago Parcial':'Pendente');
+    const mudouRec=Math.abs(novoRecebido-(+v.recebido||0))>0.005;
+    const mudouSaldo=Math.abs(novoSaldo-(+v.saldoReceber||0))>0.005;
+    if(mudouRec||mudouSaldo){
+      mudancas.push({id:v.id,cliente:v.cliente,antigoRecebido:v.recebido,novoRecebido,antigoSaldo:v.saldoReceber,novoSaldo,antigoStatus:v.status,novoStatus});
+      v.recebido=novoRecebido;
+      v.saldoReceber=novoSaldo;
+      v.status=novoStatus;
+    }
+  });
+  if(mudancas.length>0){
+    console.log('[AUTO-RECONCILIACAO] '+mudancas.length+' venda(s) ajustada(s) ao carregar:');
+    mudancas.forEach(m=>console.log(`  V#${m.id} ${m.cliente}: recebido ${m.antigoRecebido}->${m.novoRecebido} | saldo ${m.antigoSaldo}->${m.novoSaldo} | ${m.antigoStatus}->${m.novoStatus}`));
+    // Salvar DIRETO no Supabase (pula proteção de lock entre PCs, pois e um ajuste deterministico)
+    try{
+      localStorage.setItem(STORAGE_KEY,JSON.stringify(D));
+      if(userProfile){
+        const agora=new Date().toISOString();
+        D._savedAt=agora;
+        D._savedBy=_sessionToken;
+        const{error}=await SB.from('app_data').upsert({org_id:userProfile.org_id,data:D,updated_at:agora},{onConflict:'org_id'});
+        if(error){console.warn('[AUTO-RECONCILIACAO] erro ao salvar:',error);}
+        else{
+          _lastKnownUpdatedAt=agora;
+          _lastKnownSessionToken=_sessionToken;
+          console.log('[AUTO-RECONCILIACAO] salvo no Supabase');
+        }
+      }
+    }catch(e){console.warn('[AUTO-RECONCILIACAO] exception ao salvar:',e)}
+  } else {
+    console.log('[AUTO-RECONCILIACAO] tudo OK, nada a ajustar');
+  }
 }
 
 async function loadDataFromSupabase(){
@@ -944,7 +994,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-s';
+const APP_VERSION = 'v2026.06.08-t';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
