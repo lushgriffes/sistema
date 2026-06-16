@@ -338,6 +338,10 @@ async function loadDataFromSupabase(){
     if(d.categoriasMov&&!d.categoriasMov.includes('Retirada Sócio'))d.categoriasMov.push('Retirada Sócio');
     if(d.categoriasMov&&!d.categoriasMov.includes('Devolução de Venda'))d.categoriasMov.push('Devolução de Venda');
     if(d.categoriasMov&&!d.categoriasMov.includes('Empréstimo'))d.categoriasMov.push('Empréstimo');
+    if(!d.formasPagamento||!d.formasPagamento.length){d.formasPagamento=JSON.parse(JSON.stringify(DEFAULT_DATA.formasPagamento));d.nextFormaPagtoId=DEFAULT_DATA.nextFormaPagtoId}
+    if(!d.prefDefaults)d.prefDefaults={comissao:0.05,margem:0.5};
+    if(!d.formasPagamento||!d.formasPagamento.length){d.formasPagamento=JSON.parse(JSON.stringify(DEFAULT_DATA.formasPagamento));d.nextFormaPagtoId=DEFAULT_DATA.nextFormaPagtoId}
+    if(!d.prefDefaults)d.prefDefaults={comissao:0.05,margem:0.5};
     if(!d.recebimentos)d.recebimentos=[];
     if(!d.categoriasRecebimento||!d.categoriasRecebimento.length)d.categoriasRecebimento=(DEFAULT_DATA.categoriasRecebimento||["Reembolso","Rendimento Financeiro","Empréstimo Recebido","Outras Receitas"]);
     if(!d.nextRecebId)d.nextRecebId=(d.recebimentos.reduce((m,r)=>Math.max(m,r.id||0),0)+1);
@@ -994,7 +998,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-v';
+const APP_VERSION = 'v2026.06.08-w';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -1021,6 +1025,31 @@ const DEFAULT_DATA = {
     {data:"2024-11-06",taxa:11.25},{data:"2024-12-11",taxa:12.25},
     {data:"2025-01-29",taxa:13.25},{data:"2025-03-19",taxa:14.25},{data:"2025-05-07",taxa:14.75}
   ],
+  formasPagamento: [
+    {id:1,nome:'PIX',taxa:0},
+    {id:2,nome:'Dinheiro',taxa:0},
+    {id:3,nome:'Débito',taxa:0.015},
+    {id:4,nome:'Cartão 1x',taxa:0.03},
+    {id:5,nome:'Cartão 2x',taxa:0.037},
+    {id:6,nome:'Cartão 3x',taxa:0.044},
+    {id:7,nome:'Cartão 4x',taxa:0.051},
+    {id:8,nome:'Cartão 5x',taxa:0.058},
+    {id:9,nome:'Cartão 6x',taxa:0.065},
+    {id:10,nome:'Cartão 7x',taxa:0.072},
+    {id:11,nome:'Cartão 8x',taxa:0.079},
+    {id:12,nome:'Cartão 9x',taxa:0.086},
+    {id:13,nome:'Cartão 10x',taxa:0.093},
+    {id:14,nome:'Cartão 11x',taxa:0.1},
+    {id:15,nome:'Cartão 12x',taxa:0.107},
+    {id:16,nome:'Cartão 13x',taxa:0.114},
+    {id:17,nome:'Cartão 14x',taxa:0.121},
+    {id:18,nome:'Cartão 15x',taxa:0.128},
+    {id:19,nome:'Cartão 16x',taxa:0.135},
+    {id:20,nome:'Cartão 17x',taxa:0.142},
+    {id:21,nome:'Cartão 18x',taxa:0.149}
+  ],
+  nextFormaPagtoId: 22,
+  prefDefaults: {comissao:0.05, margem:0.5},
   nextProdId: 1,
   nextPedidoCompra: 1,
   anotacoes: [],
@@ -1310,6 +1339,7 @@ function getTabs(){
     {name:'Estoque',icon:'📦',perm:'view'},
     {name:'Encomendas',icon:'🤝',perm:'view'},
     {name:'Vendas',icon:'🏷️',perm:'view'},
+    {name:'Precificação',icon:'🧮',perm:'view'},
     {name:'Movimentações',icon:'💰',perm:'view'},
     {name:'Despesas',icon:'💸',perm:'view'},
     {name:'A Pagar',icon:'📋',perm:'view'},
@@ -1343,7 +1373,7 @@ function renderPage(){
   const _selStartPg=_focusPgId&&typeof _focusEl.selectionStart==='number'?_focusEl.selectionStart:null;
   const _selEndPg=_focusPgId&&typeof _focusEl.selectionEnd==='number'?_focusEl.selectionEnd:null;
   const m=calcMetrics();
-  const fns=[renderDash,renderDashPeriodo,renderBalanco,renderEstoque,renderEncomendas,renderVendas,renderMov,renderDesp,renderContasPagar,renderContasReceber,renderNovaCompra,renderNovoAporte,renderPedidos,renderCorrecao,renderConfig,renderFornecedores,renderRecebimentos];
+  const fns=[renderDash,renderDashPeriodo,renderBalanco,renderEstoque,renderEncomendas,renderVendas,renderPrecificacao,renderMov,renderDesp,renderContasPagar,renderContasReceber,renderNovaCompra,renderNovoAporte,renderPedidos,renderCorrecao,renderConfig,renderFornecedores,renderRecebimentos];
   if(userProfile&&userProfile.role==='admin')fns.push(renderUsuarios);
   const tabIdx=Math.min(activeTab,fns.length-1);
   document.getElementById('main').innerHTML=`<div class="page active">${fns[tabIdx](m)}</div>`;
@@ -2449,6 +2479,181 @@ function renderVendas(m){
   </tbody>
   <tfoot><tr><td colspan="4" style="font-weight:700">TOTAIS${fil.length!==D.vendas.length?' (filtrado)':''}</td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,v)=>a+(v.custo||0),0))}</td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,v)=>a+(v.valorVenda||0),0))}</td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,v)=>a+((v.valorVenda||0)-(v.custo||0)),0))}</td><td></td><td></td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,v)=>a+(v.recebido||0),0))}</td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,v)=>a+(v.saldoReceber||0),0))}</td><td></td></tr></tfoot>
   </table></div></div>`;
+}
+
+// ═══════ PRECIFICACAO ═══════
+let _prefSource='estoque', _prefProdId=0, _prefNome='', _prefCusto=0, _prefTaxaFixa=0, _prefFormaId=1, _prefComissao=0.05, _prefMargem=0.5;
+let _prefInited=false;
+
+function _initPrefDefaults(){
+  if(_prefInited)return;
+  _prefInited=true;
+  // Usar defaults salvos em D, se houver
+  const pd=(D&&D.prefDefaults)||{comissao:0.05,margem:0.5};
+  _prefComissao=+pd.comissao||0.05;
+  _prefMargem=+pd.margem||0.5;
+}
+
+function calcularPreco(custo,taxaFixa,taxaPgto,comissao,margem){
+  const denom=1-taxaPgto-comissao-margem;
+  if(denom<=0)return {preco:0,erro:'Soma das porcentagens (taxa pgto + comissão + margem) >= 100%. Reveja os percentuais.'};
+  const preco=(custo+taxaFixa)/denom;
+  const valorPgto=preco*taxaPgto;
+  const valorCom=preco*comissao;
+  const lucro=preco-custo-taxaFixa-valorPgto-valorCom;
+  const margemReal=preco>0?lucro/preco:0;
+  return {preco,valorPgto,valorCom,lucro,margemReal};
+}
+
+function renderPrecificacao(){
+  _initPrefDefaults();
+  if(!D.formasPagamento||!D.formasPagamento.length){
+    D.formasPagamento=JSON.parse(JSON.stringify(DEFAULT_DATA.formasPagamento));
+    D.nextFormaPagtoId=DEFAULT_DATA.nextFormaPagtoId;
+  }
+  // Calcular
+  let custo=_prefCusto,nome=_prefNome;
+  if(_prefSource==='estoque'&&_prefProdId){
+    const p=D.produtos.find(x=>x.id===_prefProdId);
+    if(p){custo=+p.custo||0;nome=p.nome||''}
+  }
+  const forma=D.formasPagamento.find(f=>f.id===_prefFormaId)||D.formasPagamento[0];
+  const taxaPgto=forma?+forma.taxa||0:0;
+  const r=calcularPreco(+custo||0,+_prefTaxaFixa||0,taxaPgto,+_prefComissao||0,+_prefMargem||0);
+  const esc=s=>(s==null?'':String(s)).replace(/"/g,'&quot;');
+  const disponiveis=D.produtos.filter(p=>p.status!=='Vendido');
+  return `
+  <div class="form-section">
+    <h2>🧮 Calculadora de Preço de Venda</h2>
+    <p style="font-size:12px;color:var(--gray);margin-bottom:14px">Calcule o preço ideal aplicando: taxa do meio de pagamento, comissão e margem desejada. Use o produto cadastrado no estoque ou simule.</p>
+
+    <div class="box" style="margin-bottom:14px">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;align-items:end">
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--gray);display:block;margin-bottom:3px">Fonte do produto</label>
+          <select onchange="_prefSource=this.value;_prefProdId=0;renderPage()" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+            <option value="estoque"${_prefSource==='estoque'?' selected':''}>📦 Do estoque</option>
+            <option value="simular"${_prefSource==='simular'?' selected':''}>💡 Simular novo</option>
+          </select>
+        </div>
+        ${_prefSource==='estoque'?`
+        <div style="grid-column:span 2">
+          <label style="font-size:11px;font-weight:600;color:var(--gray);display:block;margin-bottom:3px">Selecione o produto</label>
+          <select onchange="_prefProdId=+this.value;renderPage()" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+            <option value="0">-- escolha --</option>
+            ${disponiveis.map(p=>`<option value="${p.id}"${p.id===_prefProdId?' selected':''}>[${p.id}] ${esc(p.nome)} - Custo: ${fmt(p.custo)}</option>`).join('')}
+          </select>
+        </div>
+        `:`
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--gray);display:block;margin-bottom:3px">Nome do produto</label>
+          <input value="${esc(_prefNome)}" onblur="_prefNome=this.value;renderPage()" placeholder="Ex: Tênis ON Cinza" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--gray);display:block;margin-bottom:3px">Custo (R$)</label>
+          <input type="number" step="0.01" value="${_prefCusto||''}" onblur="_prefCusto=+this.value||0;renderPage()" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;text-align:right">
+        </div>
+        `}
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--gray);display:block;margin-bottom:3px">Taxa fixa do produto (R$)</label>
+          <input type="number" step="0.01" value="${_prefTaxaFixa||''}" onblur="_prefTaxaFixa=+this.value||0;renderPage()" placeholder="ex: frete, embalagem" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;text-align:right">
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--gray);display:block;margin-bottom:3px">Forma de pagamento</label>
+          <select onchange="_prefFormaId=+this.value;renderPage()" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px">
+            ${D.formasPagamento.map(f=>`<option value="${f.id}"${f.id===_prefFormaId?' selected':''}>${esc(f.nome)} (${(f.taxa*100).toFixed(2)}%)</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--gray);display:block;margin-bottom:3px">Comissão (%)</label>
+          <input type="number" step="0.01" value="${(_prefComissao*100).toFixed(2)}" onblur="_prefComissao=(+this.value||0)/100;if(D.prefDefaults)D.prefDefaults.comissao=_prefComissao;saveData();renderPage()" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;text-align:right">
+        </div>
+        <div>
+          <label style="font-size:11px;font-weight:600;color:var(--gray);display:block;margin-bottom:3px">Margem desejada (%)</label>
+          <input type="number" step="0.01" value="${(_prefMargem*100).toFixed(2)}" onblur="_prefMargem=(+this.value||0)/100;if(D.prefDefaults)D.prefDefaults.margem=_prefMargem;saveData();renderPage()" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:13px;text-align:right">
+        </div>
+      </div>
+    </div>
+
+    ${r.erro?`<div class="box" style="background:#fef2f2;border:2px solid #fca5a5;text-align:center;padding:20px">
+      <div style="font-size:14px;color:#991b1b;font-weight:700">⚠ ${r.erro}</div>
+    </div>`:`
+    <div class="box" style="background:linear-gradient(135deg,#065f46,#10b981);color:#fff;text-align:center;padding:22px;margin-bottom:14px">
+      <div style="font-size:12px;text-transform:uppercase;letter-spacing:2px;opacity:0.9">Preço de Venda Sugerido</div>
+      <div style="font-size:42px;font-weight:800;margin:8px 0">${fmt(r.preco)}</div>
+      <div style="font-size:12px;opacity:0.9">${nome?esc(nome)+' · ':''}Custo ${fmt(custo)} + Taxa ${fmt(+_prefTaxaFixa||0)} · ${esc(forma.nome)} ${(taxaPgto*100).toFixed(2)}% · Comissão ${(_prefComissao*100).toFixed(2)}% · Margem ${(_prefMargem*100).toFixed(2)}%</div>
+    </div>
+
+    <div class="box">
+      <h3>Detalhamento</h3>
+      <table style="font-size:13px">
+        <tbody>
+          <tr><td style="padding:6px 10px">Custo do produto</td><td class="r" style="padding:6px 10px;font-weight:600">${fmt(custo)}</td></tr>
+          <tr style="background:#f8fafc"><td style="padding:6px 10px">Taxa fixa (frete, embalagem)</td><td class="r" style="padding:6px 10px;font-weight:600">${fmt(+_prefTaxaFixa||0)}</td></tr>
+          <tr><td style="padding:6px 10px">(+) Valor cobrado pelo meio de pagamento (${esc(forma.nome)} ${(taxaPgto*100).toFixed(2)}%)</td><td class="r" style="padding:6px 10px;color:var(--red);font-weight:600">${fmt(r.valorPgto)}</td></tr>
+          <tr style="background:#f8fafc"><td style="padding:6px 10px">(+) Comissão (${(_prefComissao*100).toFixed(2)}%)</td><td class="r" style="padding:6px 10px;color:var(--red);font-weight:600">${fmt(r.valorCom)}</td></tr>
+          <tr style="border-top:2px solid #cbd5e1"><td style="padding:8px 10px;font-weight:700">Preço de Venda</td><td class="r" style="padding:8px 10px;font-weight:700;color:var(--green);font-size:15px">${fmt(r.preco)}</td></tr>
+          <tr style="background:#f0fdf4"><td style="padding:6px 10px;font-weight:700">Lucro líquido (no bolso)</td><td class="r" style="padding:6px 10px;font-weight:700;color:var(--green)">${fmt(r.lucro)}</td></tr>
+          <tr><td style="padding:6px 10px">Margem real</td><td class="r" style="padding:6px 10px;font-weight:600">${(r.margemReal*100).toFixed(2)}%</td></tr>
+        </tbody>
+      </table>
+      <div style="font-size:10px;color:var(--gray);margin-top:8px;line-height:1.5">💡 Fórmula: <strong>Preço = (Custo + Taxa) / (1 − Taxa pgto − Comissão − Margem)</strong>. A Margem real deve bater com a Margem que você digitou (se não bater, é arredondamento).</div>
+    </div>
+    `}
+
+    <h2 style="margin-top:24px">⚙ Tabela de Taxas por Forma de Pagamento</h2>
+    <p style="font-size:12px;color:var(--gray);margin-bottom:10px">Edite as % conforme a sua adquirente. Adicione formas novas se aparecer outra modalidade. As mudanças refletem automaticamente na calculadora acima e em futuras vendas que usem essa forma.</p>
+
+    <div class="box">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+        <strong>${D.formasPagamento.length} forma(s) de pagamento cadastrada(s)</strong>
+        <button class="btn btn-sm btn-primary" onclick="adicionarFormaPagto()">+ Nova forma de pagamento</button>
+      </div>
+      <table style="font-size:12px">
+        <thead><tr><th style="width:50px">ID</th><th>Nome da forma</th><th style="text-align:right;width:110px">Taxa (%)</th><th style="text-align:right;width:110px">Decimal</th><th style="width:60px">Ação</th></tr></thead>
+        <tbody>
+          ${D.formasPagamento.map(f=>`<tr>
+            <td>${f.id}</td>
+            <td><input value="${esc(f.nome)}" onblur="if(this.value!=='${esc(f.nome)}')editarFormaPagto(${f.id},'nome',this.value)" style="width:100%;font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:4px"></td>
+            <td style="text-align:right"><input type="number" step="0.01" value="${(f.taxa*100).toFixed(2)}" onblur="editarFormaPagto(${f.id},'taxa',(+this.value||0)/100)" style="width:90px;font-size:12px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;text-align:right;font-weight:600"></td>
+            <td class="r" style="font-family:monospace;color:var(--gray)">${(+f.taxa||0).toFixed(4)}</td>
+            <td><button class="btn btn-sm" onclick="removerFormaPagto(${f.id})" style="background:var(--red);color:#fff;font-size:10px;padding:3px 8px" title="Excluir esta forma de pagamento">🗑</button></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+function adicionarFormaPagto(){
+  if(!PERMS.insert){toast('Sem permissão',true);return}
+  if(!D.formasPagamento)D.formasPagamento=[];
+  if(!D.nextFormaPagtoId)D.nextFormaPagtoId=(D.formasPagamento.reduce((a,f)=>Math.max(a,f.id),0)+1)||1;
+  const nome=prompt('Nome da nova forma de pagamento:','Cartão 19x');
+  if(!nome)return;
+  const taxaStr=prompt('Taxa (em %, ex: 15.5 para 15,5%):','0');
+  if(taxaStr===null)return;
+  const taxa=(+taxaStr||0)/100;
+  D.formasPagamento.push({id:D.nextFormaPagtoId++,nome:nome.trim(),taxa});
+  saveData();renderPage();toast('Forma adicionada: '+nome);
+}
+
+function editarFormaPagto(id,field,value){
+  if(!PERMS.edit){toast('Sem permissão',true);renderPage();return}
+  const f=D.formasPagamento.find(x=>x.id===id);if(!f)return;
+  if(field==='taxa')f.taxa=Math.max(0,+value||0);
+  else f[field]=value;
+  saveData();renderPage();
+  toast('Forma atualizada: '+f.nome);
+}
+
+function removerFormaPagto(id){
+  if(!PERMS.delete){toast('Sem permissão',true);return}
+  const f=D.formasPagamento.find(x=>x.id===id);if(!f)return;
+  if(!confirm('Remover a forma "'+f.nome+'"?\n\nA calculadora vai usar outra forma ate voce reescolher.'))return;
+  D.formasPagamento=D.formasPagamento.filter(x=>x.id!==id);
+  if(_prefFormaId===id)_prefFormaId=D.formasPagamento[0]?D.formasPagamento[0].id:0;
+  saveData();renderPage();toast('Forma removida: '+f.nome);
 }
 
 function previewVendaCusto(){
