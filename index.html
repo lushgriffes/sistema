@@ -272,6 +272,8 @@ async function initApp(user){
   buildNav();renderPage();
   // Backup diario automatico na nuvem (roda em background apos carregar)
   verificarBackupDiario().catch(e=>console.warn('Erro backup diario:',e));
+  // Iniciar polling de sincronizacao (verifica a cada 30s se outro dispositivo salvou)
+  startSyncPoll();
 }
 
 // ═══ AUTO-RECONCILIACAO NO STARTUP ═══
@@ -645,6 +647,60 @@ async function saveDataToSupabase(){
   await SB.from('app_data').upsert({org_id:userProfile.org_id,data:D,updated_at:agora},{onConflict:'org_id'});
   _lastKnownUpdatedAt=agora;
   _lastKnownSessionToken=_sessionToken;
+}
+
+// ═══ SYNC POLL — DETECTA ALTERAÇÕES DE OUTRO DISPOSITIVO ═══
+let _syncPollInterval=null;
+let _syncBannerVisible=false;
+function startSyncPoll(){
+  if(_syncPollInterval)return;
+  _syncPollInterval=setInterval(checkRemoteUpdate,30000); // 30s
+}
+function stopSyncPoll(){
+  if(_syncPollInterval){clearInterval(_syncPollInterval);_syncPollInterval=null}
+}
+async function checkRemoteUpdate(){
+  if(!userProfile||!_lastKnownUpdatedAt||_syncBannerVisible)return;
+  try{
+    const{data:remote}=await SB.from('app_data').select('updated_at').eq('org_id',userProfile.org_id).single();
+    if(!remote||!remote.updated_at)return;
+    const remoteTime=new Date(remote.updated_at).getTime();
+    const localTime=new Date(_lastKnownUpdatedAt).getTime();
+    if(remoteTime>localTime+2000){
+      _syncBannerVisible=true;
+      const diff=Math.round((remoteTime-localTime)/60000);
+      showSyncBanner(diff);
+    }
+  }catch(e){console.warn('Sync poll erro:',e)}
+}
+function showSyncBanner(minutos){
+  let banner=document.getElementById('syncBanner');
+  if(banner)banner.remove();
+  banner=document.createElement('div');
+  banner.id='syncBanner';
+  banner.style.cssText='position:fixed;top:0;left:0;right:0;z-index:999999;background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:14px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.25);animation:syncSlide .3s ease';
+  banner.innerHTML=`
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="font-size:20px">⚠️</span>
+      <span>Dados atualizados por outro dispositivo${minutos>0?' (há ~'+minutos+' min)':''}.</span>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button onclick="syncReload()" style="background:#fff;color:#d97706;border:none;padding:8px 16px;border-radius:6px;font-weight:700;cursor:pointer;font-size:13px">🔄 Recarregar dados</button>
+      <button onclick="dismissSyncBanner()" style="background:rgba(255,255,255,.2);color:#fff;border:1px solid rgba(255,255,255,.4);padding:8px 12px;border-radius:6px;cursor:pointer;font-size:13px">Ignorar</button>
+    </div>`;
+  document.body.prepend(banner);
+}
+function dismissSyncBanner(){
+  const b=document.getElementById('syncBanner');if(b)b.remove();
+  _syncBannerVisible=false;
+}
+async function syncReload(){
+  dismissSyncBanner();
+  toast('Recarregando dados da nuvem...');
+  await loadDataFromSupabase();
+  localStorage.setItem(STORAGE_KEY,JSON.stringify(D));
+  renderPage();
+  toast('✅ Dados atualizados com sucesso!');
 }
 
 // ═══ BACKUP DIÁRIO AUTOMÁTICO NA NUVEM ═══
