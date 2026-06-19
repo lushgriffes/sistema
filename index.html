@@ -272,6 +272,8 @@ async function initApp(user){
   buildNav();renderPage();
   // Backup diario automatico na nuvem (roda em background apos carregar)
   verificarBackupDiario().catch(e=>console.warn('Erro backup diario:',e));
+  // Iniciar polling de sincronizacao (verifica a cada 30s se outro dispositivo salvou)
+  startSyncPoll();
 }
 
 // ═══ AUTO-RECONCILIACAO NO STARTUP ═══
@@ -345,6 +347,8 @@ async function loadDataFromSupabase(){
     if(!d.recebimentos)d.recebimentos=[];
     if(!d.categoriasRecebimento||!d.categoriasRecebimento.length)d.categoriasRecebimento=(DEFAULT_DATA.categoriasRecebimento||["Reembolso","Rendimento Financeiro","Empréstimo Recebido","Outras Receitas"]);
     if(!d.nextRecebId)d.nextRecebId=(d.recebimentos.reduce((m,r)=>Math.max(m,r.id||0),0)+1);
+    if(!d.vendedores)d.vendedores=[];
+    if(!d.nextVendedorId)d.nextVendedorId=(d.vendedores.reduce((m,v)=>Math.max(m,v.id||0),0)+1);
     if(!d.contasPagar)d.contasPagar=[];
     if(!d.contasReceber)d.contasReceber=[];
     if(!d.fornecedores)d.fornecedores=DEFAULT_DATA.fornecedores;
@@ -645,6 +649,60 @@ async function saveDataToSupabase(){
   await SB.from('app_data').upsert({org_id:userProfile.org_id,data:D,updated_at:agora},{onConflict:'org_id'});
   _lastKnownUpdatedAt=agora;
   _lastKnownSessionToken=_sessionToken;
+}
+
+// ═══ SYNC POLL — DETECTA ALTERAÇÕES DE OUTRO DISPOSITIVO ═══
+let _syncPollInterval=null;
+let _syncBannerVisible=false;
+function startSyncPoll(){
+  if(_syncPollInterval)return;
+  _syncPollInterval=setInterval(checkRemoteUpdate,30000); // 30s
+}
+function stopSyncPoll(){
+  if(_syncPollInterval){clearInterval(_syncPollInterval);_syncPollInterval=null}
+}
+async function checkRemoteUpdate(){
+  if(!userProfile||!_lastKnownUpdatedAt||_syncBannerVisible)return;
+  try{
+    const{data:remote}=await SB.from('app_data').select('updated_at').eq('org_id',userProfile.org_id).single();
+    if(!remote||!remote.updated_at)return;
+    const remoteTime=new Date(remote.updated_at).getTime();
+    const localTime=new Date(_lastKnownUpdatedAt).getTime();
+    if(remoteTime>localTime+2000){
+      _syncBannerVisible=true;
+      const diff=Math.round((remoteTime-localTime)/60000);
+      showSyncBanner(diff);
+    }
+  }catch(e){console.warn('Sync poll erro:',e)}
+}
+function showSyncBanner(minutos){
+  let banner=document.getElementById('syncBanner');
+  if(banner)banner.remove();
+  banner=document.createElement('div');
+  banner.id='syncBanner';
+  banner.style.cssText='position:fixed;top:0;left:0;right:0;z-index:999999;background:linear-gradient(135deg,#f59e0b,#d97706);color:#fff;padding:12px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:14px;font-weight:600;box-shadow:0 4px 16px rgba(0,0,0,.25);animation:syncSlide .3s ease';
+  banner.innerHTML=`
+    <div style="display:flex;align-items:center;gap:8px">
+      <span style="font-size:20px">⚠️</span>
+      <span>Dados atualizados por outro dispositivo${minutos>0?' (há ~'+minutos+' min)':''}.</span>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button onclick="syncReload()" style="background:#fff;color:#d97706;border:none;padding:8px 16px;border-radius:6px;font-weight:700;cursor:pointer;font-size:13px">🔄 Recarregar dados</button>
+      <button onclick="dismissSyncBanner()" style="background:rgba(255,255,255,.2);color:#fff;border:1px solid rgba(255,255,255,.4);padding:8px 12px;border-radius:6px;cursor:pointer;font-size:13px">Ignorar</button>
+    </div>`;
+  document.body.prepend(banner);
+}
+function dismissSyncBanner(){
+  const b=document.getElementById('syncBanner');if(b)b.remove();
+  _syncBannerVisible=false;
+}
+async function syncReload(){
+  dismissSyncBanner();
+  toast('Recarregando dados da nuvem...');
+  await loadDataFromSupabase();
+  localStorage.setItem(STORAGE_KEY,JSON.stringify(D));
+  renderPage();
+  toast('✅ Dados atualizados com sucesso!');
 }
 
 // ═══ BACKUP DIÁRIO AUTOMÁTICO NA NUVEM ═══
@@ -998,7 +1056,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-x';
+const APP_VERSION = 'v2026.06.08-w';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -1056,6 +1114,8 @@ const DEFAULT_DATA = {
   recebimentos: [],
   categoriasRecebimento: ["Reembolso","Rendimento Financeiro","Empréstimo Recebido","Outras Receitas"],
   nextRecebId: 1,
+  vendedores: [],
+  nextVendedorId: 1,
 };
 
 function loadData(){
@@ -1072,6 +1132,8 @@ function loadData(){
       if(!d.recebimentos)d.recebimentos=[];
       if(!d.categoriasRecebimento||!d.categoriasRecebimento.length)d.categoriasRecebimento=(DEFAULT_DATA.categoriasRecebimento||["Reembolso","Rendimento Financeiro","Empréstimo Recebido","Outras Receitas"]);
       if(!d.nextRecebId)d.nextRecebId=(d.recebimentos.reduce((m,r)=>Math.max(m,r.id||0),0)+1);
+      if(!d.vendedores)d.vendedores=[];
+      if(!d.nextVendedorId)d.nextVendedorId=(d.vendedores.reduce((m,v)=>Math.max(m,v.id||0),0)+1);
       if(!d.contasPagar)d.contasPagar=[];
       if(!d.contasReceber)d.contasReceber=[];
       if(!d.fornecedores)d.fornecedores=DEFAULT_DATA.fornecedores;
@@ -1351,6 +1413,8 @@ function getTabs(){
     {name:'Config',icon:'⚙️',perm:'edit'},
     {name:'Fornecedores',icon:'🏢',perm:'view'},
     {name:'Recebimentos',icon:'💵',perm:'view'},
+    {name:'Vendedores',icon:'👤',perm:'edit'},
+    {name:'Comissões',icon:'💲',perm:'view'},
   ];
   if(userProfile&&userProfile.role==='admin')tabs.push({name:'Usuários',icon:'👥',perm:'view'});
   return tabs;
@@ -1373,7 +1437,7 @@ function renderPage(){
   const _selStartPg=_focusPgId&&typeof _focusEl.selectionStart==='number'?_focusEl.selectionStart:null;
   const _selEndPg=_focusPgId&&typeof _focusEl.selectionEnd==='number'?_focusEl.selectionEnd:null;
   const m=calcMetrics();
-  const fns=[renderDash,renderDashPeriodo,renderBalanco,renderEstoque,renderEncomendas,renderVendas,renderPrecificacao,renderMov,renderDesp,renderContasPagar,renderContasReceber,renderNovaCompra,renderNovoAporte,renderPedidos,renderCorrecao,renderConfig,renderFornecedores,renderRecebimentos];
+  const fns=[renderDash,renderDashPeriodo,renderBalanco,renderEstoque,renderEncomendas,renderVendas,renderPrecificacao,renderMov,renderDesp,renderContasPagar,renderContasReceber,renderNovaCompra,renderNovoAporte,renderPedidos,renderCorrecao,renderConfig,renderFornecedores,renderRecebimentos,renderVendedores,renderComissoes];
   if(userProfile&&userProfile.role==='admin')fns.push(renderUsuarios);
   const tabIdx=Math.min(activeTab,fns.length-1);
   document.getElementById('main').innerHTML=`<div class="page active">${fns[tabIdx](m)}</div>`;
@@ -2439,6 +2503,7 @@ function renderVendas(m){
     <div class="if-group" id="vVencGrp" style="display:none"><label>1º Vencimento</label><input type="date" id="vVenc1"></div>
     <div id="vPreviewParcelas" style="display:none;grid-column:1/-1;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;padding:10px 14px;font-size:12px;color:var(--text2)"></div>
     <div class="if-group" id="vRecebeuGrp"><label>Recebeu?</label><select id="vRecebeu"><option value="nao">Não</option><option value="sim">Sim</option></select></div>
+    <div class="if-group"><label>Vendedor *</label><select id="vVendedor"><option value="">Selecione...</option>${(D.vendedores||[]).map(v=>`<option value="${v.id}">${v.apelido}</option>`).join('')}</select></div>
   </div>
   <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:6px">Itens da venda:</div>
   <div id="vendaCartWrap">
@@ -2459,7 +2524,7 @@ function renderVendas(m){
     <span class="f-clear" onclick="vendaSearch='';vendaCatFilter='Todos';vendaStatusFilter='Todos';renderPage()">Limpar filtros</span>
   </div>
   <div style="max-height:600px;overflow-y:auto;overflow-x:auto">
-  <table style="min-width:1300px"><thead><tr><th style="width:48px">ID</th><th>Data</th><th>Cliente</th><th>Produto</th><th class="r">Custo</th><th class="r">Venda</th><th class="r">Lucro</th><th>Margem</th><th>Pgto</th><th class="r">Recebido</th><th class="r">A Receber</th><th>Ação</th></tr></thead>
+  <table style="min-width:1300px"><thead><tr><th style="width:48px">ID</th><th>Data</th><th>Cliente</th><th>Produto</th><th class="r">Custo</th><th class="r">Venda</th><th class="r">Lucro</th><th>Margem</th><th>Pgto</th><th>Vendedor</th><th class="r">Recebido</th><th class="r">A Receber</th><th>Ação</th></tr></thead>
   <tbody>${fil.map(v=>{
     const lucro=(v.valorVenda||0)-(v.custo||0);const margem=v.valorVenda>0?((lucro/v.valorVenda)*100).toFixed(1):0;
     const _curProd=D.produtos.find(p=>p.id===v.produtoId);
@@ -2472,12 +2537,13 @@ function renderVendas(m){
       <td class="r" style="color:${lucro>=0?'#22c55e':'#ef4444'};font-weight:600">${fmt(lucro)}</td>
       <td><span class="${lucro>=0?'margem-pos':'margem-neg'}">${margem}%</span></td>
       <td><span class="badge ${v.status==='Pago Total'?'b-estoque':v.status==='Pago Parcial'?'b-reserv':'b-transito'}">${v.forma||'—'}</span><div style="font-size:9px;color:var(--gray)">${v.status}</div></td>
+      <td><select onchange="editarVenda(${v.id},'vendedorId',+this.value)" style="font-size:11px;padding:3px 5px;border-radius:5px;border:1px solid var(--border);min-width:80px"><option value="0">—</option>${(D.vendedores||[]).map(vd=>`<option value="${vd.id}"${vd.id===v.vendedorId?' selected':''}>${vd.apelido}</option>`).join('')}</select></td>
       <td class="r">${fmt(v.recebido)}</td>
       <td class="r" style="color:${(v.saldoReceber||0)>0?'var(--orange)':'var(--green)'};font-weight:600">${fmt(v.saldoReceber)}</td>
       <td style="white-space:nowrap"><button class="btn btn-sm" onclick="abrirDetalhesVenda(${v.id})" style="background:var(--blue);color:#fff;font-size:9px;padding:3px 8px;margin-right:3px" title="Ver detalhes / editar entrada e parcelas">📋</button><button class="btn btn-sm" onclick="cancelarVenda(${v.id})" style="background:var(--red);color:#fff;font-size:9px;padding:3px 8px" title="Cancelar venda">✕</button></td>
     </tr>`}).join('')}
   </tbody>
-  <tfoot><tr><td colspan="4" style="font-weight:700">TOTAIS${fil.length!==D.vendas.length?' (filtrado)':''}</td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,v)=>a+(v.custo||0),0))}</td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,v)=>a+(v.valorVenda||0),0))}</td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,v)=>a+((v.valorVenda||0)-(v.custo||0)),0))}</td><td></td><td></td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,v)=>a+(v.recebido||0),0))}</td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,v)=>a+(v.saldoReceber||0),0))}</td><td></td></tr></tfoot>
+  <tfoot><tr><td colspan="4" style="font-weight:700">TOTAIS${fil.length!==D.vendas.length?' (filtrado)':''}</td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,v)=>a+(v.custo||0),0))}</td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,v)=>a+(v.valorVenda||0),0))}</td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,v)=>a+((v.valorVenda||0)-(v.custo||0)),0))}</td><td></td><td></td><td></td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,v)=>a+(v.recebido||0),0))}</td><td class="r" style="font-weight:700">${fmt(fil.reduce((a,v)=>a+(v.saldoReceber||0),0))}</td><td></td></tr></tfoot>
   </table></div></div>`;
 }
 
@@ -2844,6 +2910,8 @@ function salvarVenda(){
   const data=document.getElementById('vData').value;
   const forma=document.getElementById('vForma').value;
   const recebeu=document.getElementById('vRecebeu').value;
+  const vendedorId=+(document.getElementById('vVendedor').value||0);
+  if(!vendedorId){toast('Selecione um vendedor',true);return}
   if(!cliente||!data){toast('Preencha cliente e data',true);return}
   const validos=_vendaCart.filter(it=>it.produtoId&&(+it.valorVenda)>0);
   if(!validos.length){toast('Adicione ao menos 1 item com preço',true);return}
@@ -2877,7 +2945,7 @@ function salvarVenda(){
       const ajuste=Math.round((restante-valorParcela*nParcelas)*100)/100;
       const recebido=entradaItem;const saldoReceber=Math.round((valorVenda-entradaItem)*100)/100;
       const formaDesc=entradaItem>0?`Ent. ${fmt(entradaItem)} + ${nParcelas}x ${fmt(valorParcela)}`:`${nParcelas}x ${fmt(valorParcela)}`;
-      D.vendas.push({id:nv,data,cliente,telefone,endereco,produto:prod.nome,produtoId:prod.id,custo,valorVenda,recebido,saldoReceber,status:saldoReceber<=0?'Pago Total':(recebido>0?'Pago Parcial':'Pendente'),forma:formaDesc,nParcelas,entrada:entradaItem});
+      D.vendas.push({id:nv,data,cliente,telefone,endereco,produto:prod.nome,produtoId:prod.id,custo,valorVenda,recebido,saldoReceber,status:saldoReceber<=0?'Pago Total':(recebido>0?'Pago Parcial':'Pendente'),forma:formaDesc,nParcelas,entrada:entradaItem,vendedorId});
       prod.status='Vendido';
       prod.precoVenda=valorVenda;
       // Se teve entrada, registrar movimentação de entrada
@@ -2904,7 +2972,7 @@ function salvarVenda(){
       const custo=prod.custo||0;const valorVenda=+it.valorVenda;
       const nv=nextId(D.vendas);
       const rec=recebeu==='sim'?valorVenda:0;const saldo=recebeu==='sim'?0:valorVenda;
-      D.vendas.push({id:nv,data,cliente,telefone,endereco,produto:prod.nome,produtoId:prod.id,custo,valorVenda,recebido:rec,saldoReceber:saldo,status:recebeu==='sim'?'Pago Total':'Pendente',forma});
+      D.vendas.push({id:nv,data,cliente,telefone,endereco,produto:prod.nome,produtoId:prod.id,custo,valorVenda,recebido:rec,saldoReceber:saldo,status:recebeu==='sim'?'Pago Total':'Pendente',forma,vendedorId});
       prod.status='Vendido';
       prod.precoVenda=valorVenda;
       if(recebeu==='sim'){
@@ -2989,6 +3057,8 @@ function editarVenda(vendaId, field, value){
     const _pSync=D.produtos.find(p=>p.id===v.produtoId);
     if(_pSync)_pSync.precoVenda=+v.valorVenda||0;
     recalcSaldos();
+  } else if(field==='vendedorId'){
+    v.vendedorId=+value;
   } else { return; }
   saveData();renderPage();
   toast('Venda atualizada');
@@ -4347,56 +4417,6 @@ function excluirMov(movId){
   const isCompra=m.cat==='Pagamento Fornecedor';
   const prodsLinked=isCompra?D.produtos.filter(p=>p.movId===movId):[];
   const vendidosLinked=prodsLinked.filter(p=>p.status==='Vendido');
-  // Verificar se ha CP origem='compra' vinculada (compra a prazo paga via mov)
-  const cp=D.contasPagar.find(c=>c.movIdEstorno===movId);
-  const cpDeCompra=cp&&cp.origem==='compra';
-
-  // CASO ESPECIAL: mov é pagamento de uma Compra A Prazo (CP origem=compra existe)
-  // Oferecer 2 caminhos: ESTORNAR PAGAMENTO (preserva tudo) ou EXCLUIR COMPRA INTEIRA
-  if(cpDeCompra){
-    const opcao=confirm(
-      'Esta movimentação é o PAGAMENTO de uma compra a prazo:\n\n'+
-      `Pedido: ${m.numPedido||'(sem numero)'}\n`+
-      `Valor: ${fmt(m.valor)}\n`+
-      `CP vinculada: #${cp.id} (${cp.desc})\n`+
-      (prodsLinked.length>0?`Produtos vinculados: ${prodsLinked.length}\n`:'')+
-      '\nO QUE VOCE QUER FAZER?\n\n'+
-      '✓ OK = APENAS ESTORNAR O PAGAMENTO\n'+
-      '    → CP volta pra "Pendente"\n'+
-      '    → Mov volta pra "A Pagar" (caixa restaurado)\n'+
-      '    → Produtos ficam no estoque (intactos)\n\n'+
-      '✗ Cancelar = ABRE OPCAO DE EXCLUIR A COMPRA INTEIRA\n'+
-      '    (remove CP, produtos e a mov)'
-    );
-    if(opcao){
-      // ESTORNAR PAGAMENTO
-      cp.status='Pendente';cp.dataPgto='';
-      m.aPagar=true;m.statusPagamento='A Pagar';
-      recalcSaldos();saveData();renderPage();
-      toast('Pagamento estornado — CP voltou pra Pendente, produtos mantidos');
-      return;
-    }
-    // Confirmar exclusao completa
-    let msgExcluir='⚠ EXCLUIR A COMPRA INTEIRA?\n\n'+
-      `Pedido: ${m.numPedido||'(sem numero)'}\n`+
-      `Valor: ${fmt(m.valor)}\n`;
-    if(prodsLinked.length>0)msgExcluir+=`\n⚠ Esta compra tem ${prodsLinked.length} produto(s) vinculado(s) ao estoque — eles serão REMOVIDOS.`;
-    if(vendidosLinked.length>0)msgExcluir+=`\n\n⚠⚠ CUIDADO: ${vendidosLinked.length} produto(s) já estão VENDIDOS. Excluir vai deixar essas vendas sem produto.`;
-    msgExcluir+='\n\nIsso vai recalcular todos os saldos.';
-    if(!confirm(msgExcluir))return;
-    // Excluir CP, produtos e mov (segue fluxo padrao abaixo)
-    D.contasPagar=D.contasPagar.filter(x=>x.id!==cp.id);
-    if(isCompra&&prodsLinked.length>0){
-      const idsParaRemover=prodsLinked.map(p=>p.id);
-      D.produtos=D.produtos.filter(p=>!idsParaRemover.includes(p.id));
-    }
-    if(m.despId)D.despesas=D.despesas.filter(d=>d.id!==m.despId);
-    D.movimentacoes=D.movimentacoes.filter(x=>x.id!==movId);
-    recalcSaldos();saveData();toast('Compra excluida inteira: '+m.desc);renderPage();
-    return;
-  }
-
-  // FLUXO PADRAO (mov sem CP de compra)
   let msg=`Excluir movimentação?\n\n"${m.desc}"\n${m.tipo}: ${fmt(m.valor)}`;
   if(prodsLinked.length>0){
     msg+=`\n\n⚠ Esta compra tem ${prodsLinked.length} produto(s) vinculado(s) ao estoque — eles serão REMOVIDOS também.`;
@@ -4406,12 +4426,18 @@ function excluirMov(movId){
   if(!confirm(msg))return;
   // Se tem despesa vinculada, remover também
   if(m.despId){D.despesas=D.despesas.filter(d=>d.id!==m.despId)}
-  // CP de despesa que foi paga (criou a mov) - reverter pra pendente
+  // Conta a pagar vinculada: depende da origem
+  const cp=D.contasPagar.find(c=>c.movIdEstorno===movId);
   if(cp){
-    cp.status='Pendente';cp.dataPgto='';cp.movIdEstorno=0;
-    if(cp.despIdEstorno&&m.despId)cp.despIdEstorno=0;
+    if(cp.origem==='compra'){
+      // CP criada PELA compra a prazo - excluir junto
+      D.contasPagar=D.contasPagar.filter(x=>x.id!==cp.id);
+    } else {
+      // CP de despesa que foi paga (criou a mov) - reverter pra pendente
+      cp.status='Pendente';cp.dataPgto='';cp.movIdEstorno=0;if(cp.despIdEstorno&&m.despId){cp.despIdEstorno=0}
+    }
   }
-  // Se for uma compra a vista, remover produtos vinculados ao estoque
+  // Se for uma compra, remover produtos vinculados ao estoque
   if(isCompra&&prodsLinked.length>0){
     const idsParaRemover=prodsLinked.map(p=>p.id);
     D.produtos=D.produtos.filter(p=>!idsParaRemover.includes(p.id));
@@ -7286,6 +7312,265 @@ function importData(e){
       toast('Dados importados com sucesso!');
     }catch(err){toast('Erro: '+err.message,true)}
   };reader.readAsText(file);e.target.value='';
+}
+
+// ═══════ VENDEDORES ═══════
+function renderVendedores(){
+  if(!D.vendedores)D.vendedores=[];
+  return `
+  <div class="form-section"><h2>👤 Cadastro de Vendedores</h2>
+  <div class="box"><h3>Novo Vendedor</h3>
+  <div class="inline-form">
+    <div class="if-group"><label>Nome Completo</label><input id="vdNome" placeholder="Ex: João Carlos da Silva"></div>
+    <div class="if-group"><label>Apelido</label><input id="vdApelido" placeholder="Ex: João"></div>
+    <div class="if-group"><label>Comissão (%)</label><input type="number" id="vdComissao" step="0.1" min="0" max="100" placeholder="Ex: 10" value="10"></div>
+    <div class="if-group" style="justify-content:end"><button class="btn btn-primary btn-sm" onclick="salvarVendedor()">💾 Cadastrar</button></div>
+  </div></div>
+  <div class="box"><h3>Vendedores Cadastrados (${D.vendedores.length})</h3>
+  <table><thead><tr><th>ID</th><th>Nome Completo</th><th>Apelido</th><th>Comissão %</th><th>Vendas</th><th>Ação</th></tr></thead><tbody>
+  ${D.vendedores.length===0?'<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--gray)">Nenhum vendedor cadastrado</td></tr>':
+  D.vendedores.map(v=>{
+    const qtdVendas=D.vendas.filter(vd=>vd.vendedorId===v.id).length;
+    return `<tr>
+      <td>${v.id}</td>
+      <td><span class="editable" onclick="editVendedorText(${v.id},'nome',this)">${v.nome}</span></td>
+      <td><span class="editable" onclick="editVendedorText(${v.id},'apelido',this)">${v.apelido}</span></td>
+      <td><span class="editable" onclick="editVendedorNum(${v.id},'comissao',this)">${v.comissao}%</span></td>
+      <td>${qtdVendas}</td>
+      <td>${qtdVendas===0?`<button class="btn btn-sm" onclick="excluirVendedor(${v.id})" style="background:var(--red);color:#fff;font-size:9px;padding:3px 8px">🗑️</button>`:'<span style="font-size:10px;color:var(--gray)">Em uso</span>'}</td>
+    </tr>`}).join('')}
+  </tbody></table></div></div>`;
+}
+
+function salvarVendedor(){
+  if(!PERMS.edit){toast('Sem permissão',true);return}
+  const nome=document.getElementById('vdNome').value.trim();
+  const apelido=document.getElementById('vdApelido').value.trim();
+  const comissao=+(document.getElementById('vdComissao').value||0);
+  if(!nome||!apelido){toast('Preencha nome e apelido',true);return}
+  if(comissao<0||comissao>100){toast('Comissão deve ser entre 0 e 100',true);return}
+  if(!D.vendedores)D.vendedores=[];
+  if(!D.nextVendedorId)D.nextVendedorId=1;
+  D.vendedores.push({id:D.nextVendedorId++,nome,apelido,comissao});
+  saveData();renderPage();
+  toast(`Vendedor "${apelido}" cadastrado com ${comissao}% de comissão`);
+}
+
+function editVendedorText(id,field,el){
+  const v=D.vendedores.find(x=>x.id===id);if(!v)return;
+  const inp=document.createElement('input');
+  inp.value=v[field];inp.style.cssText='font-size:12px;padding:3px 6px;border:2px solid var(--blue);border-radius:4px;width:100%';
+  el.replaceWith(inp);inp.focus();inp.select();
+  let done=false;
+  function commit(){if(done)return;done=true;v[field]=inp.value.trim()||v[field];saveData();renderPage()}
+  inp.addEventListener('blur',commit);
+  inp.addEventListener('keydown',e=>{if(e.key==='Enter')commit();if(e.key==='Escape'){done=true;renderPage()}});
+}
+
+function editVendedorNum(id,field,el){
+  const v=D.vendedores.find(x=>x.id===id);if(!v)return;
+  const inp=document.createElement('input');
+  inp.type='number';inp.step='0.1';inp.min='0';inp.max='100';
+  inp.value=v[field];inp.style.cssText='font-size:12px;padding:3px 6px;border:2px solid var(--blue);border-radius:4px;width:80px';
+  el.replaceWith(inp);inp.focus();inp.select();
+  let done=false;
+  function commit(){if(done)return;done=true;const n=+(inp.value||0);if(n>=0&&n<=100)v[field]=n;saveData();renderPage()}
+  inp.addEventListener('blur',commit);
+  inp.addEventListener('keydown',e=>{if(e.key==='Enter')commit();if(e.key==='Escape'){done=true;renderPage()}});
+}
+
+function excluirVendedor(id){
+  if(!PERMS.delete){toast('Sem permissão',true);return}
+  const v=D.vendedores.find(x=>x.id===id);if(!v)return;
+  if(D.vendas.some(vd=>vd.vendedorId===id)){toast('Vendedor tem vendas vinculadas, não pode excluir',true);return}
+  if(!confirm(`Excluir vendedor "${v.apelido}"?`))return;
+  D.vendedores=D.vendedores.filter(x=>x.id!==id);
+  saveData();renderPage();toast('Vendedor excluído');
+}
+
+// ═══════ COMISSÕES ═══════
+let comissaoInicio='',comissaoFim='',comissaoVendedorFilter='Todos';
+function initComissaoDefaults(){
+  if(!comissaoInicio||!comissaoFim){
+    const now=new Date();
+    const first=new Date(now.getFullYear(),now.getMonth(),1);
+    comissaoInicio=first.toISOString().split('T')[0];
+    const last=new Date(now.getFullYear(),now.getMonth()+1,0);
+    comissaoFim=last.toISOString().split('T')[0];
+  }
+}
+
+function renderComissoes(){
+  initComissaoDefaults();
+  const vendedores=D.vendedores||[];
+  const vendasPeriodo=D.vendas.filter(v=>v.data>=comissaoInicio&&v.data<=comissaoFim);
+
+  // Build summary per vendedor
+  const resumo=vendedores.map(vd=>{
+    const vendas=vendasPeriodo.filter(v=>v.vendedorId===vd.id);
+    const totalVendido=vendas.reduce((a,v)=>a+(v.valorVenda||0),0);
+    const comissaoValor=Math.round((totalVendido*(vd.comissao/100))*100)/100;
+    return {vendedor:vd,vendas,totalVendido,comissaoValor,comissaoPct:vd.comissao};
+  }).filter(r=>comissaoVendedorFilter==='Todos'||r.vendedor.id===+comissaoVendedorFilter);
+
+  const totalComissoes=resumo.reduce((a,r)=>a+r.comissaoValor,0);
+  const totalVendidoGeral=resumo.reduce((a,r)=>a+r.totalVendido,0);
+  const totalVendasQtd=resumo.reduce((a,r)=>a+r.vendas.length,0);
+
+  // Vendas sem vendedor no período
+  const semVendedor=vendasPeriodo.filter(v=>!v.vendedorId||!vendedores.find(vd=>vd.id===v.vendedorId));
+
+  return `
+  <div class="cards">
+    <div class="card cyan"><div class="card-lbl">Total Vendido</div><div class="card-val">${fmt(totalVendidoGeral)}</div><div class="card-sub">${totalVendasQtd} vendas</div></div>
+    <div class="card orange"><div class="card-lbl">Total Comissões</div><div class="card-val">${fmt(totalComissoes)}</div></div>
+    <div class="card purple"><div class="card-lbl">Vendedores Ativos</div><div class="card-val">${resumo.filter(r=>r.vendas.length>0).length}</div></div>
+  </div>
+  <div class="filter-bar" style="margin-bottom:14px">
+    <div class="f-group"><label>De:</label><input type="date" value="${comissaoInicio}" onchange="comissaoInicio=this.value;renderPage()"></div>
+    <div class="f-group"><label>Até:</label><input type="date" value="${comissaoFim}" onchange="comissaoFim=this.value;renderPage()"></div>
+    <button class="btn btn-sm btn-secondary" onclick="setComissaoMes(0)">Mês Atual</button>
+    <button class="btn btn-sm btn-secondary" onclick="setComissaoMes(-1)">Mês Anterior</button>
+    <div class="f-group"><label>Vendedor:</label><select onchange="comissaoVendedorFilter=this.value;renderPage()"><option value="Todos">Todos</option>${vendedores.map(v=>`<option value="${v.id}"${comissaoVendedorFilter==v.id?' selected':''}>${v.apelido}</option>`).join('')}</select></div>
+    <span class="f-clear" onclick="comissaoInicio='';comissaoFim='';comissaoVendedorFilter='Todos';initComissaoDefaults();renderPage()">Reset</span>
+  </div>
+  <div style="text-align:right;margin-bottom:10px"><button class="btn btn-sm" onclick="gerarPDFComissoes()" style="background:var(--red);color:#fff">📄 Baixar PDF Comissões</button></div>
+  ${resumo.map(r=>`
+  <div class="box" style="border-left:4px solid var(--cyan)">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+      <h3 style="margin:0">👤 ${r.vendedor.apelido} <span style="font-size:12px;font-weight:400;color:var(--gray)">(${r.vendedor.nome})</span></h3>
+      <div style="display:flex;gap:12px;font-size:13px;font-weight:600">
+        <span>Vendas: ${fmt(r.totalVendido)}</span>
+        <span style="color:var(--orange)">Comissão ${r.comissaoPct}%: ${fmt(r.comissaoValor)}</span>
+      </div>
+    </div>
+    ${r.vendas.length===0?'<p style="color:var(--gray);font-size:12px">Nenhuma venda neste período</p>':`
+    <table><thead><tr><th>Data</th><th>Cliente</th><th>Produto</th><th class="r">Venda</th><th class="r">Comissão</th></tr></thead><tbody>
+    ${r.vendas.map(v=>{
+      const com=Math.round((v.valorVenda||0)*(r.comissaoPct/100)*100)/100;
+      return `<tr><td>${fmtD(v.data)}</td><td>${v.cliente}</td><td>${v.produto}</td><td class="r">${fmt(v.valorVenda)}</td><td class="r" style="color:var(--orange);font-weight:600">${fmt(com)}</td></tr>`
+    }).join('')}
+    </tbody><tfoot><tr><td colspan="3" style="font-weight:700">TOTAL</td><td class="r" style="font-weight:700">${fmt(r.totalVendido)}</td><td class="r" style="font-weight:700;color:var(--orange)">${fmt(r.comissaoValor)}</td></tr></tfoot></table>`}
+  </div>`).join('')}
+  ${semVendedor.length>0?`
+  <div class="box" style="border-left:4px solid var(--red)">
+    <h3>⚠ Vendas sem vendedor (${semVendedor.length})</h3>
+    <p style="font-size:11px;color:var(--gray);margin-bottom:8px">Essas vendas não têm vendedor atribuído. Edite na aba Vendas para vincular.</p>
+    <table><thead><tr><th>Data</th><th>Cliente</th><th>Produto</th><th class="r">Valor</th></tr></thead><tbody>
+    ${semVendedor.map(v=>`<tr><td>${fmtD(v.data)}</td><td>${v.cliente}</td><td>${v.produto}</td><td class="r">${fmt(v.valorVenda)}</td></tr>`).join('')}
+    </tbody></table>
+  </div>`:''}`;
+}
+
+function setComissaoMes(offset){
+  const now=new Date();
+  const d=new Date(now.getFullYear(),now.getMonth()+offset,1);
+  comissaoInicio=d.toISOString().split('T')[0];
+  const last=new Date(d.getFullYear(),d.getMonth()+1,0);
+  comissaoFim=last.toISOString().split('T')[0];
+  renderPage();
+}
+
+function gerarPDFComissoes(){
+  try{
+  initComissaoDefaults();
+  const{jsPDF}=window.jspdf;
+  if(!jsPDF){toast('Erro: biblioteca PDF não carregou',true);return}
+  const doc=new jsPDF('l','mm','a4');
+  const w=doc.internal.pageSize.getWidth();
+  const h=doc.internal.pageSize.getHeight();
+  const mx=10;
+  let y=12;
+
+  // Header
+  doc.setFillColor(30,41,59);
+  doc.rect(0,0,w,22,'F');
+  doc.setFontSize(16);doc.setFont(undefined,'bold');doc.setTextColor(255,255,255);
+  doc.text('LUSH GRIFFES',mx,13);
+  doc.setFontSize(10);doc.setFont(undefined,'normal');
+  doc.text(`Relatório de Comissões — ${fmtD(comissaoInicio)} a ${fmtD(comissaoFim)}`,w-mx,13,{align:'right'});
+  doc.setTextColor(0,0,0);
+  y=28;
+
+  const vendedores=D.vendedores||[];
+  const vendasPeriodo=D.vendas.filter(v=>v.data>=comissaoInicio&&v.data<=comissaoFim);
+
+  const resumo=vendedores.map(vd=>{
+    const vendas=vendasPeriodo.filter(v=>v.vendedorId===vd.id);
+    const totalVendido=vendas.reduce((a,v)=>a+(v.valorVenda||0),0);
+    const comissaoValor=Math.round((totalVendido*(vd.comissao/100))*100)/100;
+    return {vendedor:vd,vendas,totalVendido,comissaoValor};
+  }).filter(r=>comissaoVendedorFilter==='Todos'||r.vendedor.id===+comissaoVendedorFilter);
+
+  const totalComissoes=resumo.reduce((a,r)=>a+r.comissaoValor,0);
+  const totalVendidoGeral=resumo.reduce((a,r)=>a+r.totalVendido,0);
+
+  // Summary cards
+  const cw=(w-mx*2-2*5)/3;
+  drawCard(doc,mx,y,cw,20,'Total Vendido',fmt(totalVendidoGeral),[239,246,255]);
+  drawCard(doc,mx+(cw+5),y,cw,20,'Total Comissões',fmt(totalComissoes),[255,251,235]);
+  drawCard(doc,mx+(cw+5)*2,y,cw,20,'Vendedores',String(resumo.filter(r=>r.vendas.length>0).length),[243,244,255]);
+  y+=28;
+
+  // Per-vendedor tables
+  resumo.forEach(r=>{
+    if(r.vendas.length===0)return;
+    // Check page space
+    if(y>h-40){doc.addPage();y=15}
+
+    doc.setFontSize(12);doc.setFont(undefined,'bold');doc.setTextColor(30,41,59);
+    doc.text(`${r.vendedor.apelido} (${r.vendedor.nome}) — Comissão: ${r.vendedor.comissao}%`,mx,y);
+    y+=2;
+
+    doc.autoTable({
+      startY:y,
+      head:[['Data','Cliente','Produto','Valor Venda','Comissão']],
+      body:r.vendas.map(v=>{
+        const com=Math.round((v.valorVenda||0)*(r.vendedor.comissao/100)*100)/100;
+        return[fmtD(v.data),v.cliente,v.produto,fmt(v.valorVenda),fmt(com)];
+      }),
+      foot:[['','','TOTAL',fmt(r.totalVendido),fmt(r.comissaoValor)]],
+      styles:{fontSize:8,cellPadding:2.5},
+      headStyles:{fillColor:[30,41,59],textColor:255,fontStyle:'bold'},
+      footStyles:{fillColor:[241,245,249],textColor:[30,41,59],fontStyle:'bold'},
+      alternateRowStyles:{fillColor:[248,250,252]},
+      columnStyles:{3:{halign:'right'},4:{halign:'right'}},
+      theme:'grid',
+      margin:{left:mx,right:mx}
+    });
+    y=doc.lastAutoTable.finalY+12;
+  });
+
+  // Resumo final
+  if(y>h-50){doc.addPage();y=15}
+  doc.setFontSize(12);doc.setFont(undefined,'bold');doc.setTextColor(30,41,59);
+  doc.text('Resumo por Vendedor',mx,y);y+=2;
+
+  doc.autoTable({
+    startY:y,
+    head:[['Vendedor','Qtd Vendas','Total Vendido','% Comissão','Valor Comissão']],
+    body:resumo.filter(r=>r.vendas.length>0).map(r=>[r.vendedor.apelido,r.vendas.length,fmt(r.totalVendido),r.vendedor.comissao+'%',fmt(r.comissaoValor)]),
+    foot:[['TOTAL',resumo.reduce((a,r)=>a+r.vendas.length,0).toString(),fmt(totalVendidoGeral),'',fmt(totalComissoes)]],
+    styles:{fontSize:9,cellPadding:3},
+    headStyles:{fillColor:[30,41,59],textColor:255,fontStyle:'bold'},
+    footStyles:{fillColor:[241,245,249],textColor:[30,41,59],fontStyle:'bold'},
+    alternateRowStyles:{fillColor:[248,250,252]},
+    columnStyles:{1:{halign:'center'},2:{halign:'right'},3:{halign:'center'},4:{halign:'right'}},
+    theme:'grid',
+    margin:{left:mx,right:mx}
+  });
+
+  // Footer
+  const pageCount=doc.internal.getNumberOfPages();
+  for(let i=1;i<=pageCount;i++){
+    doc.setPage(i);
+    doc.setFontSize(8);doc.setTextColor(150);
+    doc.text(`LUSH GRIFFES — Comissões ${fmtD(comissaoInicio)} a ${fmtD(comissaoFim)} — Página ${i}/${pageCount}`,w/2,h-5,{align:'center'});
+  }
+
+  doc.save(`LUSH-GRIFFES-Comissoes-${comissaoInicio}-a-${comissaoFim}.pdf`);
+  toast('PDF de comissões gerado!');
+  }catch(e){toast('Erro ao gerar PDF: '+e.message,true);console.error(e)}
 }
 
 // ═══════ INIT ═══════
