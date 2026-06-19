@@ -1056,7 +1056,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-w-z1rfv';
+const APP_VERSION = 'v2026.06.08-w-z1rfvd';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -2918,8 +2918,22 @@ function salvarVenda(){
   const vendedorId=+(document.getElementById('vVendedor').value||0);
   if(!vendedorId){toast('Selecione um vendedor',true);return}
   if(!cliente||!data){toast('Preencha cliente e data',true);return}
+  // Debug: mostrar exatamente o estado do carrinho
+  console.log('[salvarVenda] _vendaCart estado:', JSON.parse(JSON.stringify(_vendaCart)));
   const validos=_vendaCart.filter(it=>it.produtoId&&(+it.valorVenda)>0);
-  if(!validos.length){toast('Adicione ao menos 1 item com preço',true);return}
+  if(!validos.length){
+    // Diagnostico detalhado pra o usuario
+    const detalhes=_vendaCart.map((it,i)=>{
+      const semProd=!it.produtoId;
+      const semValor=!(+it.valorVenda>0);
+      const erros=[];
+      if(semProd)erros.push('sem produto selecionado');
+      if(semValor)erros.push('sem preço (valor='+it.valorVenda+')');
+      return 'Item '+(i+1)+': '+(erros.length?erros.join(', '):'OK');
+    });
+    alert('Nao foi possivel salvar: nenhum item valido.\n\nEstado do carrinho:\n'+detalhes.join('\n')+'\n\nVerifique se:\n1. Voce SELECIONOU um produto do dropdown (nao so digitou)\n2. O preco foi preenchido');
+    toast('Adicione ao menos 1 item com preço',true);return
+  }
   // Checar produtos repetidos no carrinho
   const ids=validos.map(it=>it.produtoId);
   if(new Set(ids).size!==ids.length){toast('Há produtos repetidos na venda',true);return}
