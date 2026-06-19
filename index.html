@@ -1056,7 +1056,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-w-z1rf';
+const APP_VERSION = 'v2026.06.08-w-z1rfv';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -2790,7 +2790,7 @@ function _vendaCartItemsHtml(){
             onfocus="openVendaProdDropdown(${i})" onclick="openVendaProdDropdown(${i})" oninput="filterVendaProdDropdown(${i})" onblur="restoreVendaProdLabel(${i})"
             style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;width:100%;box-sizing:border-box">
         </div>
-        <input id="pgVendaCartValor_${i}" type="number" step="0.01" value="${it.valorVenda||''}" onchange="vendaCartUpdate(${i},'valorVenda',+this.value)" placeholder="Preço R$" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;text-align:right">
+        <input id="pgVendaCartValor_${i}" type="number" step="0.01" value="${it.valorVenda||''}" oninput="vendaCartUpdate(${i},'valorVenda',+this.value)" placeholder="Preço R$" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;text-align:right">
         <span id="vendaCartInfo_${i}" style="font-size:10px;color:var(--gray)">${_vendaCartInfo(i)}</span>
         <button onclick="removeVendaCartItem(${i})" style="background:var(--red);color:#fff;border:none;width:30px;height:30px;border-radius:6px;font-size:13px;cursor:pointer" title="Remover item">✕</button>
       </div>`}).join('');
@@ -2904,6 +2904,11 @@ function vendaCartUpdate(idx,field,val){
 
 function salvarVenda(){
   if(!PERMS.insert){toast('Sem permissão para inserir',true);return}
+  // Forcar commit de inputs do carrinho (caso valor digitado ainda nao tenha disparado oninput)
+  document.querySelectorAll('[id^=pgVendaCartValor_]').forEach(inp=>{
+    const idx=+inp.id.split('_')[1];
+    if(!isNaN(idx)&&_vendaCart[idx]){_vendaCart[idx].valorVenda=+inp.value||0}
+  });
   const cliente=document.getElementById('vCliente').value.trim();
   const telefone=document.getElementById('vTelefone').value.trim();
   const endereco=document.getElementById('vEndereco').value.trim();
