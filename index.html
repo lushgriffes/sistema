@@ -1056,7 +1056,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-w-fix';
+const APP_VERSION = 'v2026.06.08-w-z';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -4784,7 +4784,7 @@ function addProdItemMov(movId){
     const forn=dm?dm[1].trim():'';
     obs=forn?`Fornecedor: ${forn}`:`Mov #${compraMovId}`;
   }
-  const novo={id:D.nextProdId++,nome:'',marca:'',cat:'Outro',custo:0,qtd:1,status:'Em Estoque',num:'',img:'',imgs:[],precoVenda:0,obs:obs,movId:compraMovId,dataEntrada:m.data||hoje()};
+  const compraMov=D.movimentacoes.find(x=>x.id===compraMovId);const _numPed=(compraMov&&compraMov.numPedido)||m.numPedido||'';const novo={id:D.nextProdId++,nome:'',marca:'',cat:'Outro',custo:0,qtd:1,status:'Em Estoque',num:'',rastreio:'',codFornecedor:'',numPedido:_numPed,img:'',imgs:[],precoVenda:0,obs:obs,movId:compraMovId,dataEntrada:m.data||hoje()};
   D.produtos.push(novo);
   saveData();refreshMovModal(movId);toast('Produto adicionado ao estoque');
 }
