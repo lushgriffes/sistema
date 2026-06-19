@@ -1060,7 +1060,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-w-z1rfvdq';
+const APP_VERSION = 'v2026.06.08-w-z1rfvdqc';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -7562,20 +7562,21 @@ function renderComissoes(){
       </div>
     </div>
     ${r.vendas.length===0?'<p style="color:var(--gray);font-size:12px">Nenhuma venda neste período</p>':`
-    <table><thead><tr><th>Data</th><th>Cliente</th><th>Produto</th><th class="r">Venda</th><th class="r">Comissão</th></tr></thead><tbody>
+    <table><thead><tr><th>Data</th><th>Cliente</th><th>Produto</th><th class="r">Custo</th><th class="r">Venda</th><th class="r">Lucro</th><th class="r">Comissão</th></tr></thead><tbody>
     ${r.vendas.map(v=>{
       const com=Math.round((v.valorVenda||0)*(r.comissaoPct/100)*100)/100;
-      return `<tr><td>${fmtD(v.data)}</td><td>${v.cliente}</td><td>${v.produto}</td><td class="r">${fmt(v.valorVenda)}</td><td class="r" style="color:var(--orange);font-weight:600">${fmt(com)}</td></tr>`
+      const lucro=Math.round(((+v.valorVenda||0)-(+v.custo||0))*100)/100;
+      return `<tr><td>${fmtD(v.data)}</td><td>${v.cliente}</td><td>${v.produto}</td><td class="r">${fmt(v.custo)}</td><td class="r" style="font-weight:600">${fmt(v.valorVenda)}</td><td class="r" style="color:${lucro>=0?'var(--green)':'var(--red)'};font-weight:600">${fmt(lucro)}</td><td class="r" style="color:var(--orange);font-weight:600">${fmt(com)}</td></tr>`
     }).join('')}
-    </tbody><tfoot><tr><td colspan="3" style="font-weight:700">TOTAL</td><td class="r" style="font-weight:700">${fmt(r.totalVendido)}</td><td class="r" style="font-weight:700;color:var(--orange)">${fmt(r.comissaoValor)}</td></tr></tfoot></table>`}
+    </tbody><tfoot><tr style="background:#f1f5f9"><td colspan="3" style="font-weight:700;padding:8px 10px">TOTAL</td><td class="r" style="font-weight:700;padding:8px 10px">${fmt(r.vendas.reduce((a,v)=>a+(+v.custo||0),0))}</td><td class="r" style="font-weight:700;padding:8px 10px">${fmt(r.totalVendido)}</td><td class="r" style="font-weight:700;color:var(--green);padding:8px 10px">${fmt(r.vendas.reduce((a,v)=>a+((+v.valorVenda||0)-(+v.custo||0)),0))}</td><td class="r" style="font-weight:700;color:var(--orange);padding:8px 10px">${fmt(r.comissaoValor)}</td></tr></tfoot></table>`}
   </div>`).join('')}
   ${semVendedor.length>0?`
   <div class="box" style="border-left:4px solid var(--red)">
     <h3>⚠ Vendas sem vendedor (${semVendedor.length})</h3>
     <p style="font-size:11px;color:var(--gray);margin-bottom:8px">Essas vendas não têm vendedor atribuído. Edite na aba Vendas para vincular.</p>
-    <table><thead><tr><th>Data</th><th>Cliente</th><th>Produto</th><th class="r">Valor</th></tr></thead><tbody>
-    ${semVendedor.map(v=>`<tr><td>${fmtD(v.data)}</td><td>${v.cliente}</td><td>${v.produto}</td><td class="r">${fmt(v.valorVenda)}</td></tr>`).join('')}
-    </tbody></table>
+    <table><thead><tr><th>Data</th><th>Cliente</th><th>Produto</th><th class="r">Custo</th><th class="r">Valor</th><th class="r">Lucro</th></tr></thead><tbody>
+    ${semVendedor.map(v=>{const lc=Math.round(((+v.valorVenda||0)-(+v.custo||0))*100)/100;return `<tr><td>${fmtD(v.data)}</td><td>${v.cliente}</td><td>${v.produto}</td><td class="r">${fmt(v.custo)}</td><td class="r" style="font-weight:600">${fmt(v.valorVenda)}</td><td class="r" style="color:${lc>=0?'var(--green)':'var(--red)'};font-weight:600">${fmt(lc)}</td></tr>`}).join('')}
+    </tbody><tfoot><tr style="background:#f1f5f9"><td colspan="3" style="font-weight:700;padding:8px 10px">TOTAL</td><td class="r" style="font-weight:700;padding:8px 10px">${fmt(semVendedor.reduce((a,v)=>a+(+v.custo||0),0))}</td><td class="r" style="font-weight:700;padding:8px 10px">${fmt(semVendedor.reduce((a,v)=>a+(+v.valorVenda||0),0))}</td><td class="r" style="font-weight:700;color:var(--green);padding:8px 10px">${fmt(semVendedor.reduce((a,v)=>a+((+v.valorVenda||0)-(+v.custo||0)),0))}</td></tr></tfoot></table>
   </div>`:''}`;
 }
 
