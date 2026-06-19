@@ -1056,7 +1056,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-w';
+const APP_VERSION = 'v2026.06.08-w-fix';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -4423,14 +4423,51 @@ function excluirMov(movId){
     if(vendidosLinked.length>0)msg+=`\n\n⚠⚠ CUIDADO: ${vendidosLinked.length} produto(s) já estão VENDIDOS. Excluir vai deixar essas vendas sem produto.`;
   }
   msg+='\n\nIsso vai recalcular todos os saldos.';
-  if(!confirm(msg))return;
+  // Verificar se ha CP origem='compra' vinculada (compra a prazo paga via mov)
+  const _cpCheck=D.contasPagar.find(c=>c.movIdEstorno===movId);
+  const _cpDeCompra=_cpCheck&&_cpCheck.origem==='compra';
+  if(_cpDeCompra){
+    // CASO ESPECIAL: mov é pagamento de uma Compra A Prazo — oferecer estornar pagamento
+    const opcao=confirm(
+      'Esta movimentação é o PAGAMENTO de uma compra a prazo:\n\n'+
+      `Pedido: ${m.numPedido||'(sem numero)'}\n`+
+      `Valor: ${fmt(m.valor)}\n`+
+      `CP vinculada: #${_cpCheck.id} (${_cpCheck.desc})\n`+
+      (prodsLinked.length>0?`Produtos vinculados: ${prodsLinked.length}\n`:'')+
+      '\nO QUE VOCE QUER FAZER?\n\n'+
+      'OK = APENAS ESTORNAR O PAGAMENTO\n'+
+      '    -> CP volta pra Pendente\n'+
+      '    -> Mov volta pra A Pagar (caixa restaurado)\n'+
+      '    -> Produtos ficam no estoque (intactos)\n\n'+
+      'Cancelar = continuar pro fluxo de EXCLUIR COMPRA INTEIRA\n'+
+      '    (remove CP, produtos e a mov)'
+    );
+    if(opcao){
+      _cpCheck.status='Pendente';_cpCheck.dataPgto='';
+      m.aPagar=true;m.statusPagamento='A Pagar';
+      recalcSaldos();saveData();renderPage();
+      toast('Pagamento estornado — CP voltou pra Pendente, produtos mantidos');
+      return;
+    }
+    // Confirmar exclusao completa
+    let msgX='⚠ EXCLUIR A COMPRA INTEIRA?\n\n'+
+      `Pedido: ${m.numPedido||'(sem numero)'}\n`+
+      `Valor: ${fmt(m.valor)}\n`;
+    if(prodsLinked.length>0)msgX+=`\n⚠ ${prodsLinked.length} produto(s) ao estoque serão REMOVIDOS.`;
+    if(vendidosLinked.length>0)msgX+=`\n⚠⚠ ${vendidosLinked.length} produto(s) já estão VENDIDOS. Excluir vai deixar essas vendas sem produto.`;
+    msgX+='\n\nIsso vai recalcular todos os saldos.';
+    if(!confirm(msgX))return;
+    // Excluir CP + produtos + mov (segue fluxo padrao abaixo)
+  } else {
+    if(!confirm(msg))return;
+  }
   // Se tem despesa vinculada, remover também
   if(m.despId){D.despesas=D.despesas.filter(d=>d.id!==m.despId)}
-  // Conta a pagar vinculada: depende da origem
+  // Conta a pagar vinculada: depende da origem (caso especial CP de compra ja foi tratado acima se foi estorno)
   const cp=D.contasPagar.find(c=>c.movIdEstorno===movId);
   if(cp){
     if(cp.origem==='compra'){
-      // CP criada PELA compra a prazo - excluir junto
+      // CP criada PELA compra a prazo - excluir junto (so chega aqui se user optou por excluir tudo)
       D.contasPagar=D.contasPagar.filter(x=>x.id!==cp.id);
     } else {
       // CP de despesa que foi paga (criou a mov) - reverter pra pendente
