@@ -1056,7 +1056,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-w-z1';
+const APP_VERSION = 'v2026.06.08-w-z1r';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -1849,7 +1849,7 @@ function renderEstoque(m){
     <td><span class="editable" onclick="editField(${p.id},'num',this)">${p.num||'—'}</span></td>
     <td><span class="editable" onclick="editField(${p.id},'rastreio',this)" style="font-size:10px">${p.rastreio||'—'}</span></td>
     <td><span class="editable" onclick="editField(${p.id},'codFornecedor',this)" style="font-size:10px">${p.codFornecedor||'—'}</span></td>
-    <td>${p.numPedido?`<div style="display:flex;gap:2px;align-items:center"><span onclick="irParaPedido('${p.numPedido}')" style="font-size:10px;color:var(--blue);font-weight:600;white-space:nowrap;cursor:pointer;text-decoration:underline" title="Ver pedido de compra completo">${p.numPedido}</span><button onclick="editarNumPedidoProd(${p.id})" style="background:none;border:none;cursor:pointer;color:var(--gray);font-size:10px;padding:0" title="Editar numero do pedido">✏</button></div>`:`<span class="editable" onclick="editarNumPedidoProd(${p.id})" style="font-size:10px;color:var(--gray);cursor:pointer" title="Clique para definir o nº do pedido">— ✏</span>`}</td>
+    <td>${p.numPedido?`<span onclick="irParaPedido('${p.numPedido}')" style="font-size:10px;color:var(--blue);font-weight:600;white-space:nowrap;cursor:pointer;text-decoration:underline" title="Ver pedido de compra completo">${p.numPedido}</span>`:`<span style="font-size:10px;color:var(--gray)">—</span>`}</td>
     <td><select onchange="mudaCat(${p.id},this.value)" style="font-size:10px;padding:2px 4px;border-radius:4px;border:1px solid #ddd">${D.categorias.map(c=>`<option${c===p.cat?' selected':''}>${c}</option>`).join('')}</select></td><td class="r"><span class="editable" onclick="editNumField(${p.id},'custo',this)" title="Clique para editar">${fmt(p.custo)}</span></td>
     <td class="r"><span class="editable" onclick="editNumField(${p.id},'precoVenda',this)" style="color:var(--green);font-weight:600">${p.precoVenda?fmt(p.precoVenda):'—'}</span></td>
     <td>${badgeS(p.status)}</td>
@@ -6175,25 +6175,6 @@ function renderNovaCompra(){
 }
 
 // Navega para a aba Nova Compra e abre o pedido de compra completo
-function editarNumPedidoProd(prodId){
-  if(!PERMS.edit){toast('Sem permissao para alterar',true);return}
-  const p=D.produtos.find(x=>x.id===prodId);if(!p)return;
-  const atual=p.numPedido||'';
-  // Sugestao: se tem movId vinculado, mostrar o numPedido da mov
-  let sugestao=atual;
-  if(!sugestao&&p.movId){
-    const mv=D.movimentacoes.find(x=>x.id===p.movId);
-    if(mv&&mv.numPedido)sugestao=mv.numPedido;
-  }
-  const novo=prompt('Numero do pedido para o produto:\n\n'+(p.nome||'(sem nome)')+'\n\nFormato: PC-XXXX',sugestao);
-  if(novo===null)return;
-  const limpo=(novo||'').trim();
-  if(limpo===atual){toast('Sem alteracao');return}
-  p.numPedido=limpo;
-  saveData();renderPage();
-  toast(limpo?('Pedido vinculado: '+limpo):'Pedido removido do produto');
-}
-
 // Backfill: vincula numPedido em produtos que tem movId apontando pra compra com numPedido
 function backfillNumPedidoProdutos(){
   if(!PERMS.edit){toast('Sem permissao para alterar',true);return}
