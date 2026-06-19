@@ -536,12 +536,16 @@ let _lastKnownUpdatedAt=null;
 const _sessionToken='sess_'+Date.now()+'_'+Math.random().toString(36).slice(2,10);
 let _lastKnownSessionToken=null;
 const BACKUP_KEY='lush-griffes-backups';
+// Reduzido pra evitar quota cheio (snapshots crescem muito com base grande)
+const MAX_BACKUPS_LOCAL=5;
 const MAX_BACKUPS=20;
 
 // ═══ SISTEMA DE BACKUP AUTOMÁTICO ═══
 function salvarBackupLocal(){
   try{
     const backups=JSON.parse(localStorage.getItem(BACKUP_KEY)||'[]');
+    // Manter so os MAX_BACKUPS_LOCAL mais recentes pra evitar quota
+    while(backups.length>=MAX_BACKUPS_LOCAL)backups.pop();
     const snapshot={
       timestamp:new Date().toISOString(),
       produtos:D.produtos.length,
@@ -1056,7 +1060,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-w-z1rfvd';
+const APP_VERSION = 'v2026.06.08-w-z1rfvdq';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -1342,7 +1346,42 @@ function _verificarAntiZero(){
   return true;
 }
 
-function saveData(){if(!_verificarAntiZero())return;localStorage.setItem(STORAGE_KEY,JSON.stringify(D));if(userProfile)saveDataToSupabase()}
+function saveData(){
+  if(!_verificarAntiZero())return;
+  try{
+    localStorage.setItem(STORAGE_KEY,JSON.stringify(D));
+  }catch(e){
+    // Quota excedido — tentar liberar espaco
+    const isQuota=e&&(e.name==='QuotaExceededError'||e.code===22||e.code===1014);
+    if(!isQuota){console.error('saveData erro inesperado:',e);throw e}
+    console.warn('[saveData] localStorage cheio — liberando espaco...');
+    try{
+      // Estrategia 1: reduzir backups locais pela metade
+      const bk=JSON.parse(localStorage.getItem(BACKUP_KEY)||'[]');
+      const antes=bk.length;
+      if(antes>2){
+        const mantidos=Math.max(2,Math.floor(antes/2));
+        bk.splice(mantidos);
+        localStorage.setItem(BACKUP_KEY,JSON.stringify(bk));
+        console.log('[saveData] backups reduzidos de '+antes+' para '+bk.length);
+      }
+      // Tentar de novo
+      try{localStorage.setItem(STORAGE_KEY,JSON.stringify(D))}
+      catch(e2){
+        // Estrategia 2: limpar TODOS os backups locais
+        console.warn('[saveData] ainda nao coube — limpando todos os backups locais...');
+        localStorage.removeItem(BACKUP_KEY);
+        try{localStorage.setItem(STORAGE_KEY,JSON.stringify(D))}
+        catch(e3){
+          // Estrategia 3: limpar outras chaves antigas e desistir
+          console.error('[saveData] localStorage cheio mesmo apos limpar backups');
+          alert('⚠ Espaço local cheio.\n\nO sistema NAO conseguiu salvar localmente.\nMas vai tentar salvar na NUVEM (Supabase).\n\nRecomendacao: faca um Export manual (Config) como backup.');
+        }
+      }
+    }catch(eClean){console.error('[saveData] erro durante limpeza:',eClean)}
+  }
+  if(userProfile)saveDataToSupabase();
+}
 let D=loadData();
 
 function fmt(v){return 'R$ '+Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}
