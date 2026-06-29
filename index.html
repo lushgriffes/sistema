@@ -1060,7 +1060,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-w-z1rfvdqc2';
+const APP_VERSION = 'v2026.06.08-w-z1rfvdqc2x';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -4484,10 +4484,12 @@ function excluirMov(movId){
   // Verificar se ha CP origem='compra' vinculada (compra a prazo paga via mov)
   const _cpCheck=D.contasPagar.find(c=>c.movIdEstorno===movId);
   const _cpDeCompra=_cpCheck&&_cpCheck.origem==='compra';
-  if(_cpDeCompra){
-    // CASO ESPECIAL: mov é pagamento de uma Compra A Prazo — oferecer estornar pagamento
+  // Compra ESTA paga = mov nao tem aPagar=true E CP.status='Pago'
+  const _compraEstaPaga=_cpDeCompra&&!m.aPagar&&_cpCheck.status==='Pago';
+  if(_cpDeCompra&&_compraEstaPaga){
+    // CASO ESPECIAL: mov é pagamento de uma Compra A Prazo JA PAGA — oferecer estornar
     const opcao=confirm(
-      'Esta movimentação é o PAGAMENTO de uma compra a prazo:\n\n'+
+      'Esta movimentação é o PAGAMENTO de uma compra a prazo (já paga):\n\n'+
       `Pedido: ${m.numPedido||'(sem numero)'}\n`+
       `Valor: ${fmt(m.valor)}\n`+
       `CP vinculada: #${_cpCheck.id} (${_cpCheck.desc})\n`+
@@ -4515,6 +4517,17 @@ function excluirMov(movId){
     if(vendidosLinked.length>0)msgX+=`\n⚠⚠ ${vendidosLinked.length} produto(s) já estão VENDIDOS. Excluir vai deixar essas vendas sem produto.`;
     msgX+='\n\nIsso vai recalcular todos os saldos.';
     if(!confirm(msgX))return;
+    // Excluir CP + produtos + mov (segue fluxo padrao abaixo)
+  } else if(_cpDeCompra&&!_compraEstaPaga){
+    // CASO: compra A Pagar — confirm direto de excluir (estornar nao faz sentido, ja esta a pagar)
+    let msgY='⚠ EXCLUIR ESTA COMPRA A PAGAR?\n\n'+
+      `Pedido: ${m.numPedido||'(sem numero)'}\n`+
+      `Valor: ${fmt(m.valor)}\n`+
+      `CP vinculada: #${_cpCheck.id}\n`;
+    if(prodsLinked.length>0)msgY+=`\n⚠ ${prodsLinked.length} produto(s) do estoque serão REMOVIDOS.`;
+    if(vendidosLinked.length>0)msgY+=`\n⚠⚠ ${vendidosLinked.length} produto(s) já estão VENDIDOS. Excluir vai deixar essas vendas sem produto.`;
+    msgY+='\n\nA Conta a Pagar (#'+_cpCheck.id+') também sera removida.\nIsso vai recalcular todos os saldos.';
+    if(!confirm(msgY))return;
     // Excluir CP + produtos + mov (segue fluxo padrao abaixo)
   } else {
     if(!confirm(msg))return;
