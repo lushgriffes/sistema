@@ -1062,7 +1062,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-w-z1rfvdqc2xid';
+const APP_VERSION = 'v2026.06.08-w-z1rfvdqc2xide';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -6720,6 +6720,7 @@ let _invSearch='';
 function renderInventario(m){
   if(!D.inventarios)D.inventarios=[];
   if(D.nextInventarioId===undefined)D.nextInventarioId=1;
+  const _ev=v=>(v==null?'':String(v)).replace(/"/g,'&quot;');
 
   // Se nenhum inventario em andamento, mostrar tela inicial + historico
   if(!_invAtual){
