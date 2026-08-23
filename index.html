@@ -1065,7 +1065,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-w-z1rfvdqc2xide2pnhqs';
+const APP_VERSION = 'v2026.06.08-w-z1rfvdqc2xide2pnhqsf';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -6836,18 +6836,20 @@ function renderInventario(m){
   if(_invSearch){const q=_invSearch.toLowerCase();filtrados=filtrados.filter(p=>[p.id,p.nome,p.marca,p.num,p.numPedido,p.codFornecedor,p.cat,p.status].map(x=>String(x||'').toLowerCase()).join(' ').includes(q));}
 
   const totalProds=produtos.length;
-  const nConf=Object.values(itens).filter(x=>x.status==='conferido').length;
-  const nFalt=Object.values(itens).filter(x=>x.status==='faltando').length;
-  const nPend=totalProds-nConf-nFalt;
+  // Contar apenas marcacoes de produtos que AINDA estao no filtro (nao-vendidos entre inicio e agora)
+  const idsAtivos=new Set(produtos.map(p=>p.id));
+  const nConf=Object.entries(itens).filter(([pid,x])=>x.status==='conferido'&&idsAtivos.has(+pid)).length;
+  const nFalt=Object.entries(itens).filter(([pid,x])=>x.status==='faltando'&&idsAtivos.has(+pid)).length;
+  const nPend=Math.max(0,totalProds-nConf-nFalt);
   const progresso=totalProds?Math.round((nConf+nFalt)/totalProds*100):0;
 
   return `
   <h2>📋 Inventário em andamento — ${fmtD(invAtual.data)} <span style="font-size:11px;background:#dcfce7;color:#166534;padding:2px 8px;border-radius:8px;font-weight:600">💾 Auto-salvo</span></h2>
   <div class="cards" style="margin-bottom:12px">
-    <div class="card"><div class="card-lbl">Total Produtos</div><div class="card-val">${totalProds}</div></div>
-    <div class="card green"><div class="card-lbl">✓ Conferidos</div><div class="card-val">${nConf}</div></div>
-    <div class="card red"><div class="card-lbl">✗ Faltando</div><div class="card-val">${nFalt}</div></div>
-    <div class="card orange"><div class="card-lbl">Pendentes</div><div class="card-val">${nPend}</div></div>
+    <div class="card${_invStatusFilter==='Todos'?' active-filter':''}" onclick="_invStatusFilter='Todos';renderPage()" style="cursor:pointer;${_invStatusFilter==='Todos'?'border:2px solid var(--dark);box-shadow:0 0 0 2px rgba(30,41,59,.15)':''}"><div class="card-lbl">Total Produtos ${_invStatusFilter==='Todos'?'▼':''}</div><div class="card-val">${totalProds}</div></div>
+    <div class="card green" onclick="_invStatusFilter='Conferido';renderPage()" style="cursor:pointer;${_invStatusFilter==='Conferido'?'border:2px solid var(--green);box-shadow:0 0 0 2px rgba(22,163,74,.2)':''}"><div class="card-lbl">✓ Conferidos ${_invStatusFilter==='Conferido'?'▼':''}</div><div class="card-val">${nConf}</div></div>
+    <div class="card red" onclick="_invStatusFilter='Faltando';renderPage()" style="cursor:pointer;${_invStatusFilter==='Faltando'?'border:2px solid var(--red);box-shadow:0 0 0 2px rgba(220,38,38,.2)':''}"><div class="card-lbl">✗ Faltando ${_invStatusFilter==='Faltando'?'▼':''}</div><div class="card-val">${nFalt}</div></div>
+    <div class="card orange" onclick="_invStatusFilter='Pendente';renderPage()" style="cursor:pointer;${_invStatusFilter==='Pendente'?'border:2px solid var(--orange);box-shadow:0 0 0 2px rgba(245,158,11,.2)':''}"><div class="card-lbl">Pendentes ${_invStatusFilter==='Pendente'?'▼':''}</div><div class="card-val">${nPend}</div></div>
     <div class="card cyan"><div class="card-lbl">Progresso</div><div class="card-val">${progresso}%</div></div>
   </div>
   <div class="filter-bar" style="margin-bottom:12px">
