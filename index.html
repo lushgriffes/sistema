@@ -546,39 +546,82 @@ const MAX_BACKUPS_LOCAL=5;
 const MAX_BACKUPS=20;
 
 // ═══ SISTEMA DE BACKUP AUTOMÁTICO ═══
-function salvarBackupLocal(){
+// ═══ INDEXEDDB: backups COMPLETOS (com fotos), 50GB de espaco ═══
+const IDB_NAME='lush-griffes-idb';
+const IDB_STORE='backups';
+const IDB_MAX=30;
+
+function _idbOpen(){
+  return new Promise((res,rej)=>{
+    const rq=indexedDB.open(IDB_NAME,1);
+    rq.onupgradeneeded=e=>{const db=e.target.result;if(!db.objectStoreNames.contains(IDB_STORE))db.createObjectStore(IDB_STORE,{keyPath:'ts'})};
+    rq.onsuccess=e=>res(e.target.result);
+    rq.onerror=e=>rej(e.target.error);
+  });
+}
+async function _idbSalvar(snapshot){
+  const db=await _idbOpen();
+  return new Promise((res,rej)=>{
+    const tx=db.transaction(IDB_STORE,'readwrite');
+    tx.objectStore(IDB_STORE).put(snapshot);
+    tx.oncomplete=()=>res();
+    tx.onerror=e=>rej(e.target.error);
+  });
+}
+async function _idbListar(){
   try{
-    // Snapshot LEVE (sem fotos base64) - fotos ficam em D principal + Supabase
-    const Dleve=JSON.parse(JSON.stringify(D));
-    if(Dleve.produtos){Dleve.produtos.forEach(p=>{p.img='';p.imgs=[]});}
-    const snapshot={
-      timestamp:new Date().toISOString(),
-      produtos:D.produtos.length,
-      movimentacoes:D.movimentacoes.length,
-      vendas:D.vendas.length,
-      despesas:D.despesas.length,
-      data:JSON.stringify(Dleve)
-    };
-    const tryStore=n=>{
-      const bk=JSON.parse(localStorage.getItem(BACKUP_KEY)||'[]');
-      bk.unshift(snapshot);
-      while(bk.length>n)bk.pop();
-      localStorage.setItem(BACKUP_KEY,JSON.stringify(bk));
-      return bk.length;
-    };
-    // Tentar armazenar; se quota estourar, reduzir progressivamente
-    const tentativas=[MAX_BACKUPS_LOCAL,3,2,1];
-    for(const n of tentativas){
-      try{
-        const stored=tryStore(n);
-        console.log('[backup local] salvo, snapshots armazenados:',stored,'| tamanho:',Math.round((snapshot.data||'').length/1024)+'KB');
-        return;
-      }catch(e){
-        console.warn('[backup local] tentativa n='+n+' falhou:',e.name||e.message);
-      }
-    }
-    console.warn('[backup local] nao foi possivel armazenar nem 1 backup - localStorage totalmente cheio');
-  }catch(e){console.warn('Erro ao salvar backup local:',e)}
+    const db=await _idbOpen();
+    return await new Promise((res,rej)=>{
+      const tx=db.transaction(IDB_STORE,'readonly');
+      const rq=tx.objectStore(IDB_STORE).getAll();
+      rq.onsuccess=()=>res(rq.result||[]);
+      rq.onerror=e=>rej(e.target.error);
+    });
+  }catch(e){console.warn('idbListar:',e);return[]}
+}
+async function _idbLimparAntigos(){
+  const all=await _idbListar();
+  if(all.length<=IDB_MAX)return;
+  const ordenados=all.sort((a,b)=>(b.ts||'').localeCompare(a.ts||''));
+  const remover=ordenados.slice(IDB_MAX);
+  const db=await _idbOpen();
+  const tx=db.transaction(IDB_STORE,'readwrite');
+  remover.forEach(x=>tx.objectStore(IDB_STORE).delete(x.ts));
+  await new Promise(r=>tx.oncomplete=r);
+}
+async function _idbRestaurar(ts){
+  const db=await _idbOpen();
+  return new Promise((res,rej)=>{
+    const rq=db.transaction(IDB_STORE,'readonly').objectStore(IDB_STORE).get(ts);
+    rq.onsuccess=()=>res(rq.result);
+    rq.onerror=e=>rej(e.target.error);
+  });
+}
+
+function salvarBackupLocal(){
+  // Backup COMPLETO (com fotos) no IndexedDB. 50GB de espaco.
+  const snapshot={
+    ts:new Date().toISOString(),
+    timestamp:new Date().toISOString(),
+    produtos:D.produtos.length,
+    movimentacoes:D.movimentacoes.length,
+    vendas:D.vendas.length,
+    despesas:D.despesas.length,
+    data:JSON.stringify(D)
+  };
+  _idbSalvar(snapshot).then(async()=>{
+    console.log('[backup IDB]',snapshot.ts,'-',Math.round(snapshot.data.length/1024)+'KB');
+    await _idbLimparAntigos();
+  }).catch(e=>{
+    console.error('[backup IDB] falha:',e);
+    // Fallback: metadata em localStorage
+    try{
+      const legacy=JSON.parse(localStorage.getItem(BACKUP_KEY)||'[]');
+      legacy.unshift({timestamp:snapshot.ts,produtos:snapshot.produtos,movimentacoes:snapshot.movimentacoes,vendas:snapshot.vendas,despesas:snapshot.despesas,data:JSON.stringify({...D,produtos:(D.produtos||[]).map(p=>({...p,img:'',imgs:[]}))})});
+      while(legacy.length>5)legacy.pop();
+      localStorage.setItem(BACKUP_KEY,JSON.stringify(legacy));
+    }catch(e2){console.warn('fallback localStorage falhou:',e2)}
+  });
 }
 
 function listarBackups(){
@@ -649,30 +692,24 @@ function verificarAutoExportSemanal(){
 
 async function saveDataToSupabase(){
   if(!userProfile)return;
-  // PROTECAO: verificar se outro computador salvou dados mais novos
+  _savePending++;_saveError=null;_atualizarIndicadorSave();
   try{
-    const{data:remote}=await SB.from('app_data').select('updated_at,data').eq('org_id',userProfile.org_id).single();
-    if(remote&&remote.updated_at&&_lastKnownUpdatedAt){
-      const remoteTime=new Date(remote.updated_at).getTime();
-      const localTime=new Date(_lastKnownUpdatedAt).getTime();
-      const remoteToken=remote.data&&remote.data._savedBy;
-      // se remoto tem token diferente E e mais novo, alguem em OUTRO PC salvou
-      const outroPC=remoteToken&&_lastKnownSessionToken&&remoteToken!==_lastKnownSessionToken&&remoteToken!==_sessionToken;
-      // Politica: ultimo save vence. Nao interrompe o usuario, nao recarrega. Apenas registra no console.
-      if(remoteTime>localTime+2000||outroPC){
-        const diff=Math.round((remoteTime-localTime)/60000);
-        console.log('[save] timestamp remoto mais novo ('+diff+'min), sobrescrevendo com estado atual.');
-      }
-    }
-  }catch(e){console.warn('Erro ao verificar timestamp remoto:',e)}
-  // BACKUP: salvar snapshot antes de gravar no Supabase
-  salvarBackupLocal();
-  const agora=new Date().toISOString();
-  D._savedAt=agora;
-  D._savedBy=_sessionToken;
-  await SB.from('app_data').upsert({org_id:userProfile.org_id,data:D,updated_at:agora},{onConflict:'org_id'});
-  _lastKnownUpdatedAt=agora;
-  _lastKnownSessionToken=_sessionToken;
+    // BACKUP local completo (IndexedDB) antes de gravar na nuvem
+    salvarBackupLocal();
+    const agora=new Date().toISOString();
+    D._savedAt=agora;
+    D._savedBy=_sessionToken;
+    const{error}=await SB.from('app_data').upsert({org_id:userProfile.org_id,data:D,updated_at:agora},{onConflict:'org_id'});
+    if(error)throw error;
+    _lastKnownUpdatedAt=agora;
+    _lastKnownSessionToken=_sessionToken;
+  }catch(e){
+    _saveError=e.message||String(e);
+    console.error('[save] falha na nuvem:',e);
+  }finally{
+    _savePending=Math.max(0,_savePending-1);
+    _atualizarIndicadorSave();
+  }
 }
 
 // ═══ SYNC POLL — DETECTA ALTERAÇÕES DE OUTRO DISPOSITIVO ═══
@@ -1071,7 +1108,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-w-z1rfvdqc2xide2pnhqsfbl-nopopup';
+const APP_VERSION = 'v2026.06.09-sistema-confiavel';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -1394,6 +1431,66 @@ function saveData(){
   if(userProfile)saveDataToSupabase();
 }
 let D=loadData();
+
+// ═══ ESTADO DE SAVE + INDICADOR VISUAL ═══
+let _savePending=0; // contador de saves em andamento
+let _saveError=null;
+function _atualizarIndicadorSave(){
+  const el=document.getElementById('saveIndicator');
+  if(!el)return;
+  if(_saveError){el.style.background='#dc2626';el.style.color='#fff';el.textContent='⚠ Erro ao salvar';return}
+  if(_savePending>0){el.style.background='#f59e0b';el.style.color='#fff';el.textContent='💾 Salvando...';return}
+  el.style.background='#16a34a';el.style.color='#fff';el.textContent='✓ Salvo';
+  // Fade discreto apos 2s
+  setTimeout(()=>{if(_savePending===0&&!_saveError){el.style.background='rgba(22,163,74,.15)';el.style.color='#166534'}},2000);
+}
+function _criarIndicadorSave(){
+  if(document.getElementById('saveIndicator'))return;
+  const el=document.createElement('div');
+  el.id='saveIndicator';
+  el.style.cssText='position:fixed;bottom:16px;right:16px;z-index:999998;padding:8px 14px;border-radius:20px;font-size:12px;font-weight:600;box-shadow:0 4px 12px rgba(0,0,0,.15);transition:all .2s ease;background:rgba(22,163,74,.15);color:#166534;user-select:none;pointer-events:none';
+  el.textContent='✓ Salvo';
+  document.body.appendChild(el);
+}
+// Bloquear F5 / fechar aba se houver save pendente
+window.addEventListener('beforeunload',e=>{
+  if(_savePending>0){e.preventDefault();e.returnValue='Ainda salvando dados na nuvem. Aguarde alguns segundos.';return e.returnValue}
+});
+
+// ═══ RECUPERACAO FACIL: window.restaurarBackupCompleto() ═══
+// Lista todos backups (IndexedDB + Supabase) e permite restaurar 1 clique
+window.restaurarBackupCompleto=async function(){
+  const idb=await _idbListar();
+  const nuvem=userProfile?await SB.from('app_data_backups').select('id,created_at,data').eq('org_id',userProfile.org_id).order('created_at',{ascending:false}).limit(10):{data:[]};
+  const todos=[
+    ...idb.map(b=>({src:'IndexedDB (COMPLETO com fotos)',ts:b.timestamp,data:JSON.parse(b.data),tam:Math.round(b.data.length/1024)+'KB'})),
+    ...((nuvem.data||[]).map(b=>({src:'Nuvem diario #'+b.id,ts:b.created_at,data:b.data,tam:'~nuvem'})))
+  ].sort((a,b)=>(b.ts||'').localeCompare(a.ts||''));
+  if(!todos.length){alert('Nenhum backup encontrado');return}
+  const linhas=todos.map((b,i)=>{
+    const nProds=b.data.produtos?.length||0;
+    const nFotos=b.data.produtos?.filter(p=>p.img||(p.imgs&&p.imgs.length)).length||0;
+    const nInv=Object.keys(b.data.inventarioEmAndamento?.itens||{}).length;
+    return (i+1)+') '+new Date(b.ts).toLocaleString('pt-BR')+' | '+b.src+' | '+nProds+' prods ('+nFotos+' c/foto) | inv: '+nInv;
+  }).join('\n');
+  const escolha=prompt('BACKUPS DISPONIVEIS:\n\n'+linhas+'\n\nDigite o numero do backup para restaurar (ou cancele):');
+  if(!escolha)return;
+  const idx=parseInt(escolha)-1;
+  if(isNaN(idx)||idx<0||idx>=todos.length){alert('Numero invalido');return}
+  const b=todos[idx];
+  if(!confirm('RESTAURAR '+b.src+' de '+new Date(b.ts).toLocaleString('pt-BR')+'?\n\nEstado atual sera SUBSTITUIDO. Um backup do estado atual sera salvo antes.'))return;
+  salvarBackupLocal();
+  await new Promise(r=>setTimeout(r,500));
+  D=b.data;
+  await saveDataToSupabase();
+  try{localStorage.setItem(STORAGE_KEY,JSON.stringify(D))}catch(e){console.warn('local cheio, ok, esta na nuvem')}
+  renderPage();
+  alert('Restaurado com sucesso!');
+};
+console.log('[sistema] Para restaurar um backup a qualquer momento, digite: restaurarBackupCompleto()');
+// Criar indicador quando DOM estiver pronto
+if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',_criarIndicadorSave)}else{_criarIndicadorSave()}
+
 
 function fmt(v){return 'R$ '+Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}
 function fmtK(v){const n=Number(v||0);if(Math.abs(n)>=1000)return 'R$'+Math.round(n/1000)+'k';return fmt(n)}
