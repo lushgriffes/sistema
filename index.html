@@ -658,10 +658,10 @@ async function saveDataToSupabase(){
       const remoteToken=remote.data&&remote.data._savedBy;
       // se remoto tem token diferente E e mais novo, alguem em OUTRO PC salvou
       const outroPC=remoteToken&&_lastKnownSessionToken&&remoteToken!==_lastKnownSessionToken&&remoteToken!==_sessionToken;
+      // Politica: ultimo save vence. Nao interrompe o usuario, nao recarrega. Apenas registra no console.
       if(remoteTime>localTime+2000||outroPC){
         const diff=Math.round((remoteTime-localTime)/60000);
-        const confirma=confirm(`ATENCAO: Outro computador salvou dados ${diff} minuto(s) atras.\n\nSe continuar, voce pode SOBRESCREVER dados mais recentes.\n\nClique OK para salvar mesmo assim, ou CANCELAR para recarregar a pagina com os dados mais recentes.`);
-        if(!confirma){location.reload();return}
+        console.log('[save] timestamp remoto mais novo ('+diff+'min), sobrescrevendo com estado atual.');
       }
     }
   }catch(e){console.warn('Erro ao verificar timestamp remoto:',e)}
@@ -686,18 +686,9 @@ function stopSyncPoll(){
   if(_syncPollInterval){clearInterval(_syncPollInterval);_syncPollInterval=null}
 }
 async function checkRemoteUpdate(){
-  if(!userProfile||!_lastKnownUpdatedAt||_syncBannerVisible)return;
-  try{
-    const{data:remote}=await SB.from('app_data').select('updated_at').eq('org_id',userProfile.org_id).single();
-    if(!remote||!remote.updated_at)return;
-    const remoteTime=new Date(remote.updated_at).getTime();
-    const localTime=new Date(_lastKnownUpdatedAt).getTime();
-    if(remoteTime>localTime+2000){
-      _syncBannerVisible=true;
-      const diff=Math.round((remoteTime-localTime)/60000);
-      showSyncBanner(diff);
-    }
-  }catch(e){console.warn('Sync poll erro:',e)}
+  // Sync poll DESATIVADO - nao incomoda mais o usuario com banners de "outro dispositivo".
+  // Politica: ultimo save vence. Se o usuario recarregar manualmente, carrega da nuvem naturalmente.
+  return;
 }
 function showSyncBanner(minutos){
   let banner=document.getElementById('syncBanner');
@@ -1080,7 +1071,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-w-z1rfvdqc2xide2pnhqsfbl';
+const APP_VERSION = 'v2026.06.08-w-z1rfvdqc2xide2pnhqsfbl-nopopup';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
