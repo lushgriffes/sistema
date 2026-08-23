@@ -1065,7 +1065,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-w-z1rfvdqc2xide2p';
+const APP_VERSION = 'v2026.06.08-w-z1rfvdqc2xide2pn';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -6853,7 +6853,7 @@ function renderInventario(m){
         <td>${foto?`<img src="${foto}" style="width:48px;height:48px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="uploadFotoProd(${p.id})" title="Clique para trocar foto">`:`<button onclick="uploadFotoProd(${p.id})" style="width:48px;height:48px;background:#e5e7eb;border:1px dashed #9ca3af;border-radius:6px;cursor:pointer;font-size:20px" title="Adicionar foto">📷</button>`}</td>
         <td style="font-weight:600">#${p.id}</td>
         <td><input type="text" value="${_ev(p.nome||'')}" onblur="editarDescProd(${p.id},this.value)" style="width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:12px" placeholder="Descrição"></td>
-        <td style="font-size:11px">${p.num||'—'}</td>
+        <td><input type="text" value="${_ev(p.num||'')}" onblur="editarNumProd(${p.id},this.value)" style="width:70px;padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:11px" placeholder="Nº"></td>
         <td style="font-size:11px">${p.numPedido||'—'}</td>
         <td style="font-size:11px">${p.cat||'—'}</td>
         <td><select onchange="editarStatusProd(${p.id},this.value)" style="width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:11px;background:#eef2ff">${STATUSES.map(s=>`<option value="${s}"${p.status===s?' selected':''}>${s}</option>`).join('')}</select></td>
@@ -6895,6 +6895,15 @@ function editarDescProd(prodId,nova){
   const limpa=(nova||'').trim();
   if(limpa===antiga)return;
   p.nome=limpa;saveData();toast('Descrição atualizada em todo o sistema: '+limpa);
+}
+
+function editarNumProd(prodId,novo){
+  if(!canEditField('num')){toast('Sem permissão para editar o Nº',true);renderPage();return}
+  const p=D.produtos.find(x=>x.id===prodId);if(!p)return;
+  const antigo=p.num||'';
+  const limpo=(novo||'').trim();
+  if(limpo===antigo)return;
+  p.num=limpo;saveData();toast('Nº atualizado em todo o sistema: '+(limpo||'(vazio)'));
 }
 
 function editarStatusProd(prodId,novo){
