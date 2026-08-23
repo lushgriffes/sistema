@@ -340,6 +340,8 @@ async function loadDataFromSupabase(){
     if(d.categoriasMov&&!d.categoriasMov.includes('Retirada Sócio'))d.categoriasMov.push('Retirada Sócio');
     if(d.categoriasMov&&!d.categoriasMov.includes('Devolução de Venda'))d.categoriasMov.push('Devolução de Venda');
     if(d.categoriasMov&&!d.categoriasMov.includes('Empréstimo'))d.categoriasMov.push('Empréstimo');
+    if(d.categoriasMov&&!d.categoriasMov.includes('Perda de Estoque'))d.categoriasMov.push('Perda de Estoque');
+    if(d.categoriasDespesa&&!d.categoriasDespesa.includes('Perda de Estoque'))d.categoriasDespesa.push('Perda de Estoque');
     if(!d.formasPagamento||!d.formasPagamento.length){d.formasPagamento=JSON.parse(JSON.stringify(DEFAULT_DATA.formasPagamento));d.nextFormaPagtoId=DEFAULT_DATA.nextFormaPagtoId}
     if(!d.prefDefaults)d.prefDefaults={comissao:0.05,margem:0.5};
     if(!d.formasPagamento||!d.formasPagamento.length){d.formasPagamento=JSON.parse(JSON.stringify(DEFAULT_DATA.formasPagamento));d.nextFormaPagtoId=DEFAULT_DATA.nextFormaPagtoId}
@@ -359,6 +361,7 @@ async function loadDataFromSupabase(){
     d.produtos.forEach(p=>{if(p.num===undefined)p.num='';if(p.img===undefined)p.img='';if(!p.imgs){p.imgs=p.img?[p.img]:[]}if(p.precoVenda===undefined)p.precoVenda=0});
     if(!d.inventarios)d.inventarios=[];
     if(d.nextInventarioId===undefined)d.nextInventarioId=1;
+    if(d.inventarioEmAndamento===undefined)d.inventarioEmAndamento=null;
     d.despesas.forEach(x=>{if(!x.plano)x.plano='';if(!x.tipoDespesa)x.tipoDespesa='Despesa'});
     d.movimentacoes.forEach(m=>{if(!m.plano)m.plano='';if(!m.itens)m.itens=[];if(m.comprovante===undefined)m.comprovante='';if(!m.comprovantes)m.comprovantes=m.comprovante?[m.comprovante]:[];if(m.itens&&m.itens.length){m.itens.forEach(it=>{if(it.produtoId){const _p=d.produtos.find(x=>x.id===it.produtoId);if(_p&&!_p.movId)_p.movId=m.id}})}});
     // Migracao: dataEntrada para produtos SEMPRE sincroniza com data da movimentacao vinculada
@@ -1062,7 +1065,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-w-z1rfvdqc2xide';
+const APP_VERSION = 'v2026.06.08-w-z1rfvdqc2xide2p';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -1070,6 +1073,7 @@ const STORAGE_KEY = 'importadora_data';
 const DEFAULT_DATA = {
   inventarios:[],
   nextInventarioId:1,
+  inventarioEmAndamento:null,
   capital: 0,
   produtos: [],
   movimentacoes: [],
@@ -1137,6 +1141,8 @@ function loadData(){
       if(d.categoriasMov&&!d.categoriasMov.includes('Retirada Sócio'))d.categoriasMov.push('Retirada Sócio');
       if(d.categoriasMov&&!d.categoriasMov.includes('Devolução de Venda'))d.categoriasMov.push('Devolução de Venda');
       if(d.categoriasMov&&!d.categoriasMov.includes('Empréstimo'))d.categoriasMov.push('Empréstimo');
+    if(d.categoriasMov&&!d.categoriasMov.includes('Perda de Estoque'))d.categoriasMov.push('Perda de Estoque');
+    if(d.categoriasDespesa&&!d.categoriasDespesa.includes('Perda de Estoque'))d.categoriasDespesa.push('Perda de Estoque');
       if(!d.recebimentos)d.recebimentos=[];
       if(!d.categoriasRecebimento||!d.categoriasRecebimento.length)d.categoriasRecebimento=(DEFAULT_DATA.categoriasRecebimento||["Reembolso","Rendimento Financeiro","Empréstimo Recebido","Outras Receitas"]);
       if(!d.nextRecebId)d.nextRecebId=(d.recebimentos.reduce((m,r)=>Math.max(m,r.id||0),0)+1);
@@ -1154,6 +1160,7 @@ function loadData(){
       d.produtos.forEach(p=>{if(p.num===undefined)p.num='';if(p.img===undefined)p.img='';if(!p.imgs){p.imgs=p.img?[p.img]:[]}if(p.precoVenda===undefined)p.precoVenda=0});
     if(!d.inventarios)d.inventarios=[];
     if(d.nextInventarioId===undefined)d.nextInventarioId=1;
+    if(d.inventarioEmAndamento===undefined)d.inventarioEmAndamento=null;
       d.despesas.forEach(x=>{if(!x.plano)x.plano='';if(!x.tipoDespesa)x.tipoDespesa='Despesa'});
       d.movimentacoes.forEach(m=>{if(!m.plano)m.plano='';if(!m.itens)m.itens=[];if(m.comprovante===undefined)m.comprovante='';if(!m.comprovantes)m.comprovantes=m.comprovante?[m.comprovante]:[];if(m.itens&&m.itens.length){m.itens.forEach(it=>{if(it.produtoId){const _p=d.produtos.find(x=>x.id===it.produtoId);if(_p&&!_p.movId)_p.movId=m.id}})}});
       // Migracao: dataEntrada para produtos SEMPRE sincroniza com data da movimentacao vinculada
@@ -6713,23 +6720,70 @@ function excluirPedido(id){
 }
 
 // ═══════ CORREÇÃO DE APORTES ═══════
-let _invAtual=null;  // {data:'YYYY-MM-DD', itens:{prodId: {status:'conferido'|'faltando'|null, obs:''}}}
 let _invStatusFilter='Todos';
 let _invSearch='';
+let _invVerId=null;  // id do inventario sendo visualizado
+
+// Helper: retorna referencia ao inventario em andamento (persistido em D)
+function _getInvAtual(){ return D.inventarioEmAndamento; }
+function _saveInvAtual(){ saveData(); }
 
 function renderInventario(m){
   if(!D.inventarios)D.inventarios=[];
   if(D.nextInventarioId===undefined)D.nextInventarioId=1;
   const _ev=v=>(v==null?'':String(v)).replace(/"/g,'&quot;');
+  const STATUSES=['Em Estoque','Em Trânsito','Reservado (Encomenda)','Uso Pessoal','Presente','Perdido','Devolvido'];
+
+  // Modo visualizacao de inventario antigo
+  if(_invVerId){
+    const inv=D.inventarios.find(x=>x.id===_invVerId);
+    if(!inv){_invVerId=null;return renderInventario(m)}
+    const itens=inv.itens||{};
+    const total=Object.keys(itens).length;
+    const nConf=Object.values(itens).filter(x=>x.status==='conferido').length;
+    const nFalt=Object.values(itens).filter(x=>x.status==='faltando').length;
+    const linhas=Object.entries(itens).map(([pid,it])=>{
+      const p=D.produtos.find(x=>x.id===+pid);
+      const nome=p?p.nome:'(produto removido)';
+      const foto=p&&((p.imgs&&p.imgs[0])||p.img)||'';
+      return {pid:+pid,nome,status:it.status,foto,p};
+    }).sort((a,b)=>{
+      const order={conferido:1,faltando:2,null:3};
+      return (order[a.status]||3)-(order[b.status]||3);
+    });
+    return `
+    <h2>📋 Inventário — ${fmtD(inv.data)} <span style="font-size:12px;color:var(--gray);font-weight:400">(visualização)</span></h2>
+    <div class="cards" style="margin-bottom:12px">
+      <div class="card"><div class="card-lbl">Total</div><div class="card-val">${total}</div></div>
+      <div class="card green"><div class="card-lbl">✓ Conferidos</div><div class="card-val">${nConf}</div></div>
+      <div class="card red"><div class="card-lbl">✗ Faltando</div><div class="card-val">${nFalt}</div></div>
+      <div class="card cyan"><div class="card-lbl">Acurácia</div><div class="card-val">${total?Math.round(nConf/total*100):0}%</div></div>
+    </div>
+    <div style="margin-bottom:12px"><button class="btn btn-sm btn-secondary" onclick="_invVerId=null;renderPage()">← Voltar ao início</button></div>
+    <div class="box">
+      <h3>Itens conferidos</h3>
+      <div style="max-height:500px;overflow-y:auto">
+      <table><thead><tr><th>Foto</th><th>ID</th><th>Nome</th><th>Status</th></tr></thead><tbody>
+      ${linhas.map(x=>{
+        const bg=x.status==='conferido'?'#dcfce7':x.status==='faltando'?'#fee2e2':'transparent';
+        return `<tr style="background:${bg}"><td>${x.foto?`<img src="${x.foto}" style="width:40px;height:40px;object-fit:cover;border-radius:6px">`:'—'}</td><td>#${x.pid}</td><td>${x.nome}</td><td>${x.status==='conferido'?'✓ Conferido':x.status==='faltando'?'✗ Faltando':'— Pendente'}</td></tr>`;
+      }).join('')}
+      </tbody></table>
+      </div>
+    </div>`;
+  }
+
+  const invAtual=_getInvAtual();
 
   // Se nenhum inventario em andamento, mostrar tela inicial + historico
-  if(!_invAtual){
+  if(!invAtual){
     const historico=D.inventarios.slice().sort((a,b)=>(b.data||'').localeCompare(a.data||''));
     return `
     <h2>📋 Inventário de Estoque</h2>
     <div class="box" style="border-left:4px solid var(--cyan);margin-bottom:16px">
       <h3>Iniciar Novo Inventário</h3>
-      <p style="font-size:12px;color:var(--gray);margin-bottom:12px">Ao iniciar, todos os produtos ativos entram na lista de conferência. Marque cada item como <strong style="color:var(--green)">Conferido ✓</strong> (achou no estoque) ou <strong style="color:var(--red)">Faltando ✗</strong> (não achou). Você pode editar foto e descrição direto nesta tela — as alterações refletem em todo o sistema.</p>
+      <p style="font-size:12px;color:var(--gray);margin-bottom:8px">Marque cada item como <strong style="color:var(--green)">Conferido ✓</strong> (achou no estoque) ou <strong style="color:var(--red)">Faltando ✗</strong> (não achou). O status "Faltando" <strong>NÃO remove</strong> o produto do estoque — só registra que não foi encontrado durante esta conferência.</p>
+      <p style="font-size:12px;color:var(--gray);margin-bottom:12px">✏️ Você pode editar <strong>foto, descrição e status loja</strong> direto nesta tela — as alterações refletem em todo o sistema. O inventário é <strong>auto-salvo</strong> a cada marca, então pode fechar e voltar depois.</p>
       <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
         <div class="if-group"><label>Data do Inventário</label><input type="date" id="pgInvData" value="${hoje()}" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px"></div>
         <button class="btn btn-primary" onclick="iniciarInventario()">▶ Iniciar Inventário</button>
@@ -6744,7 +6798,7 @@ function renderInventario(m){
         const conf=Object.values(inv.itens||{}).filter(x=>x.status==='conferido').length;
         const falt=Object.values(inv.itens||{}).filter(x=>x.status==='faltando').length;
         const acc=total?Math.round(conf/total*100):0;
-        return `<tr><td>${fmtD(inv.data)}</td><td class="r">${total}</td><td class="r" style="color:var(--green);font-weight:600">${conf}</td><td class="r" style="color:var(--red);font-weight:600">${falt}</td><td class="r"><span style="background:${acc>=95?'#dcfce7':acc>=80?'#fef3c7':'#fee2e2'};color:${acc>=95?'#166534':acc>=80?'#92400e':'#991b1b'};padding:2px 8px;border-radius:12px;font-weight:600">${acc}%</span></td><td><button class="btn btn-sm" onclick="verInventario(${inv.id})" style="background:var(--blue);color:#fff">Ver</button> <button class="btn btn-sm" onclick="excluirInventario(${inv.id})" style="background:var(--red);color:#fff">✕</button></td></tr>`;
+        return `<tr><td>${fmtD(inv.data)}</td><td class="r">${total}</td><td class="r" style="color:var(--green);font-weight:600">${conf}</td><td class="r" style="color:var(--red);font-weight:600">${falt}</td><td class="r"><span style="background:${acc>=95?'#dcfce7':acc>=80?'#fef3c7':'#fee2e2'};color:${acc>=95?'#166534':acc>=80?'#92400e':'#991b1b'};padding:2px 8px;border-radius:12px;font-weight:600">${acc}%</span></td><td><button class="btn btn-sm" onclick="_invVerId=${inv.id};renderPage()" style="background:var(--blue);color:#fff">Ver detalhes</button> <button class="btn btn-sm" onclick="excluirInventario(${inv.id})" style="background:var(--red);color:#fff">✕</button></td></tr>`;
       }).join('')}
       </tbody></table>
     </div>`:''}
@@ -6753,15 +6807,14 @@ function renderInventario(m){
 
   // Inventario em andamento
   const produtos=D.produtos.filter(p=>p.status!=='Vendido');
-  const itens=_invAtual.itens||{};
+  const itens=invAtual.itens||{};
 
-  // Filtro por status: Todos | Pendente | Conferido | Faltando
   let filtrados=produtos.filter(p=>{
     const s=itens[p.id]?.status||null;
     if(_invStatusFilter==='Pendente')return !s;
     if(_invStatusFilter==='Conferido')return s==='conferido';
     if(_invStatusFilter==='Faltando')return s==='faltando';
-    return true; // Todos
+    return true;
   });
   if(_invSearch){const q=_invSearch.toLowerCase();filtrados=filtrados.filter(p=>[p.id,p.nome,p.marca,p.num,p.numPedido,p.codFornecedor,p.cat,p.status].map(x=>String(x||'').toLowerCase()).join(' ').includes(q));}
 
@@ -6772,7 +6825,7 @@ function renderInventario(m){
   const progresso=totalProds?Math.round((nConf+nFalt)/totalProds*100):0;
 
   return `
-  <h2>📋 Inventário em andamento — ${fmtD(_invAtual.data)}</h2>
+  <h2>📋 Inventário em andamento — ${fmtD(invAtual.data)} <span style="font-size:11px;background:#dcfce7;color:#166534;padding:2px 8px;border-radius:8px;font-weight:600">💾 Auto-salvo</span></h2>
   <div class="cards" style="margin-bottom:12px">
     <div class="card"><div class="card-lbl">Total Produtos</div><div class="card-val">${totalProds}</div></div>
     <div class="card green"><div class="card-lbl">✓ Conferidos</div><div class="card-val">${nConf}</div></div>
@@ -6782,31 +6835,33 @@ function renderInventario(m){
   </div>
   <div class="filter-bar" style="margin-bottom:12px">
     <div class="f-group"><label>Buscar:</label><input placeholder="ID, nome, pedido..." id="pgInvSearch" value="${_ev(_invSearch)}" oninput="_invSearch=this.value;renderPage()"></div>
-    <div class="f-group"><label>Status:</label><select onchange="_invStatusFilter=this.value;renderPage()">${['Todos','Pendente','Conferido','Faltando'].map(s=>`<option${s===_invStatusFilter?' selected':''}>${s}</option>`).join('')}</select></div>
+    <div class="f-group"><label>Status Conferência:</label><select onchange="_invStatusFilter=this.value;renderPage()">${['Todos','Pendente','Conferido','Faltando'].map(s=>`<option${s===_invStatusFilter?' selected':''}>${s}</option>`).join('')}</select></div>
     <span class="f-clear" onclick="_invSearch='';_invStatusFilter='Todos';renderPage()">Limpar</span>
     <button class="btn btn-sm" onclick="finalizarInventario()" style="background:var(--green);color:#fff;margin-left:auto">✓ Finalizar Inventário</button>
     <button class="btn btn-sm" onclick="cancelarInventario()" style="background:var(--gray);color:#fff">✕ Cancelar</button>
   </div>
   <div class="box">
     <h3>Produtos (${filtrados.length} de ${totalProds})</h3>
+    <div style="font-size:11px;color:var(--gray);margin-bottom:8px">💡 <strong>✗ Faltando</strong> só registra a conferência — não remove do estoque. Pra baixar de verdade, use o botão <strong>🗑️ Baixar</strong> (aparece após marcar como Faltando) — vai criar despesa de <strong>Perda de Estoque</strong> no balanço com o custo do produto.</div>
     <div style="max-height:600px;overflow-y:auto">
-    <table><thead><tr style="background:#f8fafc"><th>Foto</th><th>ID</th><th>Nome / Descrição</th><th>Nº</th><th>Pedido</th><th>Categoria</th><th>Status Loja</th><th style="width:180px;text-align:center">Conferência</th></tr></thead><tbody>
+    <table><thead><tr style="background:#f8fafc"><th>Foto</th><th>ID</th><th>Nome / Descrição</th><th>Nº</th><th>Pedido</th><th>Categoria</th><th style="width:170px">Status Loja</th><th style="width:180px;text-align:center">Conferência</th></tr></thead><tbody>
     ${filtrados.map(p=>{
       const st=itens[p.id]?.status||null;
       const bg=st==='conferido'?'#dcfce7':st==='faltando'?'#fee2e2':'transparent';
       const foto=(p.imgs&&p.imgs[0])||p.img||'';
       return `<tr style="background:${bg}">
-        <td>${foto?`<img src="${foto}" style="width:48px;height:48px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="uploadFotoProd(${p.id})">`:`<button onclick="uploadFotoProd(${p.id})" style="width:48px;height:48px;background:#e5e7eb;border:1px dashed #9ca3af;border-radius:6px;cursor:pointer;font-size:20px" title="Adicionar foto">📷</button>`}</td>
+        <td>${foto?`<img src="${foto}" style="width:48px;height:48px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="uploadFotoProd(${p.id})" title="Clique para trocar foto">`:`<button onclick="uploadFotoProd(${p.id})" style="width:48px;height:48px;background:#e5e7eb;border:1px dashed #9ca3af;border-radius:6px;cursor:pointer;font-size:20px" title="Adicionar foto">📷</button>`}</td>
         <td style="font-weight:600">#${p.id}</td>
         <td><input type="text" value="${_ev(p.nome||'')}" onblur="editarDescProd(${p.id},this.value)" style="width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:12px" placeholder="Descrição"></td>
         <td style="font-size:11px">${p.num||'—'}</td>
         <td style="font-size:11px">${p.numPedido||'—'}</td>
         <td style="font-size:11px">${p.cat||'—'}</td>
-        <td><span style="font-size:10px;padding:2px 6px;border-radius:8px;background:#e0e7ff;color:#3730a3">${p.status||'—'}</span></td>
+        <td><select onchange="editarStatusProd(${p.id},this.value)" style="width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:11px;background:#eef2ff">${STATUSES.map(s=>`<option value="${s}"${p.status===s?' selected':''}>${s}</option>`).join('')}</select></td>
         <td style="text-align:center">
-          <button onclick="marcarInv(${p.id},'conferido')" style="background:${st==='conferido'?'var(--green)':'#e5e7eb'};color:${st==='conferido'?'#fff':'#374151'};border:none;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;margin-right:4px" title="Conferido">✓</button>
-          <button onclick="marcarInv(${p.id},'faltando')" style="background:${st==='faltando'?'var(--red)':'#e5e7eb'};color:${st==='faltando'?'#fff':'#374151'};border:none;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;margin-right:4px" title="Faltando">✗</button>
-          <button onclick="marcarInv(${p.id},null)" style="background:#f3f4f6;color:#6b7280;border:none;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:11px" title="Limpar">↺</button>
+          <button onclick="marcarInv(${p.id},'conferido')" style="background:${st==='conferido'?'var(--green)':'#e5e7eb'};color:${st==='conferido'?'#fff':'#374151'};border:none;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;margin-right:4px" title="Conferido - achou no estoque">✓</button>
+          <button onclick="marcarInv(${p.id},'faltando')" style="background:${st==='faltando'?'var(--red)':'#e5e7eb'};color:${st==='faltando'?'#fff':'#374151'};border:none;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;margin-right:4px" title="Faltando - não achou (só marca, não remove)">✗</button>
+          ${st==='faltando'?`<button onclick="baixarComoPerda(${p.id})" style="background:#7c2d12;color:#fff;border:none;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;margin-right:4px" title="Baixar do estoque com despesa de perda no balanço">🗑️ Baixar</button>`:''}
+          <button onclick="marcarInv(${p.id},null)" style="background:#f3f4f6;color:#6b7280;border:none;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:11px" title="Limpar marcação">↺</button>
         </td>
       </tr>`;
     }).join('')}
@@ -6817,27 +6872,20 @@ function renderInventario(m){
 
 function iniciarInventario(){
   try{
-    console.log('[iniciarInventario] chamado');
     const el=document.getElementById('pgInvData');
     let dt=(el&&el.value)?el.value:'';
-    if(!dt||dt.length!==10){dt=hoje();console.log('[iniciarInventario] usando data atual: '+dt)}
-    _invAtual={data:dt,itens:{}};
-    console.log('[iniciarInventario] _invAtual=',_invAtual);
-    console.log('[iniciarInventario] produtos disponiveis:',D.produtos.filter(p=>p.status!=='Vendido').length);
-    toast('Inventário iniciado — '+fmtD(dt));
-    renderPage();
-    console.log('[iniciarInventario] renderPage() ok');
-  }catch(e){
-    console.error('[iniciarInventario] ERRO:',e);
-    alert('ERRO ao iniciar inventário:\n'+e.message+'\n\nAbra o console (F12) e cole aqui.');
-  }
+    if(!dt||dt.length!==10)dt=hoje();
+    D.inventarioEmAndamento={data:dt,itens:{}};
+    saveData();
+    toast('Inventário iniciado — '+fmtD(dt));renderPage();
+  }catch(e){console.error(e);alert('ERRO ao iniciar: '+e.message);}
 }
 
 function marcarInv(prodId,status){
-  if(!_invAtual)return;
-  if(!_invAtual.itens[prodId])_invAtual.itens[prodId]={};
-  _invAtual.itens[prodId].status=status;
-  renderPage();
+  const inv=_getInvAtual();if(!inv)return;
+  if(!inv.itens[prodId])inv.itens[prodId]={};
+  inv.itens[prodId].status=status;
+  saveData();renderPage();  // auto-save
 }
 
 function editarDescProd(prodId,nova){
@@ -6847,6 +6895,15 @@ function editarDescProd(prodId,nova){
   const limpa=(nova||'').trim();
   if(limpa===antiga)return;
   p.nome=limpa;saveData();toast('Descrição atualizada em todo o sistema: '+limpa);
+}
+
+function editarStatusProd(prodId,novo){
+  if(!canEditField('status')){toast('Sem permissão para editar status',true);renderPage();return}
+  const p=D.produtos.find(x=>x.id===prodId);if(!p)return;
+  const antigo=p.status;
+  if(novo===antigo)return;
+  p.status=novo;
+  saveData();toast('Status atualizado: '+p.nome+' → '+novo);renderPage();
 }
 
 function uploadFotoProd(prodId){
@@ -6879,37 +6936,60 @@ function uploadFotoProd(prodId){
 }
 
 function finalizarInventario(){
-  if(!_invAtual)return;
+  const inv=_getInvAtual();if(!inv)return;
   const totalProds=D.produtos.filter(p=>p.status!=='Vendido').length;
-  const itens=_invAtual.itens||{};
+  const itens=inv.itens||{};
   const nConf=Object.values(itens).filter(x=>x.status==='conferido').length;
   const nFalt=Object.values(itens).filter(x=>x.status==='faltando').length;
   const nPend=totalProds-nConf-nFalt;
-  const msg='FINALIZAR INVENTÁRIO?\n\nData: '+fmtD(_invAtual.data)+'\nTotal: '+totalProds+'\nConferidos: '+nConf+'\nFaltando: '+nFalt+'\nPendentes (não marcados): '+nPend+'\n\nO inventário será salvo no histórico.\nConfirma?';
+  const msg='FINALIZAR INVENTÁRIO?\n\nData: '+fmtD(inv.data)+'\nTotal: '+totalProds+'\nConferidos: '+nConf+'\nFaltando: '+nFalt+'\nPendentes (não marcados): '+nPend+'\n\nO inventário será salvo no histórico.\nConfirma?';
   if(!confirm(msg))return;
-  const inv={id:D.nextInventarioId++,data:_invAtual.data,itens:JSON.parse(JSON.stringify(_invAtual.itens)),criadoEm:new Date().toISOString()};
-  D.inventarios.push(inv);
-  _invAtual=null;_invSearch='';_invStatusFilter='Todos';
+  const salvo={id:D.nextInventarioId++,data:inv.data,itens:JSON.parse(JSON.stringify(inv.itens)),criadoEm:new Date().toISOString()};
+  D.inventarios.push(salvo);
+  D.inventarioEmAndamento=null;
+  _invSearch='';_invStatusFilter='Todos';
   saveData();renderPage();toast('✓ Inventário salvo no histórico');
 }
 
 function cancelarInventario(){
-  if(!_invAtual)return;
+  if(!_getInvAtual())return;
   if(!confirm('Cancelar inventário em andamento? Os dados marcados serão perdidos.'))return;
-  _invAtual=null;_invSearch='';_invStatusFilter='Todos';renderPage();
+  D.inventarioEmAndamento=null;
+  _invSearch='';_invStatusFilter='Todos';
+  saveData();renderPage();
 }
 
-function verInventario(id){
-  const inv=D.inventarios.find(x=>x.id===id);if(!inv)return;
-  const total=Object.keys(inv.itens||{}).length;
-  const conf=Object.values(inv.itens||{}).filter(x=>x.status==='conferido');
-  const falt=Object.values(inv.itens||{}).filter(x=>x.status==='faltando');
-  const linhas=Object.entries(inv.itens||{}).map(([pid,it])=>{
-    const p=D.produtos.find(x=>x.id===+pid);
-    const nome=p?p.nome:'(produto removido)';
-    return '#'+pid+' '+(it.status==='conferido'?'✓':it.status==='faltando'?'✗':'—')+' '+nome;
-  }).join('\n');
-  alert('INVENTÁRIO '+fmtD(inv.data)+'\n\nTotal: '+total+' | ✓ '+conf.length+' | ✗ '+falt.length+'\n\n'+linhas.slice(0,2000));
+function baixarComoPerda(prodId){
+  if(!PERMS.edit){toast('Sem permissão',true);return}
+  const inv=_getInvAtual();if(!inv){toast('Precisa ter inventário em andamento',true);return}
+  const p=D.produtos.find(x=>x.id===prodId);if(!p){toast('Produto não encontrado',true);return}
+  const custo=+p.custo||0;
+  const msg='⚠ BAIXAR PRODUTO COMO PERDA?\n\n'+
+    'Produto: '+(p.nome||'#'+p.id)+'\n'+
+    'Custo: '+fmt(custo)+'\n\n'+
+    'Isso vai:\n'+
+    '  1. Mudar o status do produto para "Perdido"\n'+
+    '  2. Criar uma DESPESA de "Perda de Estoque" com valor '+fmt(custo)+'\n'+
+    '  3. Registrar movimentação de saída no caixa (rebaixa o patrimônio)\n'+
+    '  4. Marcar como baixado no inventário\n\n'+
+    'Isso NÃO pode ser desfeito facilmente.\nConfirma?';
+  if(!confirm(msg))return;
+  const data=inv.data||hoje();
+  const nd=nextId(D.despesas);
+  const nm=nextId(D.movimentacoes);
+  // 1. Muda status
+  p.status='Perdido';
+  // 2. Cria despesa
+  D.despesas.push({id:nd,data,nome:'Perda de Estoque — '+(p.nome||'#'+p.id),cat:'Perda de Estoque',valor:custo,pago:true,plano:'Perda de Estoque',tipoDespesa:'Despesa',obs:'Baixa via inventário #'+inv.data});
+  // 3. Cria movimentacao de saida (rebaixa caixa/patrimonio)
+  D.movimentacoes.push({id:nm,data,desc:'Perda inventário — '+(p.nome||'#'+p.id),tipo:'Saída',cat:'Perda de Estoque',plano:'Perda de Estoque',valor:custo,saldo:0,despId:nd,prodBaixado:p.id});
+  // 4. Registra no inventario
+  if(!inv.itens[prodId])inv.itens[prodId]={};
+  inv.itens[prodId].status='faltando';
+  inv.itens[prodId].baixado=true;
+  inv.itens[prodId].valorPerda=custo;
+  saveData();renderPage();
+  toast('🗑️ Produto baixado como perda: '+fmt(custo));
 }
 
 function excluirInventario(id){
