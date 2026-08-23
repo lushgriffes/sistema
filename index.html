@@ -699,13 +699,34 @@ async function saveDataToSupabase(){
     const agora=new Date().toISOString();
     D._savedAt=agora;
     D._savedBy=_sessionToken;
-    const{error}=await SB.from('app_data').upsert({org_id:userProfile.org_id,data:D,updated_at:agora},{onConflict:'org_id'});
-    if(error)throw error;
+    const payload={org_id:userProfile.org_id,data:D,updated_at:agora};
+    // Retry: 3 tentativas com backoff (0s, 2s, 5s)
+    const delays=[0,2000,5000];
+    let ultimoErro=null;
+    for(let i=0;i<delays.length;i++){
+      if(delays[i]>0)await new Promise(r=>setTimeout(r,delays[i]));
+      try{
+        const{error}=await SB.from('app_data').upsert(payload,{onConflict:'org_id'});
+        if(error){ultimoErro=error;console.warn('[save] tentativa '+(i+1)+' falhou:',error.code||'',error.message);continue}
+        ultimoErro=null;break;
+      }catch(e){ultimoErro=e;console.warn('[save] tentativa '+(i+1)+' excecao:',e.message)}
+    }
+    if(ultimoErro){
+      // Ultimo recurso: tentar sem imagens (fotos ficam so no D em memoria e IndexedDB)
+      console.warn('[save] tentando sem imagens como fallback...');
+      const Dsemfotos=JSON.parse(JSON.stringify(D));
+      if(Dsemfotos.produtos)Dsemfotos.produtos.forEach(p=>{p.img='';p.imgs=[]});
+      const payload2={org_id:userProfile.org_id,data:Dsemfotos,updated_at:agora,_semFotosDeEmergencia:true};
+      const{error:err2}=await SB.from('app_data').upsert(payload2,{onConflict:'org_id'});
+      if(err2)throw ultimoErro;
+      console.warn('[save] gravado SEM fotos como fallback. Fotos preservadas em IndexedDB. Rode migrarFotosParaMenor() para reduzir tamanho.');
+      toast('⚠ Salvo sem fotos (payload grande). Rode migrarFotos() no console pra reduzir.',true);
+    }
     _lastKnownUpdatedAt=agora;
     _lastKnownSessionToken=_sessionToken;
   }catch(e){
     _saveError=e.message||String(e);
-    console.error('[save] falha na nuvem:',e);
+    console.error('[save] falha total na nuvem:',e);
   }finally{
     _savePending=Math.max(0,_savePending-1);
     _atualizarIndicadorSave();
@@ -1108,7 +1129,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.09-sistema-confiavel';
+const APP_VERSION = 'v2026.06.09-fix-timeout';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -1488,6 +1509,36 @@ window.restaurarBackupCompleto=async function(){
   alert('Restaurado com sucesso!');
 };
 console.log('[sistema] Para restaurar um backup a qualquer momento, digite: restaurarBackupCompleto()');
+
+// ═══ MIGRACAO: recomprime fotos base64 grandes ═══
+window.migrarFotos=async function(){
+  if(!confirm('Recomprimir TODAS as fotos base64 grandes (>15KB) para 280px @ 0.4?\n\nIsso reduz drasticamente o tamanho do payload de save e resolve timeouts. As fotos ficam menores mas ainda visiveis.'))return;
+  let total=0,reduziu=0,antes=0,depois=0;
+  for(const p of D.produtos){
+    const fotos=p.imgs&&p.imgs.length?p.imgs:(p.img?[p.img]:[]);
+    if(!fotos.length)continue;
+    const novas=[];
+    for(const f of fotos){
+      total++;
+      if(!f||!f.startsWith('data:image'))continue;
+      const sz=f.length;antes+=sz;
+      if(sz<15000){novas.push(f);depois+=sz;continue}
+      try{
+        const menor=await _comprimirDataURL(f,280,0.4);
+        novas.push(menor);depois+=menor.length;reduziu++;
+      }catch(e){console.warn('falha ao comprimir foto de',p.id,e);novas.push(f);depois+=sz}
+    }
+    if(novas.length){p.imgs=novas;p.img=novas[0]}
+  }
+  console.log('Migracao:',reduziu,'de',total,'fotos comprimidas |',Math.round(antes/1024)+'KB ->',Math.round(depois/1024)+'KB');
+  alert('Migracao concluida!\n\n'+reduziu+' de '+total+' fotos comprimidas.\nTamanho: '+Math.round(antes/1024)+'KB -> '+Math.round(depois/1024)+'KB\n\nSalvando na nuvem...');
+  await saveDataToSupabase();
+  try{localStorage.setItem(STORAGE_KEY,JSON.stringify(D))}catch(e){}
+  renderPage();
+  alert('✅ Migrado + salvo.');
+};
+console.log('[sistema] Se der timeout no save, rode: migrarFotos()');
+
 // Criar indicador quando DOM estiver pronto
 if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',_criarIndicadorSave)}else{_criarIndicadorSave()}
 
@@ -2061,28 +2112,41 @@ function excluirProdutoEstoque(prodId){
 function mudaStatus(id,val){if(!val)return;if(!canEditField('status')){toast('Sem permissão para editar este campo',true);renderPage();return}const p=D.produtos.find(x=>x.id===id);if(p){p.status=val;saveData();renderPage();toast('Status atualizado: '+p.nome)}}
 function mudaCat(id,val){if(!canEditField('cat')){toast('Sem permissão para editar este campo',true);renderPage();return}const p=D.produtos.find(x=>x.id===id);if(p){p.cat=val;saveData();toast('Categoria atualizada: '+p.nome)}}
 
+// Helper reutilizavel: comprime imagem para no maximo MAX px, JPEG quality Q
+function _comprimirDataURL(dataURL,MAX,Q){
+  return new Promise((res,rej)=>{
+    const img=new Image();
+    img.onload=()=>{
+      let w=img.width,h=img.height;
+      if(w>h){if(w>MAX){h=h*(MAX/w);w=MAX}}else{if(h>MAX){w=w*(MAX/h);h=MAX}}
+      const canvas=document.createElement('canvas');
+      canvas.width=w;canvas.height=h;
+      canvas.getContext('2d').drawImage(img,0,0,w,h);
+      res(canvas.toDataURL('image/jpeg',Q));
+    };
+    img.onerror=rej;
+    img.src=dataURL;
+  });
+}
+
 function uploadImg(prodId){
   const inp=document.getElementById('imgUpload');
   inp.onchange=function(e){
     const file=e.target.files[0];if(!file)return;
     const reader=new FileReader();
-    reader.onload=function(ev){
-      const img=new Image();
-      img.onload=function(){
-        const canvas=document.createElement('canvas');
-        const MAX=400;let w=img.width,h=img.height;
-        if(w>h){if(w>MAX){h=h*(MAX/w);w=MAX}}else{if(h>MAX){w=w*(MAX/h);h=MAX}}
-        canvas.width=w;canvas.height=h;canvas.getContext('2d').drawImage(img,0,0,w,h);
+    reader.onload=async function(ev){
+      try{
+        // Compressao DRASTICA: 280px @ 0.4 (era 400 @ 0.7 - reduz ~65% o tamanho)
+        const dataUrl=await _comprimirDataURL(ev.target.result,280,0.4);
         const p=D.produtos.find(x=>x.id===prodId);
-        if(p){
-          if(!p.imgs)p.imgs=[];
-          if(p.img&&!p.imgs.includes(p.img))p.imgs.unshift(p.img);
-          const dataUrl=canvas.toDataURL('image/jpeg',0.7);
-          if(p.imgs.length<5){p.imgs.push(dataUrl)}else{toast('Máximo de 5 fotos',true);return}
-          p.img=p.imgs[0];
-          saveData();renderPage();toast('Foto adicionada: '+p.nome);
-        }
-      };img.src=ev.target.result;
+        if(!p)return;
+        if(!p.imgs)p.imgs=[];
+        if(p.img&&!p.imgs.includes(p.img))p.imgs.unshift(p.img);
+        if(p.imgs.length>=5){toast('Máximo de 5 fotos',true);return}
+        p.imgs.push(dataUrl);
+        p.img=p.imgs[0];
+        saveData();renderPage();toast('Foto adicionada: '+p.nome);
+      }catch(err){console.error(err);toast('Erro ao processar imagem',true)}
     };reader.readAsDataURL(file);inp.value='';
   };inp.click();
 }
