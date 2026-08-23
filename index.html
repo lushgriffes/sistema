@@ -357,6 +357,8 @@ async function loadDataFromSupabase(){
     if(!d.categorias)d.categorias=DEFAULT_DATA.categorias;
     if(!d.anotacoes)d.anotacoes=[];
     d.produtos.forEach(p=>{if(p.num===undefined)p.num='';if(p.img===undefined)p.img='';if(!p.imgs){p.imgs=p.img?[p.img]:[]}if(p.precoVenda===undefined)p.precoVenda=0});
+    if(!d.inventarios)d.inventarios=[];
+    if(d.nextInventarioId===undefined)d.nextInventarioId=1;
     d.despesas.forEach(x=>{if(!x.plano)x.plano='';if(!x.tipoDespesa)x.tipoDespesa='Despesa'});
     d.movimentacoes.forEach(m=>{if(!m.plano)m.plano='';if(!m.itens)m.itens=[];if(m.comprovante===undefined)m.comprovante='';if(!m.comprovantes)m.comprovantes=m.comprovante?[m.comprovante]:[];if(m.itens&&m.itens.length){m.itens.forEach(it=>{if(it.produtoId){const _p=d.produtos.find(x=>x.id===it.produtoId);if(_p&&!_p.movId)_p.movId=m.id}})}});
     // Migracao: dataEntrada para produtos SEMPRE sincroniza com data da movimentacao vinculada
@@ -1060,12 +1062,14 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-w-z1rfvdqc2x';
+const APP_VERSION = 'v2026.06.08-w-z1rfvdqc2xi';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
 // Os dados reais estão SOMENTE no Supabase. Isso evita sobrescrita acidental.
 const DEFAULT_DATA = {
+  inventarios:[],
+  nextInventarioId:1,
   capital: 0,
   produtos: [],
   movimentacoes: [],
@@ -1148,6 +1152,8 @@ function loadData(){
       if(!d.historicoSelic)d.historicoSelic=[{data:"2025-05-07",taxa:14.75}];
       if(!d.anotacoes)d.anotacoes=[];
       d.produtos.forEach(p=>{if(p.num===undefined)p.num='';if(p.img===undefined)p.img='';if(!p.imgs){p.imgs=p.img?[p.img]:[]}if(p.precoVenda===undefined)p.precoVenda=0});
+    if(!d.inventarios)d.inventarios=[];
+    if(d.nextInventarioId===undefined)d.nextInventarioId=1;
       d.despesas.forEach(x=>{if(!x.plano)x.plano='';if(!x.tipoDespesa)x.tipoDespesa='Despesa'});
       d.movimentacoes.forEach(m=>{if(!m.plano)m.plano='';if(!m.itens)m.itens=[];if(m.comprovante===undefined)m.comprovante='';if(!m.comprovantes)m.comprovantes=m.comprovante?[m.comprovante]:[];if(m.itens&&m.itens.length){m.itens.forEach(it=>{if(it.produtoId){const _p=d.produtos.find(x=>x.id===it.produtoId);if(_p&&!_p.movId)_p.movId=m.id}})}});
       // Migracao: dataEntrada para produtos SEMPRE sincroniza com data da movimentacao vinculada
@@ -1438,6 +1444,7 @@ function getTabs(){
     {name:'Período',icon:'📅',perm:'view'},
     {name:'Balanço',icon:'⚖️',perm:'view'},
     {name:'Estoque',icon:'📦',perm:'view'},
+    {name:'Inventário',icon:'📋',perm:'view'},
     {name:'Encomendas',icon:'🤝',perm:'view'},
     {name:'Vendas',icon:'🏷️',perm:'view'},
     {name:'Precificação',icon:'🧮',perm:'view'},
@@ -1476,7 +1483,7 @@ function renderPage(){
   const _selStartPg=_focusPgId&&typeof _focusEl.selectionStart==='number'?_focusEl.selectionStart:null;
   const _selEndPg=_focusPgId&&typeof _focusEl.selectionEnd==='number'?_focusEl.selectionEnd:null;
   const m=calcMetrics();
-  const fns=[renderDash,renderDashPeriodo,renderBalanco,renderEstoque,renderEncomendas,renderVendas,renderPrecificacao,renderMov,renderDesp,renderContasPagar,renderContasReceber,renderNovaCompra,renderNovoAporte,renderPedidos,renderCorrecao,renderConfig,renderFornecedores,renderRecebimentos,renderVendedores,renderComissoes];
+  const fns=[renderDash,renderDashPeriodo,renderBalanco,renderEstoque,renderInventario,renderEncomendas,renderVendas,renderPrecificacao,renderMov,renderDesp,renderContasPagar,renderContasReceber,renderNovaCompra,renderNovoAporte,renderPedidos,renderCorrecao,renderConfig,renderFornecedores,renderRecebimentos,renderVendedores,renderComissoes];
   if(userProfile&&userProfile.role==='admin')fns.push(renderUsuarios);
   const tabIdx=Math.min(activeTab,fns.length-1);
   document.getElementById('main').innerHTML=`<div class="page active">${fns[tabIdx](m)}</div>`;
@@ -6706,6 +6713,198 @@ function excluirPedido(id){
 }
 
 // ═══════ CORREÇÃO DE APORTES ═══════
+let _invAtual=null;  // {data:'YYYY-MM-DD', itens:{prodId: {status:'conferido'|'faltando'|null, obs:''}}}
+let _invStatusFilter='Todos';
+let _invSearch='';
+
+function renderInventario(m){
+  if(!D.inventarios)D.inventarios=[];
+  if(D.nextInventarioId===undefined)D.nextInventarioId=1;
+
+  // Se nenhum inventario em andamento, mostrar tela inicial + historico
+  if(!_invAtual){
+    const historico=D.inventarios.slice().sort((a,b)=>(b.data||'').localeCompare(a.data||''));
+    return `
+    <h2>📋 Inventário de Estoque</h2>
+    <div class="box" style="border-left:4px solid var(--cyan);margin-bottom:16px">
+      <h3>Iniciar Novo Inventário</h3>
+      <p style="font-size:12px;color:var(--gray);margin-bottom:12px">Ao iniciar, todos os produtos ativos entram na lista de conferência. Marque cada item como <strong style="color:var(--green)">Conferido ✓</strong> (achou no estoque) ou <strong style="color:var(--red)">Faltando ✗</strong> (não achou). Você pode editar foto e descrição direto nesta tela — as alterações refletem em todo o sistema.</p>
+      <div style="display:flex;gap:8px;align-items:end;flex-wrap:wrap">
+        <div class="if-group"><label>Data do Inventário</label><input type="date" id="pgInvData" value="${hoje()}" style="padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px"></div>
+        <button class="btn btn-primary" onclick="iniciarInventario()">▶ Iniciar Inventário</button>
+      </div>
+    </div>
+    ${historico.length?`
+    <div class="box">
+      <h3>Histórico de Inventários (${historico.length})</h3>
+      <table><thead><tr><th>Data</th><th class="r">Total Itens</th><th class="r">Conferidos</th><th class="r">Faltando</th><th class="r">Acurácia</th><th>Ação</th></tr></thead><tbody>
+      ${historico.map(inv=>{
+        const total=Object.keys(inv.itens||{}).length;
+        const conf=Object.values(inv.itens||{}).filter(x=>x.status==='conferido').length;
+        const falt=Object.values(inv.itens||{}).filter(x=>x.status==='faltando').length;
+        const acc=total?Math.round(conf/total*100):0;
+        return `<tr><td>${fmtD(inv.data)}</td><td class="r">${total}</td><td class="r" style="color:var(--green);font-weight:600">${conf}</td><td class="r" style="color:var(--red);font-weight:600">${falt}</td><td class="r"><span style="background:${acc>=95?'#dcfce7':acc>=80?'#fef3c7':'#fee2e2'};color:${acc>=95?'#166534':acc>=80?'#92400e':'#991b1b'};padding:2px 8px;border-radius:12px;font-weight:600">${acc}%</span></td><td><button class="btn btn-sm" onclick="verInventario(${inv.id})" style="background:var(--blue);color:#fff">Ver</button> <button class="btn btn-sm" onclick="excluirInventario(${inv.id})" style="background:var(--red);color:#fff">✕</button></td></tr>`;
+      }).join('')}
+      </tbody></table>
+    </div>`:''}
+    `;
+  }
+
+  // Inventario em andamento
+  const produtos=D.produtos.filter(p=>p.status!=='Vendido');
+  const itens=_invAtual.itens||{};
+
+  // Filtro por status: Todos | Pendente | Conferido | Faltando
+  let filtrados=produtos.filter(p=>{
+    const s=itens[p.id]?.status||null;
+    if(_invStatusFilter==='Pendente')return !s;
+    if(_invStatusFilter==='Conferido')return s==='conferido';
+    if(_invStatusFilter==='Faltando')return s==='faltando';
+    return true; // Todos
+  });
+  if(_invSearch){const q=_invSearch.toLowerCase();filtrados=filtrados.filter(p=>[p.id,p.nome,p.marca,p.num,p.numPedido,p.codFornecedor,p.cat,p.status].map(x=>String(x||'').toLowerCase()).join(' ').includes(q));}
+
+  const totalProds=produtos.length;
+  const nConf=Object.values(itens).filter(x=>x.status==='conferido').length;
+  const nFalt=Object.values(itens).filter(x=>x.status==='faltando').length;
+  const nPend=totalProds-nConf-nFalt;
+  const progresso=totalProds?Math.round((nConf+nFalt)/totalProds*100):0;
+
+  return `
+  <h2>📋 Inventário em andamento — ${fmtD(_invAtual.data)}</h2>
+  <div class="cards" style="margin-bottom:12px">
+    <div class="card"><div class="card-lbl">Total Produtos</div><div class="card-val">${totalProds}</div></div>
+    <div class="card green"><div class="card-lbl">✓ Conferidos</div><div class="card-val">${nConf}</div></div>
+    <div class="card red"><div class="card-lbl">✗ Faltando</div><div class="card-val">${nFalt}</div></div>
+    <div class="card orange"><div class="card-lbl">Pendentes</div><div class="card-val">${nPend}</div></div>
+    <div class="card cyan"><div class="card-lbl">Progresso</div><div class="card-val">${progresso}%</div></div>
+  </div>
+  <div class="filter-bar" style="margin-bottom:12px">
+    <div class="f-group"><label>Buscar:</label><input placeholder="ID, nome, pedido..." id="pgInvSearch" value="${_ev(_invSearch)}" oninput="_invSearch=this.value;renderPage()"></div>
+    <div class="f-group"><label>Status:</label><select onchange="_invStatusFilter=this.value;renderPage()">${['Todos','Pendente','Conferido','Faltando'].map(s=>`<option${s===_invStatusFilter?' selected':''}>${s}</option>`).join('')}</select></div>
+    <span class="f-clear" onclick="_invSearch='';_invStatusFilter='Todos';renderPage()">Limpar</span>
+    <button class="btn btn-sm" onclick="finalizarInventario()" style="background:var(--green);color:#fff;margin-left:auto">✓ Finalizar Inventário</button>
+    <button class="btn btn-sm" onclick="cancelarInventario()" style="background:var(--gray);color:#fff">✕ Cancelar</button>
+  </div>
+  <div class="box">
+    <h3>Produtos (${filtrados.length} de ${totalProds})</h3>
+    <div style="max-height:600px;overflow-y:auto">
+    <table><thead><tr style="background:#f8fafc"><th>Foto</th><th>ID</th><th>Nome / Descrição</th><th>Nº</th><th>Pedido</th><th>Categoria</th><th>Status Loja</th><th style="width:180px;text-align:center">Conferência</th></tr></thead><tbody>
+    ${filtrados.map(p=>{
+      const st=itens[p.id]?.status||null;
+      const bg=st==='conferido'?'#dcfce7':st==='faltando'?'#fee2e2':'transparent';
+      const foto=(p.imgs&&p.imgs[0])||p.img||'';
+      return `<tr style="background:${bg}">
+        <td>${foto?`<img src="${foto}" style="width:48px;height:48px;object-fit:cover;border-radius:6px;cursor:pointer" onclick="uploadFotoProd(${p.id})">`:`<button onclick="uploadFotoProd(${p.id})" style="width:48px;height:48px;background:#e5e7eb;border:1px dashed #9ca3af;border-radius:6px;cursor:pointer;font-size:20px" title="Adicionar foto">📷</button>`}</td>
+        <td style="font-weight:600">#${p.id}</td>
+        <td><input type="text" value="${_ev(p.nome||'')}" onblur="editarDescProd(${p.id},this.value)" style="width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:4px;font-size:12px" placeholder="Descrição"></td>
+        <td style="font-size:11px">${p.num||'—'}</td>
+        <td style="font-size:11px">${p.numPedido||'—'}</td>
+        <td style="font-size:11px">${p.cat||'—'}</td>
+        <td><span style="font-size:10px;padding:2px 6px;border-radius:8px;background:#e0e7ff;color:#3730a3">${p.status||'—'}</span></td>
+        <td style="text-align:center">
+          <button onclick="marcarInv(${p.id},'conferido')" style="background:${st==='conferido'?'var(--green)':'#e5e7eb'};color:${st==='conferido'?'#fff':'#374151'};border:none;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;margin-right:4px" title="Conferido">✓</button>
+          <button onclick="marcarInv(${p.id},'faltando')" style="background:${st==='faltando'?'var(--red)':'#e5e7eb'};color:${st==='faltando'?'#fff':'#374151'};border:none;padding:6px 10px;border-radius:6px;cursor:pointer;font-size:11px;font-weight:600;margin-right:4px" title="Faltando">✗</button>
+          <button onclick="marcarInv(${p.id},null)" style="background:#f3f4f6;color:#6b7280;border:none;padding:6px 8px;border-radius:6px;cursor:pointer;font-size:11px" title="Limpar">↺</button>
+        </td>
+      </tr>`;
+    }).join('')}
+    </tbody></table>
+    </div>
+  </div>`;
+}
+
+function iniciarInventario(){
+  const dt=document.getElementById('pgInvData').value||hoje();
+  _invAtual={data:dt,itens:{}};
+  toast('Inventário iniciado — '+fmtD(dt));renderPage();
+}
+
+function marcarInv(prodId,status){
+  if(!_invAtual)return;
+  if(!_invAtual.itens[prodId])_invAtual.itens[prodId]={};
+  _invAtual.itens[prodId].status=status;
+  renderPage();
+}
+
+function editarDescProd(prodId,nova){
+  if(!PERMS.edit){toast('Sem permissão',true);return}
+  const p=D.produtos.find(x=>x.id===prodId);if(!p)return;
+  const antiga=p.nome||'';
+  const limpa=(nova||'').trim();
+  if(limpa===antiga)return;
+  p.nome=limpa;saveData();toast('Descrição atualizada em todo o sistema: '+limpa);
+}
+
+function uploadFotoProd(prodId){
+  if(!PERMS.edit){toast('Sem permissão',true);return}
+  const inp=document.createElement('input');
+  inp.type='file';inp.accept='image/*';
+  inp.onchange=e=>{
+    const f=e.target.files[0];if(!f)return;
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      const img=new Image();
+      img.onload=()=>{
+        const canvas=document.createElement('canvas');
+        const maxW=800;const ratio=Math.min(1,maxW/img.width);
+        canvas.width=img.width*ratio;canvas.height=img.height*ratio;
+        canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
+        const dataUrl=canvas.toDataURL('image/jpeg',0.7);
+        const p=D.produtos.find(x=>x.id===prodId);
+        if(p){
+          if(!p.imgs)p.imgs=[];
+          p.imgs.unshift(dataUrl);p.img=dataUrl;
+          saveData();renderPage();toast('Foto adicionada ao produto #'+prodId);
+        }
+      };
+      img.src=ev.target.result;
+    };
+    reader.readAsDataURL(f);
+  };
+  inp.click();
+}
+
+function finalizarInventario(){
+  if(!_invAtual)return;
+  const totalProds=D.produtos.filter(p=>p.status!=='Vendido').length;
+  const itens=_invAtual.itens||{};
+  const nConf=Object.values(itens).filter(x=>x.status==='conferido').length;
+  const nFalt=Object.values(itens).filter(x=>x.status==='faltando').length;
+  const nPend=totalProds-nConf-nFalt;
+  const msg='FINALIZAR INVENTÁRIO?\n\nData: '+fmtD(_invAtual.data)+'\nTotal: '+totalProds+'\nConferidos: '+nConf+'\nFaltando: '+nFalt+'\nPendentes (não marcados): '+nPend+'\n\nO inventário será salvo no histórico.\nConfirma?';
+  if(!confirm(msg))return;
+  const inv={id:D.nextInventarioId++,data:_invAtual.data,itens:JSON.parse(JSON.stringify(_invAtual.itens)),criadoEm:new Date().toISOString()};
+  D.inventarios.push(inv);
+  _invAtual=null;_invSearch='';_invStatusFilter='Todos';
+  saveData();renderPage();toast('✓ Inventário salvo no histórico');
+}
+
+function cancelarInventario(){
+  if(!_invAtual)return;
+  if(!confirm('Cancelar inventário em andamento? Os dados marcados serão perdidos.'))return;
+  _invAtual=null;_invSearch='';_invStatusFilter='Todos';renderPage();
+}
+
+function verInventario(id){
+  const inv=D.inventarios.find(x=>x.id===id);if(!inv)return;
+  const total=Object.keys(inv.itens||{}).length;
+  const conf=Object.values(inv.itens||{}).filter(x=>x.status==='conferido');
+  const falt=Object.values(inv.itens||{}).filter(x=>x.status==='faltando');
+  const linhas=Object.entries(inv.itens||{}).map(([pid,it])=>{
+    const p=D.produtos.find(x=>x.id===+pid);
+    const nome=p?p.nome:'(produto removido)';
+    return '#'+pid+' '+(it.status==='conferido'?'✓':it.status==='faltando'?'✗':'—')+' '+nome;
+  }).join('\n');
+  alert('INVENTÁRIO '+fmtD(inv.data)+'\n\nTotal: '+total+' | ✓ '+conf.length+' | ✗ '+falt.length+'\n\n'+linhas.slice(0,2000));
+}
+
+function excluirInventario(id){
+  if(!confirm('Excluir este inventário do histórico? Não pode ser desfeito.'))return;
+  D.inventarios=D.inventarios.filter(x=>x.id!==id);
+  saveData();renderPage();toast('Inventário excluído');
+}
+
 function renderCorrecao(){
   const aportesCorr=getAportesCorrigidos();
   const totalOriginal=aportesCorr.reduce((a,x)=>a+x.valor,0);
