@@ -706,7 +706,12 @@ async function saveDataToSupabase(){
     for(let i=0;i<delays.length;i++){
       if(delays[i]>0)await new Promise(r=>setTimeout(r,delays[i]));
       try{
-        const{error}=await SB.from('app_data').upsert(payload,{onConflict:'org_id'});
+        // Timeout maximo de 12s por tentativa - evita "Salvando..." infinito
+        const race=Promise.race([
+          SB.from('app_data').upsert(payload,{onConflict:'org_id'}),
+          new Promise((_,rej)=>setTimeout(()=>rej(new Error('client timeout 12s')),12000))
+        ]);
+        const {error}=await race;
         if(error){ultimoErro=error;console.warn('[save] tentativa '+(i+1)+' falhou:',error.code||'',error.message);continue}
         ultimoErro=null;break;
       }catch(e){ultimoErro=e;console.warn('[save] tentativa '+(i+1)+' excecao:',e.message)}
@@ -1129,7 +1134,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.09-fix-timeout';
+const APP_VERSION = 'v2026.06.09-fix-timeout-max12s';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
