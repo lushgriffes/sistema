@@ -1065,7 +1065,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-w-z1rfvdqc2xide2pn';
+const APP_VERSION = 'v2026.06.08-w-z1rfvdqc2xide2pnh';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -6734,7 +6734,7 @@ function renderInventario(m){
   const _ev=v=>(v==null?'':String(v)).replace(/"/g,'&quot;');
   const STATUSES=['Em Estoque','Em Trânsito','Reservado (Encomenda)','Uso Pessoal','Presente','Perdido','Devolvido'];
 
-  // Modo visualizacao de inventario antigo
+  // Modo visualizacao/edicao de inventario finalizado
   if(_invVerId){
     const inv=D.inventarios.find(x=>x.id===_invVerId);
     if(!inv){_invVerId=null;return renderInventario(m)}
@@ -6742,31 +6742,41 @@ function renderInventario(m){
     const total=Object.keys(itens).length;
     const nConf=Object.values(itens).filter(x=>x.status==='conferido').length;
     const nFalt=Object.values(itens).filter(x=>x.status==='faltando').length;
+    const nBaix=Object.values(itens).filter(x=>x.baixado).length;
     const linhas=Object.entries(itens).map(([pid,it])=>{
       const p=D.produtos.find(x=>x.id===+pid);
       const nome=p?p.nome:'(produto removido)';
       const foto=p&&((p.imgs&&p.imgs[0])||p.img)||'';
-      return {pid:+pid,nome,status:it.status,foto,p};
+      return {pid:+pid,nome,status:it.status,baixado:!!it.baixado,valorPerda:it.valorPerda,foto,p};
     }).sort((a,b)=>{
       const order={conferido:1,faltando:2,null:3};
       return (order[a.status]||3)-(order[b.status]||3);
     });
     return `
-    <h2>📋 Inventário — ${fmtD(inv.data)} <span style="font-size:12px;color:var(--gray);font-weight:400">(visualização)</span></h2>
+    <h2>📋 Inventário — ${fmtD(inv.data)} <span style="font-size:12px;color:var(--gray);font-weight:400">(finalizado — editável)</span></h2>
     <div class="cards" style="margin-bottom:12px">
       <div class="card"><div class="card-lbl">Total</div><div class="card-val">${total}</div></div>
       <div class="card green"><div class="card-lbl">✓ Conferidos</div><div class="card-val">${nConf}</div></div>
       <div class="card red"><div class="card-lbl">✗ Faltando</div><div class="card-val">${nFalt}</div></div>
+      <div class="card"><div class="card-lbl">🗑️ Baixados</div><div class="card-val" style="color:#7c2d12">${nBaix}</div></div>
       <div class="card cyan"><div class="card-lbl">Acurácia</div><div class="card-val">${total?Math.round(nConf/total*100):0}%</div></div>
     </div>
-    <div style="margin-bottom:12px"><button class="btn btn-sm btn-secondary" onclick="_invVerId=null;renderPage()">← Voltar ao início</button></div>
+    <div style="margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="btn btn-sm btn-secondary" onclick="_invVerId=null;renderPage()">← Voltar</button>
+      <span style="font-size:11px;color:var(--gray);margin-left:8px">💡 Achou um item que estava marcado como faltando? Muda pra ✓ Conferido aqui. <strong>Itens que foram baixados como perda</strong> não podem ser revertidos por aqui — precisa mexer manualmente na despesa/movimentação.</span>
+    </div>
     <div class="box">
-      <h3>Itens conferidos</h3>
+      <h3>Itens (${total})</h3>
       <div style="max-height:500px;overflow-y:auto">
-      <table><thead><tr><th>Foto</th><th>ID</th><th>Nome</th><th>Status</th></tr></thead><tbody>
+      <table><thead><tr><th>Foto</th><th>ID</th><th>Nome</th><th style="width:220px;text-align:center">Status Conferência</th></tr></thead><tbody>
       ${linhas.map(x=>{
         const bg=x.status==='conferido'?'#dcfce7':x.status==='faltando'?'#fee2e2':'transparent';
-        return `<tr style="background:${bg}"><td>${x.foto?`<img src="${x.foto}" style="width:40px;height:40px;object-fit:cover;border-radius:6px">`:'—'}</td><td>#${x.pid}</td><td>${x.nome}</td><td>${x.status==='conferido'?'✓ Conferido':x.status==='faltando'?'✗ Faltando':'— Pendente'}</td></tr>`;
+        const badgeBaix=x.baixado?`<span style="background:#7c2d12;color:#fff;padding:2px 6px;border-radius:8px;font-size:10px;font-weight:600;margin-left:4px" title="Baixado como perda: ${x.valorPerda?fmt(x.valorPerda):'?'}">🗑️ BAIXADO</span>`:'';
+        return `<tr style="background:${bg}"><td>${x.foto?`<img src="${x.foto}" style="width:40px;height:40px;object-fit:cover;border-radius:6px">`:'—'}</td><td>#${x.pid}</td><td>${x.nome}${badgeBaix}</td><td style="text-align:center">
+          <button onclick="editarInvItem(${_invVerId},${x.pid},'conferido')" ${x.baixado?'disabled':''} style="background:${x.status==='conferido'?'var(--green)':'#e5e7eb'};color:${x.status==='conferido'?'#fff':'#374151'};border:none;padding:5px 8px;border-radius:6px;cursor:${x.baixado?'not-allowed':'pointer'};font-size:11px;font-weight:600;margin-right:2px;opacity:${x.baixado?'0.4':'1'}" title="${x.baixado?'Item baixado como perda - não pode alterar':'Marcar como Conferido'}">✓</button>
+          <button onclick="editarInvItem(${_invVerId},${x.pid},'faltando')" ${x.baixado?'disabled':''} style="background:${x.status==='faltando'?'var(--red)':'#e5e7eb'};color:${x.status==='faltando'?'#fff':'#374151'};border:none;padding:5px 8px;border-radius:6px;cursor:${x.baixado?'not-allowed':'pointer'};font-size:11px;font-weight:600;margin-right:2px;opacity:${x.baixado?'0.4':'1'}" title="${x.baixado?'Item baixado como perda - não pode alterar':'Marcar como Faltando'}">✗</button>
+          <button onclick="editarInvItem(${_invVerId},${x.pid},null)" ${x.baixado?'disabled':''} style="background:#f3f4f6;color:#6b7280;border:none;padding:5px 8px;border-radius:6px;cursor:${x.baixado?'not-allowed':'pointer'};font-size:11px;opacity:${x.baixado?'0.4':'1'}" title="${x.baixado?'Item baixado como perda - não pode alterar':'Limpar marcação'}">↺</button>
+        </td></tr>`;
       }).join('')}
       </tbody></table>
       </div>
@@ -6966,6 +6976,20 @@ function cancelarInventario(){
   D.inventarioEmAndamento=null;
   _invSearch='';_invStatusFilter='Todos';
   saveData();renderPage();
+}
+
+function editarInvItem(invId,prodId,novoStatus){
+  if(!PERMS.edit){toast('Sem permissão',true);return}
+  const inv=D.inventarios.find(x=>x.id===invId);if(!inv)return;
+  if(!inv.itens)inv.itens={};
+  if(!inv.itens[prodId])inv.itens[prodId]={};
+  if(inv.itens[prodId].baixado){
+    toast('Item já foi baixado como perda — precisa reverter despesa manualmente antes',true);
+    return;
+  }
+  inv.itens[prodId].status=novoStatus;
+  saveData();renderPage();
+  toast('Item atualizado no inventário '+fmtD(inv.data));
 }
 
 function baixarComoPerda(prodId){
