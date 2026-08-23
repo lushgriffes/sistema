@@ -1065,7 +1065,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-w-z1rfvdqc2xide2pnhqsf';
+const APP_VERSION = 'v2026.06.08-w-z1rfvdqc2xide2pnhqsfb';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -1361,44 +1361,29 @@ function _verificarAntiZero(){
 
 function saveData(){
   if(!_verificarAntiZero())return;
+  // Politica: Supabase eh a fonte da verdade. Se localStorage estourar, salvamos so na nuvem (sem tocar em backups).
+  let saveLocalOk=false;
   try{
     localStorage.setItem(STORAGE_KEY,JSON.stringify(D));
+    saveLocalOk=true;
   }catch(e){
-    // Quota excedido — tentar liberar espaco
     const isQuota=e&&(e.name==='QuotaExceededError'||e.code===22||e.code===1014);
     if(!isQuota){console.error('saveData erro inesperado:',e);throw e}
-    console.warn('[saveData] localStorage cheio — liberando espaco...');
+    // Tentar salvar versao sem fotos (leve) - PRESERVA backups
     try{
-      // Estrategia 1: reduzir backups locais pela metade
-      const bk=JSON.parse(localStorage.getItem(BACKUP_KEY)||'[]');
-      const antes=bk.length;
-      if(antes>2){
-        const mantidos=Math.max(2,Math.floor(antes/2));
-        bk.splice(mantidos);
-        localStorage.setItem(BACKUP_KEY,JSON.stringify(bk));
-        console.log('[saveData] backups reduzidos de '+antes+' para '+bk.length);
+      const Dleve=JSON.parse(JSON.stringify(D));
+      if(Dleve.produtos){Dleve.produtos.forEach(p=>{p.img='';p.imgs=[]});}
+      localStorage.setItem(STORAGE_KEY,JSON.stringify(Dleve));
+      saveLocalOk=true;
+      console.warn('[saveData] Salvo local SEM fotos (fotos ficam na memoria + Supabase). Backups locais preservados.');
+    }catch(e2){
+      // Nao coube nem sem fotos. Nao apagamos os backups - eles sao mais importantes que o D principal (D esta na nuvem).
+      console.warn('[saveData] localStorage cheio - salvando SO na nuvem (Supabase). Backups locais preservados.');
+      if(!sessionStorage.getItem('_quotaAlertShown')){
+        sessionStorage.setItem('_quotaAlertShown','1');
+        toast('⚠ Local cheio — salvando só na nuvem. Backups históricos preservados.',true);
       }
-      // Tentar de novo
-      try{localStorage.setItem(STORAGE_KEY,JSON.stringify(D))}
-      catch(e2){
-        // Estrategia 2: limpar TODOS os backups locais
-        console.warn('[saveData] ainda nao coube — limpando todos os backups locais...');
-        localStorage.removeItem(BACKUP_KEY);
-        try{localStorage.setItem(STORAGE_KEY,JSON.stringify(D))}
-        catch(e3){
-          // Estrategia 3: salvar versao sem imagens (fotos ficam so na memoria + nuvem)
-          try{
-            const Dleve=JSON.parse(JSON.stringify(D));
-            if(Dleve.produtos){Dleve.produtos.forEach(p=>{p.img='';p.imgs=[]});}
-            localStorage.setItem(STORAGE_KEY,JSON.stringify(Dleve));
-            console.warn('[saveData] Salvo local SEM fotos (fotos preservadas na memoria e Supabase)');
-            return; // sucesso - sai sem alert
-          }catch(e4){}
-          console.error('[saveData] localStorage cheio mesmo apos limpar backups');
-          if(!sessionStorage.getItem('_quotaAlertShown')){sessionStorage.setItem('_quotaAlertShown','1');alert('⚠ Espaço local cheio (uma vez só).\n\nOs dados vão continuar salvando na NUVEM (Supabase), mas não no navegador.\n\nDica: recarregue a página (Ctrl+F5) pra baixar a versao mais recente da nuvem — o localStorage fica menor.');}else{console.warn('[saveData] Quota cheio - salvando so na nuvem');toast('⚠ Local cheio - salvo só na nuvem',true);}
-        }
-      }
-    }catch(eClean){console.error('[saveData] erro durante limpeza:',eClean)}
+    }
   }
   if(userProfile)saveDataToSupabase();
 }
