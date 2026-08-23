@@ -548,21 +548,36 @@ const MAX_BACKUPS=20;
 // ═══ SISTEMA DE BACKUP AUTOMÁTICO ═══
 function salvarBackupLocal(){
   try{
-    const backups=JSON.parse(localStorage.getItem(BACKUP_KEY)||'[]');
-    // Manter so os MAX_BACKUPS_LOCAL mais recentes pra evitar quota
-    while(backups.length>=MAX_BACKUPS_LOCAL)backups.pop();
+    // Snapshot LEVE (sem fotos base64) - fotos ficam em D principal + Supabase
+    const Dleve=JSON.parse(JSON.stringify(D));
+    if(Dleve.produtos){Dleve.produtos.forEach(p=>{p.img='';p.imgs=[]});}
     const snapshot={
       timestamp:new Date().toISOString(),
       produtos:D.produtos.length,
       movimentacoes:D.movimentacoes.length,
       vendas:D.vendas.length,
       despesas:D.despesas.length,
-      data:JSON.stringify(D)
+      data:JSON.stringify(Dleve)
     };
-    backups.unshift(snapshot);
-    // Manter apenas os ultimos MAX_BACKUPS
-    while(backups.length>MAX_BACKUPS)backups.pop();
-    localStorage.setItem(BACKUP_KEY,JSON.stringify(backups));
+    const tryStore=n=>{
+      const bk=JSON.parse(localStorage.getItem(BACKUP_KEY)||'[]');
+      bk.unshift(snapshot);
+      while(bk.length>n)bk.pop();
+      localStorage.setItem(BACKUP_KEY,JSON.stringify(bk));
+      return bk.length;
+    };
+    // Tentar armazenar; se quota estourar, reduzir progressivamente
+    const tentativas=[MAX_BACKUPS_LOCAL,3,2,1];
+    for(const n of tentativas){
+      try{
+        const stored=tryStore(n);
+        console.log('[backup local] salvo, snapshots armazenados:',stored,'| tamanho:',Math.round((snapshot.data||'').length/1024)+'KB');
+        return;
+      }catch(e){
+        console.warn('[backup local] tentativa n='+n+' falhou:',e.name||e.message);
+      }
+    }
+    console.warn('[backup local] nao foi possivel armazenar nem 1 backup - localStorage totalmente cheio');
   }catch(e){console.warn('Erro ao salvar backup local:',e)}
 }
 
@@ -1065,7 +1080,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-w-z1rfvdqc2xide2pnhqsfb';
+const APP_VERSION = 'v2026.06.08-w-z1rfvdqc2xide2pnhqsfbl';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
