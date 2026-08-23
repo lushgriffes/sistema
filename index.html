@@ -1065,7 +1065,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-w-z1rfvdqc2xide2pnhq';
+const APP_VERSION = 'v2026.06.08-w-z1rfvdqc2xide2pnhqs';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -6774,7 +6774,7 @@ function renderInventario(m){
     </div>
     <div class="box">
       <h3>Itens (${total})</h3>
-      <div style="max-height:500px;overflow-y:auto">
+      <div id="invHistTableScroll" style="max-height:500px;overflow-y:auto">
       <table><thead><tr><th>Foto</th><th>ID</th><th>Nome</th><th style="width:220px;text-align:center">Status Conferência</th></tr></thead><tbody>
       ${linhas.map(x=>{
         const bg=x.status==='conferido'?'#dcfce7':x.status==='faltando'?'#fee2e2':'transparent';
@@ -6860,7 +6860,7 @@ function renderInventario(m){
   <div class="box">
     <h3>Produtos (${filtrados.length} de ${totalProds})</h3>
     <div style="font-size:11px;color:var(--gray);margin-bottom:8px">💡 <strong>✗ Faltando</strong> só registra a conferência — não remove do estoque. Pra baixar de verdade, use o botão <strong>🗑️ Baixar</strong> (aparece após marcar como Faltando) — vai criar despesa de <strong>Perda de Estoque</strong> no balanço com o custo do produto.</div>
-    <div style="max-height:600px;overflow-y:auto">
+    <div id="invAtivoTableScroll" style="max-height:600px;overflow-y:auto">
     <table><thead><tr style="background:#f8fafc"><th>Foto</th><th>ID</th><th>Nome / Descrição</th><th>Nº</th><th>Pedido</th><th>Categoria</th><th style="width:170px">Status Loja</th><th style="width:180px;text-align:center">Conferência</th></tr></thead><tbody>
     ${filtrados.map(p=>{
       const st=itens[p.id]?.status||null;
