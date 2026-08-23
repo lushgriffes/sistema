@@ -1062,7 +1062,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-w-z1rfvdqc2xi';
+const APP_VERSION = 'v2026.06.08-w-z1rfvdqc2xid';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -6815,9 +6815,21 @@ function renderInventario(m){
 }
 
 function iniciarInventario(){
-  const dt=document.getElementById('pgInvData').value||hoje();
-  _invAtual={data:dt,itens:{}};
-  toast('Inventário iniciado — '+fmtD(dt));renderPage();
+  try{
+    console.log('[iniciarInventario] chamado');
+    const el=document.getElementById('pgInvData');
+    let dt=(el&&el.value)?el.value:'';
+    if(!dt||dt.length!==10){dt=hoje();console.log('[iniciarInventario] usando data atual: '+dt)}
+    _invAtual={data:dt,itens:{}};
+    console.log('[iniciarInventario] _invAtual=',_invAtual);
+    console.log('[iniciarInventario] produtos disponiveis:',D.produtos.filter(p=>p.status!=='Vendido').length);
+    toast('Inventário iniciado — '+fmtD(dt));
+    renderPage();
+    console.log('[iniciarInventario] renderPage() ok');
+  }catch(e){
+    console.error('[iniciarInventario] ERRO:',e);
+    alert('ERRO ao iniciar inventário:\n'+e.message+'\n\nAbra o console (F12) e cole aqui.');
+  }
 }
 
 function marcarInv(prodId,status){
