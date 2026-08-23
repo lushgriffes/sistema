@@ -1065,7 +1065,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.08-w-z1rfvdqc2xide2pnh';
+const APP_VERSION = 'v2026.06.08-w-z1rfvdqc2xide2pnhq';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
@@ -1386,9 +1386,16 @@ function saveData(){
         localStorage.removeItem(BACKUP_KEY);
         try{localStorage.setItem(STORAGE_KEY,JSON.stringify(D))}
         catch(e3){
-          // Estrategia 3: limpar outras chaves antigas e desistir
+          // Estrategia 3: salvar versao sem imagens (fotos ficam so na memoria + nuvem)
+          try{
+            const Dleve=JSON.parse(JSON.stringify(D));
+            if(Dleve.produtos){Dleve.produtos.forEach(p=>{p.img='';p.imgs=[]});}
+            localStorage.setItem(STORAGE_KEY,JSON.stringify(Dleve));
+            console.warn('[saveData] Salvo local SEM fotos (fotos preservadas na memoria e Supabase)');
+            return; // sucesso - sai sem alert
+          }catch(e4){}
           console.error('[saveData] localStorage cheio mesmo apos limpar backups');
-          alert('⚠ Espaço local cheio.\n\nO sistema NAO conseguiu salvar localmente.\nMas vai tentar salvar na NUVEM (Supabase).\n\nRecomendacao: faca um Export manual (Config) como backup.');
+          if(!sessionStorage.getItem('_quotaAlertShown')){sessionStorage.setItem('_quotaAlertShown','1');alert('⚠ Espaço local cheio (uma vez só).\n\nOs dados vão continuar salvando na NUVEM (Supabase), mas não no navegador.\n\nDica: recarregue a página (Ctrl+F5) pra baixar a versao mais recente da nuvem — o localStorage fica menor.');}else{console.warn('[saveData] Quota cheio - salvando so na nuvem');toast('⚠ Local cheio - salvo só na nuvem',true);}
         }
       }
     }catch(eClean){console.error('[saveData] erro durante limpeza:',eClean)}
@@ -6936,15 +6943,18 @@ function uploadFotoProd(prodId){
       const img=new Image();
       img.onload=()=>{
         const canvas=document.createElement('canvas');
-        const maxW=800;const ratio=Math.min(1,maxW/img.width);
+        // Comprimir mais pra caber no localStorage (400px + JPEG 50%)
+        const maxW=400;const ratio=Math.min(1,maxW/img.width);
         canvas.width=img.width*ratio;canvas.height=img.height*ratio;
         canvas.getContext('2d').drawImage(img,0,0,canvas.width,canvas.height);
-        const dataUrl=canvas.toDataURL('image/jpeg',0.7);
+        const dataUrl=canvas.toDataURL('image/jpeg',0.5);
         const p=D.produtos.find(x=>x.id===prodId);
         if(p){
           if(!p.imgs)p.imgs=[];
+          // Manter no maximo 2 fotos por produto pra nao estourar quota
           p.imgs.unshift(dataUrl);p.img=dataUrl;
-          saveData();renderPage();toast('Foto adicionada ao produto #'+prodId);
+          if(p.imgs.length>2)p.imgs=p.imgs.slice(0,2);
+          saveData();renderPage();toast('Foto adicionada (comprimida) ao produto #'+prodId);
         }
       };
       img.src=ev.target.result;
