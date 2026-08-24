@@ -717,15 +717,26 @@ async function saveDataToSupabase(){
       }catch(e){ultimoErro=e;console.warn('[save] tentativa '+(i+1)+' excecao:',e.message)}
     }
     if(ultimoErro){
-      // Ultimo recurso: tentar sem imagens (fotos ficam so no D em memoria e IndexedDB)
-      console.warn('[save] tentando sem imagens como fallback...');
+      // Ultimo recurso: tentar sem imagens (fotos ficam no D em memoria e IndexedDB)
+      console.warn('[save] fallback: tentando salvar sem fotos...');
       const Dsemfotos=JSON.parse(JSON.stringify(D));
       if(Dsemfotos.produtos)Dsemfotos.produtos.forEach(p=>{p.img='';p.imgs=[]});
-      const payload2={org_id:userProfile.org_id,data:Dsemfotos,updated_at:agora,_semFotosDeEmergencia:true};
-      const{error:err2}=await SB.from('app_data').upsert(payload2,{onConflict:'org_id'});
-      if(err2)throw ultimoErro;
-      console.warn('[save] gravado SEM fotos como fallback. Fotos preservadas em IndexedDB. Rode migrarFotosParaMenor() para reduzir tamanho.');
-      toast('⚠ Salvo sem fotos (payload grande). Rode migrarFotos() no console pra reduzir.',true);
+      // Tambem remover comprovantes das movimentacoes (podem ser pesados)
+      if(Dsemfotos.movimentacoes)Dsemfotos.movimentacoes.forEach(m=>{m.comprovante='';m.comprovantes=[]});
+      const payload2={org_id:userProfile.org_id,data:Dsemfotos,updated_at:agora};
+      try{
+        const{error:err2}=await Promise.race([
+          SB.from('app_data').upsert(payload2,{onConflict:'org_id'}),
+          new Promise((_,rej)=>setTimeout(()=>rej(new Error('client timeout fallback 15s')),15000))
+        ]);
+        if(err2)throw err2;
+        console.warn('[save] gravado SEM fotos como emergencia. Fotos preservadas em IndexedDB.');
+        toast('⚠ Salvo sem fotos (payload grande). As fotos estão no IndexedDB local. Rode migrarFotos() pra reduzir.',true);
+        _saveError=null;
+      }catch(err2){
+        console.error('[save] fallback SEM fotos tambem falhou:',err2);
+        throw ultimoErro;
+      }
     }
     _lastKnownUpdatedAt=agora;
     _lastKnownSessionToken=_sessionToken;
@@ -1134,7 +1145,7 @@ SB.auth.onAuthStateChange((event,session)=>{
 });
 
 // ═══════ DATA LAYER ═══════
-const APP_VERSION = 'v2026.06.09-fix-timeout-max12s';
+const APP_VERSION = 'v2026.06.09-fallback-fix';
 const STORAGE_KEY = 'importadora_data';
 // ═══ DEFAULT_DATA: APENAS ESTRUTURA VAZIA — NUNCA DADOS REAIS ═══
 // REGRA: DEFAULT_DATA nao pode conter produtos, movimentacoes, vendas ou despesas reais.
